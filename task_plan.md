@@ -19,7 +19,7 @@ Termux/Android에서 실제 Firefox·Chromium을 제어하되, 기존의 방대�
 
 ## Next Step
 
-포크 저장소를 생성하고 upstream 기준 커밋을 고정한 뒤 `findings.md`·`progress.md`와 현재 기능·도구 인벤토리를 작성한다.
+실제 Termux 장치에서 clean install, Firefox·Chromium `example.com` smoke, daemon/browser 성능 기준선을 재현하고 그 결과를 증거 수준별로 기록한다.
 
 ## Current Phase
 
@@ -407,7 +407,7 @@ Termu-inator MVP는 다음 조건을 모두 만족해야 한다.
 - [ ] Hermes SSH stdio 예제와 Codex MCP 예제가 검증된다.
 - [ ] architecture, tool contracts, security model, migration 문서가 완성된다.
 - [ ] 설치·업데이트·삭제·데이터 초기화 절차가 문서화된다.
-- [ ] MIT 원저작자 고지와 포크 변경 내역이 보존된다.
+- [x] MIT 원저작자 고지와 포크 변경 내역이 보존된다.
 
 ---
 
@@ -417,17 +417,17 @@ Termu-inator MVP는 다음 조건을 모두 만족해야 한다.
 
 **Objective:** 포크의 기준점을 고정하고, 현재 기능·결함·성능을 재현 가능한 상태로 기록한다.
 
-- [ ] `salviz/termux-browser-pilot`을 포크하고 저장소 이름을 `Termu-inator`로 설정
-- [ ] upstream remote와 baseline commit/tag 고정
-- [ ] MIT LICENSE, 원저작자 고지, fork notice 확인
-- [ ] `findings.md`와 `progress.md` 생성
-- [ ] 현재 CLI command, MCP tool, daemon handler를 자동 집계하는 inventory script 작성
-- [ ] 모든 기능을 `core / developer / legacy / remove` 후보로 분류
-- [ ] Firefox·Chromium capability matrix 초안 작성
+- [x] `salviz/termux-browser-pilot`을 포크하고 저장소 이름을 `Termu-inator`로 설정
+- [x] upstream remote와 baseline commit/tag 고정
+- [x] MIT LICENSE, 원저작자 고지, fork notice 확인
+- [x] `findings.md`와 `progress.md` 생성
+- [x] 현재 CLI command, MCP tool, daemon handler를 자동 집계하는 inventory script 작성
+- [x] 모든 기능을 `core / developer / legacy / remove` 후보로 분류
+- [x] Firefox·Chromium capability matrix 초안 작성
 - [ ] 현행 설치 절차를 깨끗한 Termux 환경에서 재현
 - [ ] example.com 기반 baseline smoke test 실행
 - [ ] 현재 daemon warm latency, browser startup, RSS, screenshot 크기 측정
-- [ ] 확인된 결함과 문서 불일치를 `findings.md`에 기록
+- [x] 확인된 결함과 문서 불일치를 `findings.md`에 기록
 - **Status:** in_progress
 
 **Deliverables**
@@ -838,15 +838,32 @@ Termu-inator MVP는 다음 조건을 모두 만족해야 한다.
 | Error | Attempt | Resolution |
 |---|---:|---|
 | None at plan creation | 0 | 구현 중 모든 오류를 즉시 추가한다. |
+| 필수 companion 파일 `findings.md`, `progress.md`가 존재하지 않아 최초 조회가 실패함 | 1 | 두 파일을 생성하고 초기 발견·진행 상태를 기록했다. |
+| 저장소 파생 이름으로 architecture graph를 조회했으나 전용 graph가 아직 없었음 | 1 | 현재 checkout을 fast mode로 인덱싱해 988 nodes/4,550 edges를 생성했고 architecture 재조회에 성공했다. |
+| CLI/MCP 전체 함수 graph 조회가 연결 노드까지 포함해 14만 토큰 규모로 과다 출력·절단됨 | 1 | 이후 조회는 Cypher 집계와 AST 기반 inventory로 이름·개수만 산출하도록 좁힌다. |
+| 복합 Cypher 집계에서 parser가 `expected token type 85` 오류를 반환함 | 1 | CASE/STARTS WITH를 제거한 단순 count 쿼리로 분리하고, 최종 산출은 Python AST inventory로 교차 검증한다. |
+| Inventory RED test가 구현 모듈 부재로 import error를 반환함 | 1 | 의도한 미구현 실패를 확인했다. 최소 import 골격을 추가해 assertion failure를 확인한 뒤 구현한다. |
+| 로컬 기본 `python3`가 3.9로, 선언된 프로젝트 최소 버전 `>=3.10`보다 낮음 | 1 | 정적 inventory는 3.9에서도 검증 가능한 문법으로 유지하되, 지원 버전 검증은 별도 3.10+ 런타임에서도 수행한다. |
+| 기존 `unittest discover`가 5개 파일 모두 `websockets` 미설치 import error로 실패함 | 1 | 현 파일은 자동 unit suite가 아닌 on-device 스크립트로 분리 대상이며, 새 정적 테스트는 base dependency 없이 별도 실행한다. |
+| 기본 wheel 설치의 `tbp-mcp`가 optional `mcp` 미설치로 `ModuleNotFoundError` 발생 | 1 | Phase 1 결함으로 기록하고 package entry-point/extra 계약 수정 전 회귀 테스트를 추가한다. |
+| Inventory 구현용 대형 `apply_patch` 입력이 JavaScript escape 오타로 실행 전 SyntaxError 발생 | 1 | 파일은 최소 골격 그대로 보존되었으며, 패치를 더 작은 단위와 올바른 인용으로 다시 적용한다. |
+| `apply_patch`가 동일 파일의 Delete+Add 동시 연산을 거부함 | 1 | 기존 골격은 손상되지 않았다. Delete와 Add를 별도 패치로 분리해 적용한다. |
+| Markdown formatter인 Prettier가 로컬에 설치되어 있지 않음 | 1 | 문서는 수동 검토하고 `git diff --check`와 링크 대상 검증으로 대체했다. |
+| zsh가 인용되지 않은 `git tag --format=%(...)` 괄호를 glob qualifier로 해석함 | 1 | format 인자를 작은따옴표로 감싸 재실행한다. Git ref는 변경되지 않았다. |
+| baseline 문서·계획 동시 패치가 줄 경계 context 불일치로 거부됨 | 1 | 태그 자체는 검증 완료 상태다. 문서의 현재 줄을 다시 확인하고 더 작은 패치로 나눠 반영한다. |
+| 현재 shell PATH에서 `python3.12` 실행 파일을 찾지 못함 | 1 | uv-managed 3.12.13의 명시 경로로 재실행해 새 inventory tests 2개가 통과했다. |
+| capability 감사 결과를 `findings.md`에 합치는 패치가 section context 불일치로 거부됨 | 1 | 현재 heading 위치를 다시 검색하고 독립적인 작은 패치로 나눠 반영한다. |
+| 최종 inventory 리뷰에서 MCP 이름이 내부 위험 action을 숨기고 동적 CLI `required`/`aliases`가 조용히 누락되는 3개 회귀가 확인됨 | 1 | 세 회귀 테스트의 의도된 RED를 확인했으며, 도구·action 결합 분류와 literal keyword 검증으로 fail-closed 처리한다. |
+| CLI parser의 `**kwargs`가 literal `required`/`aliases` 검증을 우회해 group·alias를 누락할 수 있었음 | 1 | 두 우회 fixture의 RED를 확인한 뒤 모든 parser keyword unpacking을 fail-closed 처리했다. |
 
 ---
 
 ## Expected Deliverables
 
-- [ ] `task_plan.md`
-- [ ] `findings.md`
-- [ ] `progress.md`
-- [ ] Termu-inator fork repository
+- [x] `task_plan.md`
+- [x] `findings.md`
+- [x] `progress.md`
+- [x] Termu-inator fork repository
 - [ ] compact MCP v1 server
 - [ ] typed browser core and two backend adapters
 - [ ] permission/confirmation engine

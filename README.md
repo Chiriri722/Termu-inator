@@ -1,5 +1,16 @@
 # Termux Browser Pilot v0.17.1
 
+> [!NOTE]
+> **Termu-inator** is a fork of
+> [Termux Browser Pilot](https://github.com/salviz/termux-browser-pilot) by
+> salviz and the Termux Browser Pilot contributors. The fork starts from
+> upstream `main` commit
+> [`b95eccd3d1abc188c3aa488a23c519ebacc99fcf`](https://github.com/salviz/termux-browser-pilot/commit/b95eccd3d1abc188c3aa488a23c519ebacc99fcf).
+> This README and the `tbp` interfaces still describe the preserved upstream
+> baseline while Termu-inator is being modernized. See the
+> [upstream baseline record](docs/upstream-baseline.md) and
+> [attribution notice](NOTICE.md).
+
 Real browser automation for Termux/Android. No root required.
 
 Firefox (default) or Chromium on Xvfb — runs entirely on your phone.
@@ -857,4 +868,5 @@ Common fixes:
 
 ## License
 
-MIT
+MIT. The original upstream notice is preserved in [LICENSE](LICENSE). See
+[NOTICE.md](NOTICE.md) for fork provenance and attribution.
