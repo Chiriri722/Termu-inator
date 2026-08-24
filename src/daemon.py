@@ -63,6 +63,11 @@ class Daemon:
         self._cmd_lock = None  # Initialized in run() within event loop
         self._main_wid = None  # Main browser window ID (set after start)
         self._cursor_pos = None  # Last mouse_move position (x, y)
+        self._status_cache = {
+            "url": None,
+            "title": None,
+            "updated_at_monotonic": time.monotonic(),
+        }
 
     async def run(self):
         """Main daemon entry point."""
@@ -96,6 +101,11 @@ class Daemon:
         )
         await self.pilot.start()
         self._start_time = time.time()
+        self._status_cache = {
+            "url": "about:blank",
+            "title": "",
+            "updated_at_monotonic": time.monotonic(),
+        }
 
         self._cmd_lock = asyncio.Lock()
         self._last_activity = time.time()
@@ -323,6 +333,14 @@ async def _reinject_active_state(daemon):
 
 # ── Command handlers ──────────────────────────────────
 
+def _cache_page_status(daemon, url, title):
+    daemon._status_cache = {
+        "url": url,
+        "title": title,
+        "updated_at_monotonic": time.monotonic(),
+    }
+
+
 async def _handle_goto(daemon, params):
     url = params.get("url")
     if not url:
@@ -339,37 +357,45 @@ async def _handle_goto(daemon, params):
 
     await _reinject_active_state(daemon)
 
-    return {
+    result = {
         "url": await daemon.pilot.url(),
         "title": await daemon.pilot.title(),
     }
+    _cache_page_status(daemon, result["url"], result["title"])
+    return result
 
 
 async def _handle_back(daemon, params):
     await daemon.pilot.evaluate("history.back()")
     await daemon.pilot.wait(1)
-    return {
+    result = {
         "url": await daemon.pilot.url(),
         "title": await daemon.pilot.title(),
     }
+    _cache_page_status(daemon, result["url"], result["title"])
+    return result
 
 
 async def _handle_forward(daemon, params):
     await daemon.pilot.evaluate("history.forward()")
     await daemon.pilot.wait(1)
-    return {
+    result = {
         "url": await daemon.pilot.url(),
         "title": await daemon.pilot.title(),
     }
+    _cache_page_status(daemon, result["url"], result["title"])
+    return result
 
 
 async def _handle_reload(daemon, params):
     await daemon.pilot.evaluate("location.reload()")
     await daemon.pilot.wait(2)
-    return {
+    result = {
         "url": await daemon.pilot.url(),
         "title": await daemon.pilot.title(),
     }
+    _cache_page_status(daemon, result["url"], result["title"])
+    return result
 
 
 async def _handle_click(daemon, params):
@@ -805,18 +831,18 @@ async def _handle_a11y(daemon, params):
 
 
 async def _handle_status(daemon, params):
-    url = title = None
-    try:
-        url = await daemon.pilot.url()
-        title = await daemon.pilot.title()
-    except Exception:
-        pass
+    cache = daemon._status_cache
+    freshness_ms = max(
+        0,
+        int((time.monotonic() - cache["updated_at_monotonic"]) * 1000),
+    )
     return {
         "pid": os.getpid(),
         "browser": daemon._browser_type,
-        "url": url,
-        "title": title,
+        "url": cache["url"],
+        "title": cache["title"],
         "uptime": round(time.time() - daemon._start_time, 1),
+        "freshness_ms": freshness_ms,
     }
 
 

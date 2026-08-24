@@ -254,23 +254,27 @@ PYTHONDONTWRITEBYTECODE=1 \
 ```
 
 Installing `websockets` alone would not make these tests device-independent.
-All five files import `CDPSession` and connect to
-`http://127.0.0.1:9222/json/version`. The scripts also have these limitations:
+When explicitly executed, all five files import `CDPSession` and connect to
+`http://127.0.0.1:9222/json/version`. Their current boundaries are:
 
-- [`tests/test_basic.py`](../tests/test_basic.py#L21) is the only script with a
-  guarded entry point and substantive assertions.
-- `test_native_fp.py`, `test_nowsecure.py`, `test_sannysoft.py`, and
-  `test_webgl.py` call `asyncio.run(main())` during module import.
+- All five defer project/CDP imports until `main()` and use an exact
+  `if __name__ == "__main__"` guard, so unit-test discovery does not connect to
+  a browser, navigate, write screenshots, or require optional `websockets`.
+- An AST contract test preserves that import-time boundary.
+- [`tests/test_basic.py`](../tests/test_basic.py#L21) contains the strongest
+  substantive assertions; the four fingerprint/public-site diagnostics remain
+  observational manual scripts.
 - The scripts require an already-running Chromium CDP endpoint.
 - Four scripts navigate to public websites or collect browser fingerprinting
   diagnostics.
-- The repository has no pytest configuration, tox configuration, development
-  requirements, deterministic browser fixtures, or GitHub Actions workflow.
+- The repository still has no pytest/tox configuration or GitHub Actions
+  workflow. It now has deterministic local HTTP fixtures, but real-browser
+  fixture execution remains a device gate.
 
-The current `tests/` directory is therefore mixed: one isolated static unit
-suite plus five on-device/manual browser diagnostics. The inherited files
-should move under an explicit manual or on-device location before broad test
-discovery becomes a reliable default gate.
+The current `tests/` directory remains mixed, but broad `unittest discover` is
+now an inert and reliable local gate: the five manual modules import without
+collecting tests or performing I/O. Moving them to an explicit manual/on-device
+directory remains a naming cleanup, not a safety prerequisite.
 
 ## Dependency and packaging defects
 
@@ -394,9 +398,9 @@ host-only checks in this document.
 3. Synchronize README, package, and CLI versions.
 4. Add device-free unit tests, package smoke tests, and deterministic local HTTP
    browser fixtures. Run them on Python 3.10 and the latest supported Python.
-5. Move the current public-site and fingerprint scripts to an explicitly named
-   manual or on-device test area. Add `__main__` guards and machine-checkable
-   assertions where appropriate.
+5. Keep the public-site and fingerprint scripts behind their tested `__main__`
+   and lazy-import boundaries; optionally move them to an explicitly named
+   manual/on-device area and add stronger machine-checkable assertions.
 6. Reproduce `setup.sh` in a clean Termux environment and record the Android,
    Termux, Python, browser, and system-package versions.
 7. Run separate Firefox and Chromium capability matrices against local fixtures

@@ -1,0 +1,8 @@
+# Constraints for the supported Python 3.14 Termux MCP environment.
+#
+# Install Termux's `python-cryptography` package before using this file, create
+# the MCP venv with `--system-site-packages`, and pass this file as a pip
+# constraint. Do not add `cryptography` here: Android must use Termux's native
+# ABI build rather than a pip source build.
+mcp==1.29.0
+websockets==17.0.1

@@ -57,14 +57,32 @@ CDP stealth. Both use real device hardware info.
 
 ### Install
 
+Use the fail-closed installer from a trusted checkout. It creates separate CLI
+and MCP venvs and uses Termux's native Android cryptography package.
+
 ```bash
 bash setup.sh
-
-# Or manually:
-pkg install tur-repo x11-repo
-pkg install firefox xorg-server-xvfb xdotool xclip openbox python3
-pip install websockets  # only needed for Chromium mode
 ```
+
+The installer refuses to overwrite existing environments. See the complete
+[Termux installation and verification guide](docs/termux-install.md), including
+the Tailscale split-tunneling prerequisite and Hermes MCP path.
+Hermes and Codex observer/interactive profiles, Tailscale SSH stdio, and bounded
+artifact recovery are documented in the
+[integration guide](docs/integrations.md).
+Safe update, rollback, data-reset, DNS, ABI, and stdio diagnostics are in the
+[operations and troubleshooting guide](docs/troubleshooting.md).
+
+The MCP venv installs both the legacy `tbp-mcp` compatibility command and the
+explicit compact-alpha `tbp-mcp-v1` command. Keep the legacy path for current
+device compatibility; select compact v1 only for the staged 14-tool contract
+and follow the guide's separate Developer Mode availability/origin gates.
+
+Compact v1 can also start a default-OFF, read-only shared view on Android
+loopback with `--shared-view`. It shows cached browser state and a bounded
+screenshot/trace summary, exposes no action or approval routes, and suppresses
+page content during confidential takeover. See the installation guide for the
+SSH local-forwarding pattern used from a Mac over Tailscale.
 
 ### CLI (Daemon Mode — Recommended)
 
@@ -254,7 +272,9 @@ claude mcp add tbp -- tbp-mcp
 #        browser_clipboard_*, browser_form_fill, browser_status
 ```
 
-Requires: `pip install "mcp[cli]>=1.0"` (or `pip install termux-browser-pilot[mcp]`).
+Use `~/.venvs/termuinator-mcp-v1/bin/tbp-mcp`. The supported extra pins
+`mcp==1.29.0` and intentionally omits MCP's CLI extra; see
+[`docs/termux-install.md`](docs/termux-install.md).
 
 ## Feature Reference
 
@@ -829,6 +849,11 @@ termux-browser-pilot/
 - `openbox` (lightweight WM) is required for reliable keyboard shortcut routing in Xvfb
 
 ## Troubleshooting
+
+For the compact alpha, Tailscale DNS, native cryptography, update/rollback, and
+safe data handling, use the dedicated
+[operations and troubleshooting guide](docs/troubleshooting.md). The notes
+below describe only the preserved legacy surface.
 
 ### SSL Certificate Errors (Firefox)
 

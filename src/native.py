@@ -455,9 +455,9 @@ class NativeFirefoxSession:
             await self._xdt(["type", "--clearmodifiers", "--delay", "1", js])
         await asyncio.sleep(0.2)
         await self._xdt(["key", "ctrl+Return"])
-        await asyncio.sleep(0.5)
 
-        # Poll clipboard for result
+        # Poll immediately: the local callback can complete while xdotool is
+        # returning.  Only sleep between unsuccessful poll attempts.
         result = None
         deadline = asyncio.get_running_loop().time() + timeout
         while asyncio.get_running_loop().time() < deadline:

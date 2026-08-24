@@ -12,6 +12,57 @@ replace, or reject explicitly while introducing backend capability negotiation.
 It intentionally distinguishes a real implementation from an emulation and from
 a tool that returns success without performing the requested operation.
 
+## Compact v1 delta — 2026-08-24
+
+The detailed matrix below remains the dated 2026-08-15 legacy audit. The newer
+`tbp-mcp-v1` path now exposes a frozen 14-tool typed service with versioned
+capabilities, owner/project/session binding, stable service refs, page-revision
+checks, verified actions, origin decisions, one-shot confirmations, durable
+artifacts/traces, and bounded Developer queries.
+
+The shared legacy adapter now provides bounded same-origin/open-shadow DOM
+inventory and click, type, key, scroll, select, check, hover, and drag through
+the same typed contract for Firefox and Chromium. It advertises partial fidelity
+and cross-origin-frame limitations. Real tab/popup and dialog events and
+project-scoped completed-download bytes remain `unsupported_capability`; only
+the deterministic fake implements those lifecycle contracts. Pre-follow
+redirect/DNS enforcement, clean-device validation, and on-device recovery/soak
+also remain open. Nothing in the legacy matrix is silently promoted by the new
+service contract.
+
+## Target v1 negotiation contract
+
+The matrix below remains a legacy source audit. The target runtime advertises a
+separate `CapabilitySet` at session start with these fixed selection rules:
+
+```text
+default_backend: chromium
+explicit_compatibility_backend: firefox
+automatic fallback: forbidden
+```
+
+Every advertised feature is a versioned fidelity record, never a boolean. Each
+record contains `capability_id`, one of `supported`, `emulated`, `partial`,
+`unsupported`, or `broken`, a reason code, typed limits, dependencies, and the
+last probe time. The enclosing `CapabilitySet` identifies backend, browser and
+transport versions plus a capability revision that every observation binds.
+Backend selection remains fixed for the lifetime of a session. If an operation
+is absent or only has a known-broken legacy implementation, the service returns
+`unsupported_capability`; it never invokes another backend or reports a no-op
+success.
+
+The initial capability vocabulary is `navigate`, `observe_text`,
+`observe_accessibility`, `ref_actions`, `viewport_screenshot`,
+`full_page_screenshot`, `element_screenshot`, `tabs`, `dialogs`, `downloads`,
+`native_input`, `devtools_console`, `devtools_network`, `devtools_dom`,
+`devtools_style`, and `devtools_performance`. The fake backend implements this
+vocabulary deterministically for contract tests.
+
+Current static states are not automatically promoted into v1 capabilities.
+Each backend flag requires a controlled fixture test; the device matrix records
+the browser/package version that passed it. Firefox limitations remain visible
+instead of being normalized into false parity with Chromium.
+
 ## Status legend
 
 | Status | Meaning |
@@ -134,23 +185,22 @@ from Chromium capabilities with a structured `unsupported_capability` result:
 
 ## Missing negotiation and security primitives
 
-The current source has no capability registry or handshake. A client can learn
-the backend name from status, but cannot discover supported actions, semantic
-fidelity, required binaries, limits, or known degraded behavior. The v1 status
-contract should expose versioned capability records with at least:
+The current legacy source has no capability registry or handshake. A client can
+learn the backend name from status, but cannot discover supported actions,
+semantic fidelity, required binaries, limits, or known degraded behavior. The
+v1 contract snapshot now defines versioned capability records with:
 
-- `backend`, backend version, browser version, and transport;
+- backend, capability revision, browser version, and transport version;
 - per-capability `supported`, `emulated`, `partial`, `unsupported`, or `broken`;
-- semantic limits such as AX depth, cookie visibility, screenshot scope, tab
-  count, upload size, and event fidelity;
-- required external binaries and runtime probes;
-- a stable structured error code for unsupported and temporarily unavailable
-  operations.
+- a bounded reason code, typed limits, required dependencies, and probe time;
+- `unsupported_capability` for a requested operation not represented as usable;
+- observation binding to the exact capability revision so a stale assumption
+  cannot survive backend recovery or probe changes.
 
 The following planned security primitives are also absent:
 
 - origin-level `ask`, session allow, persistent allow, and block decisions;
-- risk classes and one-time confirmation tokens for consequential actions;
+- risk classes and server-held one-shot approvals for consequential actions;
 - a distinction between core tools and Developer/legacy tools;
 - default denial or explicit approval for raw JavaScript, cookie/storage
   mutation, clipboard access, upload, custom headers, mocks, and set-content;

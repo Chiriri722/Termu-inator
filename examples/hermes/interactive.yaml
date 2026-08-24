@@ -1,0 +1,14 @@
+mcp_servers:
+  termuinator:
+    command: "/data/data/com.termux/files/home/.venvs/termuinator-mcp-v1/bin/tbp-mcp-v1"
+    args: ["--tool-profile", "interactive"]
+    timeout: 120
+    connect_timeout: 30
+    enabled: true
+    supports_parallel_tool_calls: false
+    tools:
+      include: ["browser_session_start", "browser_session_status", "browser_session_stop", "browser_navigate", "browser_observe", "browser_act", "browser_wait", "browser_tabs", "browser_screenshot", "browser_downloads", "browser_artifact_read", "browser_permissions", "browser_devtools", "browser_trace"]
+      resources: false
+      prompts: false
+    sampling:
+      enabled: false

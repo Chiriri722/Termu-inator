@@ -2,10 +2,6 @@
 """Test WebGL support."""
 import asyncio, json, os, sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from src.cdp import CDPSession
-from src.stealth import apply_stealth
-from src.commands import PageCommands
-from src.screenshot import ScreenshotCommands
 
 WEBGL_CHECK = """(function() {
     var c = document.createElement('canvas');
@@ -23,6 +19,11 @@ WEBGL_CHECK = """(function() {
 })()"""
 
 async def main():
+    from src.cdp import CDPSession
+    from src.commands import PageCommands
+    from src.screenshot import ScreenshotCommands
+    from src.stealth import apply_stealth
+
     import urllib.request
     with urllib.request.urlopen("http://127.0.0.1:9222/json/version", timeout=5) as r:
         ws_url = json.loads(r.read())["webSocketDebuggerUrl"]
@@ -51,4 +52,5 @@ async def main():
 
     await s.close()
 
-asyncio.run(main())
+if __name__ == "__main__":
+    asyncio.run(main())

@@ -117,6 +117,46 @@ class InputCommands:
             "type": "mouseMoved", "x": x, "y": y,
         })
 
+    async def drag(self, from_x, from_y, to_x, to_y, steps=12):
+        """Drag between two viewport coordinates and always release the button."""
+        pressed = False
+        failure = None
+        try:
+            await self.session.send("Input.dispatchMouseEvent", {
+                "type": "mouseMoved", "x": from_x, "y": from_y,
+            })
+            await self.session.send("Input.dispatchMouseEvent", {
+                "type": "mousePressed", "x": from_x, "y": from_y,
+                "button": "left", "buttons": 1, "clickCount": 1,
+            })
+            pressed = True
+            for index in range(1, steps + 1):
+                fraction = index / steps
+                x = from_x + (to_x - from_x) * fraction
+                y = from_y + (to_y - from_y) * fraction
+                await self.session.send("Input.dispatchMouseEvent", {
+                    "type": "mouseMoved", "x": x, "y": y,
+                    "button": "left", "buttons": 1,
+                })
+                await asyncio.sleep(0.01)
+        except BaseException as exc:
+            failure = exc
+        finally:
+            if pressed:
+                try:
+                    await asyncio.shield(self.session.send(
+                        "Input.dispatchMouseEvent",
+                        {
+                            "type": "mouseReleased", "x": to_x, "y": to_y,
+                            "button": "left", "buttons": 0, "clickCount": 1,
+                        },
+                    ))
+                except Exception:
+                    if failure is None:
+                        raise
+        if failure is not None:
+            raise failure
+
     async def scroll(self, x=0, y=0, delta_x=0, delta_y=300):
         """Scroll the page. Positive delta_y = scroll down (matches wheel event spec)."""
         await self.session.send("Input.dispatchMouseEvent", {

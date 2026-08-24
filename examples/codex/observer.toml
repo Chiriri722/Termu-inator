@@ -1,0 +1,33 @@
+[mcp_servers.termuinator]
+command = "ssh"
+args = [
+  "-T",
+  "-o", "BatchMode=yes",
+  "-o", "StrictHostKeyChecking=yes",
+  "-o", "ConnectTimeout=15",
+  "-o", "ServerAliveInterval=30",
+  "-o", "ServerAliveCountMax=2",
+  "-p", "8022",
+  "TERMUX_USER@TAILSCALE_ADDRESS",
+  "/data/data/com.termux/files/home/.venvs/termuinator-mcp-v1/bin/tbp-mcp-v1",
+  "--tool-profile", "observer",
+]
+startup_timeout_sec = 45
+tool_timeout_sec = 120
+enabled = true
+required = true
+default_tools_approval_mode = "writes"
+enabled_tools = [
+  "browser_session_start",
+  "browser_session_status",
+  "browser_session_stop",
+  "browser_navigate",
+  "browser_observe",
+  "browser_wait",
+  "browser_screenshot",
+  "browser_downloads",
+  "browser_artifact_read",
+  "browser_permissions",
+  "browser_devtools",
+  "browser_trace",
+]

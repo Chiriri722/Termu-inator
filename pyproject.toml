@@ -5,14 +5,15 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "termux-browser-pilot"
 version = "0.1.0a1"
-description = "Real browser automation for Termux/Android. Firefox passes Cloudflare natively."
+description = "AI-first Firefox and Chromium browser runtime for Termux/Android."
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.10"
 authors = [
     {name = "Termux Browser Pilot Contributors"},
 ]
-keywords = ["browser", "automation", "termux", "android", "firefox", "cloudflare"]
+keywords = ["browser", "automation", "termux", "android", "agent", "mcp"]
+dependencies = ["websockets>=13,<18"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Environment :: Console",
@@ -24,15 +25,18 @@ classifiers = [
 ]
 
 [project.optional-dependencies]
-chromium = ["websockets>=12.0"]
-mcp = ["mcp[cli]>=1.0"]
+mcp = ["mcp==1.29.0"]
 
 [project.scripts]
 tbp = "cli:main"
-tbp-mcp = "src.mcp_server:main"
+tbp-control = "src.termuinator.host_control_cli:main"
+tbp-mcp = "src.mcp_entrypoint:main"
+tbp-mcp-v1 = "src.mcp_entrypoint:main_v1"
 
 [project.urls]
-Homepage = "https://github.com/salviz/termux-browser-pilot"
+Homepage = "https://github.com/Chiriri722/Termu-inator"
+Repository = "https://github.com/Chiriri722/Termu-inator"
+Upstream = "https://github.com/salviz/termux-browser-pilot"
 
 [tool.setuptools]
 py-modules = ["cli"]

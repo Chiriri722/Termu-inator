@@ -8,13 +8,6 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src.cdp import CDPSession
-from src.commands import PageCommands
-from src.screenshot import ScreenshotCommands
-from src.input import InputCommands
-from src.stealth import apply_stealth
-from src.accessibility import AccessibilityCommands
-
 OUTDIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
@@ -25,6 +18,13 @@ async def get_ws_url():
 
 
 async def main():
+    from src.accessibility import AccessibilityCommands
+    from src.cdp import CDPSession
+    from src.commands import PageCommands
+    from src.input import InputCommands
+    from src.screenshot import ScreenshotCommands
+    from src.stealth import apply_stealth
+
     ws_url = await get_ws_url()
     print(f"CDP: {ws_url[:50]}...")
 

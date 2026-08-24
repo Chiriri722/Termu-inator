@@ -38,6 +38,7 @@ XVFB_DISPLAY = ":99"
 XVFB_RESOLUTION = "1920x1080x24"
 CDP_PORT = 9222
 CHROMIUM_BIN = shutil.which("chromium-browser") or shutil.which("chromium") or "chromium-browser"
+CHROMIUM_CANDIDATES = ("chromium", "chromium-browser", "google-chrome-stable")
 # Chromium flags for Termux — minimal set to avoid automation fingerprint
 CHROMIUM_BASE_FLAGS = [
     # Required for Termux (no root, no namespaces, no /dev/shm)
@@ -84,7 +85,7 @@ class BrowserPilot:
     """Manages Xvfb and browser (Chromium or Firefox) lifecycle."""
 
     def __init__(self, display=XVFB_DISPLAY, cdp_port=CDP_PORT,
-                 headless_xvfb=True, chromium_bin=CHROMIUM_BIN,
+                 headless_xvfb=True, chromium_bin=None,
                  window_size="1920,1080", user_data_dir=None,
                  gpu_mode="auto", browser_type="chromium", proxy=None):
         self.display = display
@@ -104,16 +105,30 @@ class BrowserPilot:
         self._external_user_data_dir = user_data_dir  # Persistent profile
         self._owns_user_data_dir = False  # Whether we should clean it up
 
+    def _resolve_chromium_binary(self):
+        """Resolve Chromium from the current Termux PATH without stale imports."""
+        if self.chromium_bin:
+            resolved = shutil.which(self.chromium_bin)
+            if resolved:
+                return resolved
+            raise RuntimeError(
+                f"Configured Chromium binary '{self.chromium_bin}' was not found"
+            )
+
+        for candidate in CHROMIUM_CANDIDATES:
+            resolved = shutil.which(candidate)
+            if resolved:
+                return resolved
+        raise RuntimeError(
+            "Chromium not found. Install it in Termux with: pkg install chromium"
+        )
+
     async def start(self):
         """Start Xvfb + browser. Returns WS URL (Chromium) or None (Firefox)."""
         from ._utils import require_binaries
         require_binaries("Xvfb")
         if self.browser_type != "firefox":
-            if not shutil.which(self.chromium_bin):
-                raise RuntimeError(
-                    f"Chromium not found at '{self.chromium_bin}'. "
-                    f"Install with: pkg install chromium"
-                )
+            self.chromium_bin = self._resolve_chromium_binary()
 
         if self.headless_xvfb:
             await self._start_xvfb()
@@ -214,15 +229,6 @@ class BrowserPilot:
 
         if self._xvfb_proc.returncode is not None:
             raise RuntimeError("Xvfb failed to start")
-
-        # Start lightweight WM (needed for keyboard shortcut routing)
-        if shutil.which("openbox"):
-            self._wm_proc = await asyncio.create_subprocess_exec(
-                "openbox", env={**os.environ, "DISPLAY": self.display},
-                stdout=asyncio.subprocess.DEVNULL,
-                stderr=asyncio.subprocess.DEVNULL,
-            )
-            await asyncio.sleep(0.3)
 
     async def _start_chromium(self):
         """Launch Chromium with CDP enabled (non-blocking).

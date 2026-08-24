@@ -334,11 +334,17 @@ class Pilot:
     async def type(self, selector=None, text="", x=None, y=None, mode="auto"):
         return await self.input.fill(selector=selector, text=text, x=x, y=y, mode=mode)
 
-    async def press(self, key):
-        return await self.input.press_key(key)
+    async def press(self, key, modifiers=0):
+        return await self.input.press_key(key, modifiers=modifiers)
 
-    async def scroll(self, delta_y=300):
-        return await self.input.scroll(delta_y=delta_y)
+    async def scroll(self, delta_y=300, delta_x=0):
+        return await self.input.scroll(delta_x=delta_x, delta_y=delta_y)
+
+    async def hover(self, selector=None, x=None, y=None):
+        return await self.input.hover(selector=selector, x=x, y=y)
+
+    async def drag(self, from_x, from_y, to_x, to_y):
+        return await self.input.drag(from_x, from_y, to_x, to_y)
 
     # --- Screenshots ---
 

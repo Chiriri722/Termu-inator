@@ -2,7 +2,6 @@
 """Check native browser fingerprint WITHOUT any stealth overrides."""
 import asyncio, json, os, sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from src.cdp import CDPSession
 
 CHECKS = """(function() {
     var result = {};
@@ -61,6 +60,8 @@ CHECKS = """(function() {
 })()"""
 
 async def main():
+    from src.cdp import CDPSession
+
     import urllib.request
     with urllib.request.urlopen("http://127.0.0.1:9222/json/version", timeout=5) as r:
         ws_url = json.loads(r.read())["webSocketDebuggerUrl"]
@@ -77,4 +78,5 @@ async def main():
     print(json.dumps(fp, indent=2))
     await s.close()
 
-asyncio.run(main())
+if __name__ == "__main__":
+    asyncio.run(main())
