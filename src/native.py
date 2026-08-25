@@ -21,6 +21,8 @@ import threading
 import uuid
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
+from .commands import JavascriptExecutionTimeout
+
 logger = logging.getLogger(__name__)
 
 FIREFOX_BIN = shutil.which("firefox") or "firefox"
@@ -485,12 +487,19 @@ class NativeFirefoxSession:
 
         if result is None and asyncio.get_running_loop().time() >= deadline:
             clip = await self._clipboard_read()
-            clip_preview = repr(clip[:80]) if clip else "empty"
+            clipboard_state = "empty" if not clip else "marker_mismatch"
             logger.warning(
                 "JS execution timed out (marker=%s, js_len=%d, clipboard=%s)",
-                marker[:12], len(js), clip_preview,
+                marker[:12], len(js), clipboard_state,
             )
-            return f"ERR:Timeout - JS execution did not return within {timeout}s"
+            self._console_open = False
+            self._console_synced = False
+            self._page_has_focus = False
+            self._devtools_wid = None
+            self._js_available = False
+            raise JavascriptExecutionTimeout(
+                f"JavaScript execution timed out after {timeout}s"
+            )
         return result
 
     async def _clipboard_read(self):
@@ -683,50 +692,63 @@ class NativeFirefoxSession:
     async def _sync_console_state(self):
         """Detect actual console state on first exec after daemon restart.
 
-        The console may be open from a previous daemon session. Since
-        Ctrl+Shift+K is a toggle, we can't force a state — we must detect.
-        Strategy: focus URL bar (safety net), toggle console, try a test
-        JS exec via clipboard. If result comes back, console is open.
-        If not, toggle again.
+        The console may already be open after a timeout. Probe a visible
+        separate DevTools window before using the toggle, then allow at most
+        two verified toggle attempts. Never paste/execute a probe unless a
+        DevTools window was found and focused.
         """
-        sync_marker = "TBP_SYNC_OK"
+        sync_token = uuid.uuid4().hex
+        sync_marker = f"TBP_SYNC_{sync_token}"
+        test_js = f"copy(['TBP','SYNC','{sync_token}'].join('_'))"
 
-        # Safety: focus URL bar so any leaked text goes there, not the page
-        await self._xdt(["key", "ctrl+l"])
-        await asyncio.sleep(0.3)
+        self._console_open = False
+        self._console_synced = False
 
-        # Toggle console
-        await self._xdt(["key", "ctrl+shift+k"])
-        await asyncio.sleep(1.0)
-
-        # Try a test execution — paste small JS that writes to X11 clipboard
-        await self._xdt(["key", "ctrl+a"])
-        await asyncio.sleep(0.1)
-        test_js = f"copy('{sync_marker}')"
-        await self._clipboard_paste(test_js)
-        await asyncio.sleep(0.1)
-        await self._xdt(["key", "ctrl+Return"])
-        await asyncio.sleep(1.0)
-
-        # Check X11 clipboard (same mechanism as _clipboard_read)
-        clip = await self._clipboard_read()
-
-        if sync_marker in clip:
-            # Console is open and working
-            self._console_open = True
-        else:
-            # Toggle closed the console — toggle again to open it
-            await self._xdt(["key", "ctrl+shift+k"])
-            await asyncio.sleep(1.0)
-            self._console_open = True
-
-        # In separate-window mode, find and track the DevTools window
-        if not self._devtools_wid:
+        async def probe_visible_console():
+            self._devtools_wid = None
             await self._find_devtools_window()
+            if not self._devtools_wid:
+                return False
+            if not await self._ensure_devtools_focused():
+                return False
+            return await self._probe_console(test_js, sync_marker)
 
+        if not await probe_visible_console():
+            for _attempt in range(2):
+                await self._focus_main_window()
+                await self._xdt(["key", "ctrl+shift+k"])
+                await asyncio.sleep(1.0)
+                if await probe_visible_console():
+                    break
+            else:
+                self._devtools_wid = None
+                raise JavascriptExecutionTimeout(
+                    "Firefox JavaScript console sentinel was not observed"
+                )
+
+        self._console_open = True
         self._console_synced = True
         logger.info("Console state synced: open=%s, devtools_wid=%s",
                      self._console_open, self._devtools_wid)
+
+    async def _probe_console(self, js, marker, timeout=2.0):
+        """Execute a marker probe and accept only the exact copied sentinel."""
+        await self._xdt(["key", "ctrl+a"])
+        await asyncio.sleep(0.1)
+        pasted = await self._clipboard_paste(js)
+        if not pasted:
+            await self._xdt([
+                "type", "--clearmodifiers", "--delay", "1", js,
+            ])
+        await asyncio.sleep(0.1)
+        await self._xdt(["key", "ctrl+Return"])
+
+        deadline = asyncio.get_running_loop().time() + timeout
+        while asyncio.get_running_loop().time() < deadline:
+            if await self._clipboard_read() == marker:
+                return True
+            await asyncio.sleep(0.2)
+        return False
 
     def _get_best_fallback_offset(self):
         """Pick best fallback viewport offset based on current console state."""
@@ -872,7 +894,11 @@ async def _navigate(session, params, timeout):
 
     # Primary: navigate via JS (works when console is available)
     try:
-        await session._exec_js(f"location.assign('{safe_url}')", timeout=5)
+        result = await session._exec_js(
+            f"location.assign('{safe_url}')", timeout=5
+        )
+        if isinstance(result, str) and result.startswith("ERR:"):
+            raise RuntimeError("Firefox JavaScript navigation failed")
         await asyncio.sleep(3)
         session._viewport_offset = None
         # Console may survive same-origin navigation — close it properly

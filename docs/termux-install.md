@@ -185,6 +185,13 @@ For each backend, record the backend identity, final URL, title, body evidence,
 valid non-empty PNG metadata, and clean stop. A screenshot file alone does not
 prove navigation succeeded.
 
+The compact v1 adapter allocates an owned free X display and a loopback
+ephemeral Chromium CDP port. The preserved v0.x CLI commands above retain their
+historic `:99` and `9222` defaults. If a compact Chromium start fails, follow
+the private bounded-diagnostic procedure in the
+[operations and troubleshooting guide](troubleshooting.md); do not clear X11
+locks or kill unrelated browser/window-manager processes.
+
 ## Re-running the Device Benchmark
 
 Use the repository harness with explicit environment and network evidence:

@@ -9,6 +9,7 @@ from pathlib import Path
 import tempfile
 import unittest
 
+from src.commands import JavascriptExecutionTimeout
 from src.termuinator.backends import (
     BackendAction,
     BackendArtifactPayload,
@@ -285,6 +286,21 @@ class _StructuredPilot(_RecordingPilot):
         self.dom_version += 1
 
 
+class _TimeoutThenObservePilot(_StructuredPilot):
+    def __init__(self) -> None:
+        super().__init__()
+        self.observe_attempts = 0
+
+    async def evaluate(self, script: str) -> object:
+        if "TERMUINATOR_OBSERVE_V1" in script:
+            self.observe_attempts += 1
+            if self.observe_attempts == 1:
+                raise JavascriptExecutionTimeout(
+                    "Firefox JavaScript execution timed out"
+                )
+        return await super().evaluate(script)
+
+
 class _SensitiveStructuredPilot(_StructuredPilot):
     def __init__(self, *, field_type: str, accessible_name: str) -> None:
         super().__init__()
@@ -373,6 +389,8 @@ class LegacyBackendLifecycleTests(unittest.IsolatedAsyncioTestCase):
                     "browser": "chromium",
                     "user_data_dir": str(profile),
                     "window_size": "1280,720",
+                    "display": "auto",
+                    "cdp_port": 0,
                 }
             ],
         )
@@ -580,6 +598,29 @@ class LegacyBackendLifecycleTests(unittest.IsolatedAsyncioTestCase):
             )
         )
         self.assertEqual(by_id["act"].status, CapabilityStatus.PARTIAL)
+
+    async def test_observe_retries_one_recoverable_firefox_timeout(self) -> None:
+        pilot = _TimeoutThenObservePilot()
+        adapter = LegacyPilotBackend(
+            Backend.FIREFOX,
+            pilot_factory=lambda **_: pilot,
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            profile = Path(temp_dir) / "profile"
+            profile.mkdir(mode=0o700)
+            await adapter.start(profile, Viewport(width=1000, height=700))
+
+        try:
+            observation = await adapter.observe(
+                include_screenshot=False,
+                include_accessibility=False,
+                text_limit=0,
+            )
+        except TermuinatorError as exc:
+            self.fail(f"recoverable Firefox timeout was not retried: {exc.code}")
+
+        self.assertEqual(pilot.observe_attempts, 2)
+        self.assertEqual(len(observation.interactive_elements), 1)
 
     async def test_click_and_type_resolve_private_handle_and_return_evidence(self) -> None:
         pilot = _StructuredPilot()

@@ -10,6 +10,7 @@ import secrets
 import time
 from typing import Any, Callable, Mapping, NoReturn
 
+from ...commands import JavascriptExecutionTimeout
 from ..contracts import (
     ActionKind,
     Backend,
@@ -89,6 +90,8 @@ class LegacyPilotBackend:
             browser=self.backend.value,
             user_data_dir=str(profile_dir),
             window_size=window_size,
+            display="auto",
+            cdp_port=0,
         )
         self._pilot = pilot
         self._viewport = viewport
@@ -366,20 +369,36 @@ class LegacyPilotBackend:
     async def _collect_dom(
         self, pilot: object
     ) -> tuple[str, int, tuple[RawInteractiveElement, ...]]:
-        try:
-            payload = await pilot.evaluate(  # type: ignore[attr-defined]
-                observe_script(self._dom_registry_key)
-            )
-            return normalize_observation(payload)
-        except TermuinatorError:
-            raise
-        except Exception as exc:
-            raise TermuinatorError(
-                ErrorCode.BACKEND_CRASHED,
-                "Inherited browser DOM observation failed",
-                retryable=True,
-                details={"backend": self.backend.value, "capability": "observe"},
-            ) from exc
+        script = observe_script(self._dom_registry_key)
+        for attempt in range(2):
+            try:
+                payload = await pilot.evaluate(script)  # type: ignore[attr-defined]
+                return normalize_observation(payload)
+            except JavascriptExecutionTimeout as exc:
+                if self.backend is Backend.FIREFOX and attempt == 0:
+                    continue
+                raise TermuinatorError(
+                    ErrorCode.BACKEND_CRASHED,
+                    "Inherited browser DOM observation failed",
+                    retryable=True,
+                    details={
+                        "backend": self.backend.value,
+                        "capability": "observe",
+                    },
+                ) from exc
+            except TermuinatorError:
+                raise
+            except Exception as exc:
+                raise TermuinatorError(
+                    ErrorCode.BACKEND_CRASHED,
+                    "Inherited browser DOM observation failed",
+                    retryable=True,
+                    details={
+                        "backend": self.backend.value,
+                        "capability": "observe",
+                    },
+                ) from exc
+        raise AssertionError("unreachable DOM observation retry state")
 
     async def _element_state(
         self, pilot: object, backend_node_id: str

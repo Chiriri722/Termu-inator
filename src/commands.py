@@ -11,6 +11,10 @@ _ALLOWED_SCHEMES = {"http", "https"}
 logger = logging.getLogger(__name__)
 
 
+class JavascriptExecutionTimeout(RuntimeError):
+    """Firefox native JavaScript channel did not produce a verified result."""
+
+
 class PageCommands:
     """Navigate, wait, evaluate, extract content."""
 

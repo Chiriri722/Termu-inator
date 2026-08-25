@@ -105,6 +105,43 @@ manual recovery. Compact service errors such as `backend_crashed`,
 `outcome_unknown`, `session_busy`, or `unsupported_capability` are deliberate
 fail-closed results; preserve their diagnostic identifier.
 
+The compact adapter does not reuse the legacy fixed runtime resources. It
+claims the first free X display in `:99` through `:199` with an owner-private
+lease and chooses a loopback ephemeral CDP port for every Chromium launch
+attempt. The v0.x `tbp` surface deliberately retains its public `:99` and
+`9222` defaults for compatibility. Neither path is allowed to kill an
+unrelated Xvfb/openbox process or remove an X11 lock/socket blindly.
+
+When compact Chromium fails before CDP is ready, the public result remains the
+bounded `backend_crashed` error. The last three failed-attempt stderr tails are
+stored locally in `chromium-startup.log` below Python's temporary directory in
+the `termuinator-runtime` subdirectory. Find the exact root without guessing:
+
+```bash
+~/.venvs/termuinator-mcp-v1/bin/python -c \
+  'import tempfile; print(tempfile.gettempdir() + "/termuinator-runtime")'
+```
+
+The runtime directory is mode 0700 and the diagnostic file is mode 0600. A
+multi-process failure followed by a successful fallback can still leave an
+earlier failed-attempt record. Inspect it only on the device; Chromium stderr
+can contain local paths or other private context, so do not paste or transfer
+the whole file without redaction.
+
+## Firefox Loads the Page but Observation Fails
+
+The native Firefox bridge accepts only an exact randomized console sentinel.
+A JavaScript timeout invalidates the cached console/focus state, and compact
+DOM observation retries that typed failure once with a fresh synchronization.
+If the second attempt fails, the public response remains a generic,
+retryable `backend_crashed`; clipboard contents and the raw inherited
+exception are intentionally excluded.
+
+Preserve the final URL/title, a screenshot artifact and its hash, the compact
+error code/details, and the relevant timestamped daemon log lines. Do not use
+clipboard contents as diagnostic evidence. One successful navigation is not a
+substitute for a successful `browser_observe` result.
+
 ## Firefox Is Much Slower Than Chromium
 
 The S22U baseline measured multi-second Firefox status/text calls while

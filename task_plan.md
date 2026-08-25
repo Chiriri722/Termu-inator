@@ -676,14 +676,14 @@ Termu-inator MVP는 다음 조건을 모두 만족해야 한다.
 **Objective:** 실제 Termux 장치에서 신뢰성·보안·호환성을 검증하고 문서화된 alpha를 배포한다.
 
 - [ ] unit·contract·fixture E2E 전체 실행
-  - [x] local unit·contract·HTTP fixture authority suite (280 tests)
+  - [x] local unit·contract·HTTP fixture authority suite (304 tests)
   - [ ] 실제 Firefox·Chromium fixture browser E2E
 - [ ] Firefox·Chromium backend별 capability test 실행
   - [x] shared typed legacy adapter/fake capability contract
   - [ ] 실제 장치 backend별 capability probe
 - [ ] 100-action soak test와 1시간 idle/resume test 실행
 - [ ] browser crash, daemon crash, stale socket, stale lock 복구 test 실행
-  - [x] local durable outcome/stale lock/private socket recovery contracts
+  - [x] local durable outcome/stale lock/private socket/X display lease와 Chromium readiness-retry recovery contracts
   - [ ] 실제 device browser/daemon kill recovery
 - [ ] Android background process kill 이후 복구 test 실행
 - [ ] SSH disconnect/reconnect test 실행
@@ -878,7 +878,7 @@ Termu-inator MVP는 다음 조건을 모두 만족해야 한다.
 
 | Risk | Impact | Mitigation | Trigger for Re-plan |
 |---|---|---|---|
-| Firefox DevTools/clipboard/focus 불안정 | action 실패·지연 | console 상태 machine, strict serialization, fallback diagnostics | fixture 성공률 <90% |
+| Firefox DevTools/clipboard/focus 불안정 | action 실패·지연 | exact sentinel, timeout state invalidation, one bounded observe retry, secret-free diagnostics | fixture 성공률 <90% |
 | giant daemon refactor 회귀 | 광범위 기능 손상 | strangler adapter, 작은 module 단위 migration, contract tests | legacy smoke 연속 실패 |
 | element ref가 SPA에서 빠르게 stale | 잘못된 클릭 | page revision, mutation sequence, fail-closed | stale false-negative 발생 |
 | MCP binary resource 호환성 부족 | 원격 screenshot 불가 | artifact URI + chunked read fallback | Hermes/Codex 중 한쪽에서 resource 실패 |
@@ -1103,6 +1103,16 @@ Termu-inator MVP는 다음 조건을 모두 만족해야 한다.
 | 최종 결합 정적 검사에서 wheel 격리 venv에 선택적 PyYAML이 없어 Hermes YAML safe-load가 import 단계 `ModuleNotFoundError`로 종료됨 | 1 | 앞선 `git diff --check`, `bash -n`, warning-as-error compileall은 통과했다. YAML 검사는 PyYAML이 있는 기존 호스트 인터프리터로 분리 재실행한다. |
 | Mac에서 S22U Tailscale ping은 371ms로 성공했지만 문서화된 Termux SSH port 8022 probe가 rc 1을 반환함 | 1 | 장치는 tailnet에서 online이나 sshd가 현재 수신 중이지 않다. SSH stdio/artifact/device gate는 Termux에서 sshd를 시작하고 key/host-key trust를 준비한 뒤 재개한다. |
 | Manual live-CDP discovery-boundary RED가 다섯 스크립트 모두의 top-level `src.*` import를 검출해 5 subtest failures를 반환함 | 1 | optional browser imports를 각 `main()` 내부로 지연하고 네 개 무조건 `asyncio.run(main())` 호출을 exact `__main__` guard 아래로 옮긴다. |
+| 2026-08-25 S22U Hermes RC smoke에서 Firefox `browser_observe`가 `backend_crashed`, Chromium session start가 multi/single-process 모두 실패함 | 1 | benchmark를 실행하지 않은 PARTIAL 판정을 보존했다. Firefox typed timeout/state reset/one retry와 Chromium owned display·ephemeral CDP·readiness retry·private bounded stderr 진단을 TDD로 구현하고 실제 장치 재검증은 open gate로 둔다. |
+| 현 RC 감사의 첫 code graph 조회에 짧은 project 이름 `Termu-inator`를 사용해 `project not found`가 반환됨 | 1 | graph가 제시한 canonical project `Users-chiriri722-Documents-GitHub-Termu-inator`로 즉시 교정하고 이후 code discovery에 사용했다. |
+| Termux X display 경로 RED가 `/tmp`만 검사해 `$PREFIX/tmp/.X11-unix/X99` 점유를 놓침 | 1 | `/tmp`와 Python의 실제 temporary root를 중복 없이 모두 검사하고, 기존 X11 lock/socket은 삭제하지 않은 채 다음 display lease로 진행한다. |
+| graph impact trace에 class-qualified short name을 넘겨 세 함수가 `function not found`로 반환됨 | 1 | 최신 fast index에서 `search_graph`로 exact fully-qualified name을 찾은 뒤 동일 세 경로의 inbound production/test caller trace를 완료했다. |
+| Firefox 기존-DevTools RED가 검증 가능한 창이 이미 열려 있어도 `_sync_console_state()`가 먼저 `Ctrl+Shift+K`를 눌러 닫을 수 있음을 재현함 | 1 | visible DevTools를 exact sentinel로 먼저 검증하고, 창을 찾고 focus한 경우에만 probe를 실행한다. 필요할 때만 최대 두 번 toggle하며 page/address bar에는 probe를 실행하지 않는다. |
+| compact tool schema 조회에서 존재하지 않는 `contract_manifest` 모듈과 manifest top-level list 형상을 차례로 가정해 import/type error가 발생함 | 2 | code graph에서 실제 `schema.build_tool_manifest` 정의를 찾고 `manifest["tools"]`의 14개 항목 중 장치 smoke 도구 8개의 exact schema를 확인했다. |
+| final graph/reachability 기록을 progress와 task-plan에 한 patch로 섞어 적용해 context mismatch로 거부됨 | 1 | 파일은 불변이었다. progress와 task-plan patch를 분리해 각각의 정확한 현재 문맥에 적용했다. |
+| BrowserPilot start-cleanup 첫 RED가 로컬에 없는 explicit Chromium 경로 검증에서 먼저 실패함 | 1 | binary resolver를 주입해 실패 지점을 의도한 `_start_chromium`으로 좁혔고, 두 번째 RED에서 `stop()` 미호출을 직접 확인했다. |
+| BrowserPilot start-cleanup RED가 Chromium 실패 뒤 owned Xvfb/lease 정리를 상위 caller에만 의존함을 확인함 | 1 | `BrowserPilot.start()`가 예외·취소 시 자체 `stop()`을 시도하고 cleanup 오류는 원래 시작 오류를 가리지 않도록 제한 로그만 남긴다. |
+| display claim final-probe RED가 동시 교체된 lease를 무조건 unlink함을 재현함 | 1 | 생성 직후 PID/inode ownership을 먼저 기록하고 기존 identity-safe release 경로를 사용해 교체된 lease를 보존한다. |
 
 ---
 
