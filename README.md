@@ -888,7 +888,9 @@ cat ~/.tbp/daemon.log
 ```
 
 Common fixes:
-- Kill stale processes: `pkill -f Xvfb; pkill -f firefox; rm ~/.tbp/daemon.pid ~/.tbp/daemon.sock`
+- Use `tbp stop` first. If state remains, follow the
+  [identity-checked lifecycle procedure](docs/troubleshooting.md); do not kill
+  unrelated Xvfb/browser processes or delete live sockets by pattern.
 - Ensure Xvfb is installed: `pkg install xorg-server-xvfb`
 
 ## License

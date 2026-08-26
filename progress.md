@@ -488,3 +488,78 @@
 - Refreshed the final fast code graph to 2,913 nodes and 17,109 edges and traced the changed Chromium start, Firefox JS bridge, and compact DOM collection paths through their production callers.
 - Rechecked the current tailnet after local completion: the S22U is online, but its Termux SSH port 8022 still returns connection refused. The Mac therefore cannot perform the remaining device run directly; the on-device Hermes channel remains the validation path.
 - No commit or push was performed. Actual S22U compact Firefox/Chromium smoke, artifact hashes, clean stops, and the intentionally skipped benchmark remain mandatory before RC approval.
+
+## 2026-08-25 — `b5362f9` S22U RC rerun review and recovery plan
+
+- Started from clean `main` matching `origin/main` at `b5362f9414246c7136d94e67505f9713c163f48c` (`v.0.2.01`).
+- Re-read the updated private Hermes report and verified its SHA-256 as `8f10ccd8e32e6023b518a60d4439ceaf4ed287ea87468745a11cfe28735c6f2c`; no private report or device artifact was copied into the repository.
+- Reconciled the new device result with the current code graph. Chromium's remaining failure is the exact `get_tree_summary()` string versus structured observation mismatch; Firefox still needs a staged device diagnostic because `_collect_dom()` intentionally collapses the underlying exception into a generic public error.
+- Updated only the persistent planning records. Production source and tests were not changed, benchmark was not run, and RC remains unapproved.
+
+## 2026-08-26 — Chromium accessibility RED → GREEN
+
+- Changed the legacy adapter fixture to reproduce the real inherited API: summary text from `a11y_tree()` and structured raw nodes from a separate method. The focused device-shaped test failed at the same invalid-accessibility boundary as S22U.
+- Added `Pilot.a11y_nodes()` without changing `a11y_tree()` and normalized only bounded role/name data in the compact adapter. Private raw CDP fields are discarded.
+- Added RED coverage for 200-node output bounding, ignored generic roles, malformed values, oversized strings, and secret-free errors. The focused four-test matrix and all 19 legacy adapter tests are GREEN on Python 3.11.15 with `-W error`.
+- The first attempted RED used macOS system Python 3.9 and never reached product behavior; the valid RED was rerun with the explicit Python 3.11.15 toolchain. No commit or push was performed.
+
+## 2026-08-26 — Firefox DOM source-preservation RED → GREEN
+
+- Compared the exact full DOM probe before and after the Firefox bridge's line join. The original source passed syntax validation; the transformed source failed at an inserted semicolon inside `output.push({...})`.
+- Added a native-bridge RED requiring the eval wrapper to preserve the exact JSON-escaped multiline source. It failed against `_safe_join_lines()` and passed after removing that destructive transformation.
+- Added a second RED proving an `ERR:` JavaScript result was still returned as ordinary data. Added a secret-free typed evaluation error; the seven-test native bridge suite is GREEN with `-W error`.
+
+## 2026-08-26 — Generic stdio TMPDIR RED → GREEN
+
+- Added child-environment regressions for a generic stdio host that omits `TMPDIR`, first with Termux `PREFIX` and then with only Python's base prefix available.
+- Chromium now receives a validated writable absolute temp root without changing the parent process environment. The complete 23-test browser lifecycle suite is GREEN with `-W error`.
+
+## 2026-08-26 — MCP signal cleanup RED → GREEN
+
+- Modified `tests/test_mcp_v1_server.py` first with a real subprocess regression that starts compact observer stdio, waits for its control socket, sends `SIGTERM`, requires cleanup, and starts it a second time on the same data root.
+- RED: the first process left `control.sock`; the assertion failed before the restart iteration.
+- Modified `src/mcp_v1_server.py` so SIGTERM/SIGINT set an event-loop shutdown request, the MCP task is cancelled, and the existing shared-view/host-control `finally` cleanup runs before signal handlers are restored.
+- GREEN: the focused termination regression and all eight MCP server tests pass with warnings treated as errors.
+
+## 2026-08-26 — Full local authority and installed-wheel verification
+
+- Python 3.11.15: 312 discovered, eight optional MCP skips, `-W error` GREEN.
+- Python 3.12.13: 312 discovered, eight optional MCP skips, `-W error` GREEN.
+- Python 3.14.7: 312 discovered, eight optional MCP skips, `-W error` GREEN.
+- Python 3.14.7 + MCP 1.29.0: all 312 executed, no skips, `-W error` GREEN.
+- `git diff --check`, `bash -n setup.sh`, and `compileall -W error` pass.
+- `python3.11 -m build` was shadowed by the ignored repository `build/` namespace; recorded the failure and used `uv build --wheel` without deleting or changing repository artifacts.
+- Built `/tmp/termuinator-wheel-verify.20O4oK/dist2/termux_browser_pilot-0.1.0a1-py3-none-any.whl` (273,464 bytes; SHA-256 `80a62d6f0fa5d684b2e58f38e73ed0caa75fa23c0d2a8bd5b79ffa9c369dcc1c`).
+- Installed the wheel into an isolated Python 3.14 venv with `mcp==1.29.0` and `websockets==17.0.1`; `pip check`, installed provenance, all four console scripts, and all 312 tests from outside the checkout pass.
+- Installed observer and interactive stdio processes were run sequentially on one isolated data root. Both stayed alive with stdin open, emitted zero stdout/stderr bytes, exited rc 0 on SIGTERM, and removed `control.sock`.
+- Refreshed the fast code graph to 2,945 nodes and 17,258 edges and traced all four changed production boundaries through their direct production/test callers.
+- Updated `docs/integrations.md` so the Hermes/device gate explicitly requires default accessibility, loopback-first full observation, bounded accessibility records, artifact EOF/hash/mode evidence, same-data-root stdio restart, and benchmark deferral until both backends pass.
+- No commit, push, package publication, S22U mutation, or RC approval was performed.
+
+## 2026-08-26 — Canonical device final-verification gate
+
+- Corrected the Chromium/Firefox accessibility normalization to the exact frozen five-field public node shape. Role/name-only mappings are now rejected by verifier tests instead of being mistaken for valid MCP evidence.
+- Added repository-owned `scripts/final_verify.py` and 17 focused tests covering exact wheel/commit/tool provenance, full loopback observation, bounded artifact EOF reconstruction, durable hash/mode evidence, both backends, same-data-root stdio restart, private fail-closed reports, accurately named runtime fields, isolated HOME/XDG/TMP, diagnostic-override removal, and helper-process cleanup.
+- The canonical verifier always runs Chromium and Firefox, then the 12-tool observer profile. It keeps `benchmark_allowed` false unless both backends, exact MCP identity/protocol/tool inventories, zero stderr, session/process/socket cleanup, and artifact evidence pass.
+- Removed the inherited VirGL manager's broad `pkill -f` behavior. Three ownership tests prove it launches and stops only its own optional helper, reuses that live process on repeated start, and returns to SwiftShader when the executable cannot start. The private device survivor audit now also covers VirGL, xclip, and xdotool.
+- Replaced README's pattern-based Xvfb/Firefox termination advice with the identity-checked troubleshooting procedure. The Termux guide now gives an explicit commit-suffixed `--system-site-packages` venv and pip wheel installation, preserves the old Hermes entry, and documents the isolated mode 0700 child HOME.
+- Python 3.11.15 and 3.12.13 each pass 332 tests with eight optional MCP skips. Python 3.14.7 with MCP 1.29.0 executes and passes all 332 with warnings treated as errors. `git diff --check`, `bash -n setup.sh`, warning-as-error compileall, and line-length checks pass.
+- Built `/tmp/termuinator-final-rc.OCglWK/dist/termux_browser_pilot-0.1.0a1-py3-none-any.whl` (273,622 bytes; SHA-256 `85ec62fa15200c689e25044e564642e9b2e505764c2327ed673da77bc24a1299`). All seven changed packaged source files are byte-identical inside the tested wheel, and its ZIP integrity passes.
+- A fresh pip-installed Python 3.14 environment passes dependency checks, all three installed VirGL ownership tests, all 19 installed legacy-adapter tests, and all 332 checkout authority tests. Its interactive→observer probe uses one isolated data root and HOME, removes inherited `TBP_SINGLE_PROCESS`, exposes exact 14/12 tools, reports MCP protocol `2025-11-25` and server `0.1.0a1`, emits zero stderr, and removes the private control socket after both exits.
+- Installed wheel/hash/entrypoint provenance reaches the exact non-Termux `PREFIX is missing` boundary on macOS. A dirty-checkout CLI smoke exits 1, writes mode 0700/0600 FAIL evidence with `benchmark_allowed: false`, and passes its manifest checksum. Neither result is Android/browser evidence.
+- Refreshed the fast code graph to 2,987 nodes and 17,428 edges. The indexed accessibility path reaches `LegacyPilotBackend.observe` and compact dispatch; all three VirGL ownership regressions connect to `VirglManager.start`. The graph's configured fast exclusions omit `scripts/`, so the canonical verifier remains covered by its direct source audit and 17 focused tests rather than a false graph-reachability claim.
+- A final read-only tailnet check found the S22U offline (last seen one minute earlier); one ping timed out and TCP 8022 remained closed. No device/Tailscale setting was changed, and no direct Mac device claim was made.
+- Preserved the final wheel, a matching checksum file, and an explicit non-pass README outside the repository at `../Termu-inator-device-artifacts/s22u-2026-08-26-rc/`. The directory is mode 0700, all three files are mode 0600, and the stored checksum verifies. It must be rebuilt if candidate source changes before commit.
+- No commit, push, package publication, Hermes reconfiguration, S22U mutation, benchmark, or RC approval was performed. The clean-commit S22U canonical manifest remains the open gate.
+
+## 2026-08-26 — Final verifier provenance and portable-path review
+
+- A focused code review found that a caller-supplied wheel hash did not by itself bind the wheel's source or release metadata to the checkout. RED tests reproduced source, entrypoint-field, version, LICENSE, executable-member, and RECORD tampering gaps.
+- The verifier now compares all 57 tracked `cli.py` / `src/**/*.py` files with the clean checkout, requires the exact 0.1.0a1 metadata/dependency/entrypoint contract, matches README/LICENSE/NOTICE, verifies safe unique wheel members and every RECORD hash/size, and then compares all installed Python source bytes with the checkout.
+- The preserved 273,622-byte wheel remains unchanged and passes the stronger binding with source-tree SHA-256 `9693c07cb450d1da342006a595b8e0a0fb3662dec09a55e7202b0f5ad00e812b`; its candidate SHA-256 remains `85ec62fa15200c689e25044e564642e9b2e505764c2327ed673da77bc24a1299`.
+- A checkout-outside Python 3.14 probe imports `src` from the installed site-packages and again reports exact 14/12 tools, MCP protocol `2025-11-25`, server `0.1.0a1`, zero stderr, private live sockets, and socket removal after both profile exits.
+- The documented Termux report path would have exceeded the runtime's 100-byte portable Unix-socket contract. Child roots now use short private names, overlong output is rejected before process startup, and the guide uses `~/.cache/tfv/COMMIT12`, whose modeled S22U control socket is 87 bytes.
+- Python 3.11.15 and 3.12.13 pass 339 tests with eight optional MCP skips; pinned-MCP Python 3.14.7 executes and passes all 339. Diff, shell syntax, compileall, and touched-file line-length gates pass. The added documentation contract also prevents benchmark execution from falling back to the old venv.
+- Refreshed the final fast graph to 2,998 nodes and 17,470 edges. Its configured exclusions still omit `scripts/`; the verifier is covered directly by 22 focused tests and source review.
+- No packaged candidate source changed, so the preserved wheel and checksum remain valid. No commit, push, Hermes/device mutation, benchmark, or RC approval was performed; the clean S22U manifest remains the open gate.
+- The final read-only tailnet refresh lists the S22U as online, but one Tailscale ping timed out and a bounded TCP 8022 probe returned rc 1. The Mac still has no usable Termux transport; no device or Tailscale setting was changed.

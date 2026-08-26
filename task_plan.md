@@ -19,18 +19,22 @@ Termux/Android에서 실제 Firefox·Chromium을 제어하되, 기존의 방대�
 
 ## Next Step
 
-최종 로컬 authority suite와 wheel 검증은 완료됐다. S22U는 Tailscale에서
-online이나 port 8022가 닫혀 있으므로 먼저 Termux sshd와 key/host-key trust를
-준비한다. 이어 별도 clean Termux 환경에 release-candidate checkout을 설치하고,
-compact observer와 interactive profile의 Firefox/Chromium fixture smoke,
-`ssh -T` stdio/artifact round-trip, 100-action/idle-resume, process-kill recovery,
-성능 재측정을 수행한다.
-pre-follow redirect/DNS interception과 real popup·dialog·project-scoped download
-event/bytes는 별도 backend 기능 작업으로 유지하고 현재는 unsupported로 남긴다.
+`b5362f9`의 Chromium accessibility 반환형, Firefox DOM probe 구문 손상, generic stdio의
+Chromium `TMPDIR` 누락을 실제 실패형 RED 뒤에 복구했다. 검증 중 발견한 compact MCP의
+`SIGTERM` stale control socket도 종료 후 identity-safe cleanup과 동일 data-root 재시작
+회귀로 닫았다. canonical verifier의 HOME/XDG/TMP 격리와 diagnostic override 제거,
+VirGL 소유권 경계도 RED/GREEN으로 보강했다. verifier는 wheel/checkout/installed source,
+release metadata, license, RECORD와 portable control-socket 경로까지 묶는다. Python
+3.11/3.12/3.14의 warning-as-error 339-test suite, pinned MCP 전체 suite, fresh pip wheel
+install/check, 네 entrypoint, interactive→observer 연속 stdio purity가 모두 GREEN이다.
+다음은 이 uncommitted candidate를 새 commit으로 만든 뒤 S22U에 side-by-side 설치하여
+checkout의 `scripts/final_verify.py`를 실행하는 것이다. 현재 S22U는 tailnet map에서
+online이지만 ping 무응답이고 TCP 8022도 닫혀 있어 Mac 직접 실행은 불가능하다. 양 backend
+PASS와 `benchmark_allowed: true` 전에는 benchmark나 RC 승인을 진행하지 않는다.
 
 ## Current Phase
 
-Phase 4/5/6 — Browser Loop, Remote Artifacts & Product Surface
+Phase 7 — S22U RC Observer Recovery
 
 ## Planning-with-Files Operating Rules
 
@@ -678,9 +682,13 @@ Termu-inator MVP는 다음 조건을 모두 만족해야 한다.
 - [ ] unit·contract·fixture E2E 전체 실행
   - [x] local unit·contract·HTTP fixture authority suite (304 tests)
   - [ ] 실제 Firefox·Chromium fixture browser E2E
+    - [x] `b5362f9` 양쪽 backend의 session start, navigation, screenshot, artifact EOF/hash, clean stop
+    - [x] Chromium `include_accessibility=false` text observation
+    - [ ] Chromium 기본 accessibility 포함 observation
+    - [ ] Firefox DOM observation
 - [ ] Firefox·Chromium backend별 capability test 실행
   - [x] shared typed legacy adapter/fake capability contract
-  - [ ] 실제 장치 backend별 capability probe
+  - [ ] 실제 장치 backend별 capability probe (`b5362f9`는 launcher만 통과하고 observe capability는 양쪽 실패)
 - [ ] 100-action soak test와 1시간 idle/resume test 실행
 - [ ] browser crash, daemon crash, stale socket, stale lock 복구 test 실행
   - [x] local durable outcome/stale lock/private socket/X display lease와 Chromium readiness-retry recovery contracts
@@ -694,6 +702,8 @@ Termu-inator MVP는 다음 조건을 모두 만족해야 한다.
   - [x] 2026-08-15 S22U Firefox/Chromium baseline·budget 판정
   - [ ] compact release candidate 재측정·비교
 - [ ] 최소 1대의 실제 Android/Termux 장치에서 release candidate 검증
+  - [x] `b5362f9` side-by-side 설치, native cryptography, pinned MCP, 304 tests, observer stdio/discovery
+  - [ ] 양쪽 backend의 full observer와 실제 `final_verify.py` 실행
 - [ ] 선택적으로 2번째 장치 또는 Android VM에서 호환성 검사
 - [x] 외부 사이트 smoke test는 non-gating 보고서로 분리
 - [ ] README, architecture, security, migration, troubleshooting 최종 검토
@@ -702,7 +712,76 @@ Termu-inator MVP는 다음 조건을 모두 만족해야 한다.
 - [ ] version을 `0.1.0-alpha`로 정리하고 changelog 작성
 - [ ] GitHub release artifact와 설치 명령 검증
 - [ ] post-alpha backlog를 v0.2 milestone으로 이전
-- **Status:** pending
+- **Status:** in_progress
+
+#### Phase 7A: `b5362f9` Observer Recovery Plan
+
+1. [x] **Chromium accessibility 계약을 먼저 복구한다 (P0, deterministic).**
+   - 실제 `Pilot.a11y_tree()`의 문자열 반환을 사용하는 RED를 추가해 현재
+     `invalid accessibility data`를 재현한다.
+   - legacy `browser_a11y`의 문자열 wire shape는 변경하지 않는다.
+   - `AccessibilityCommands.get_tree()`를 사용하는 별도 structured Pilot 경로를
+     만들고, adapter는 role/name 중심의 bounded mapping 목록만 받도록 정규화한다.
+     raw CDP node, private backend id, unbounded nested payload는 public observation에
+     그대로 전달하지 않는다.
+   - public mapping은 frozen `AccessibilityNode`의 `ref/role/name/text/depth`를 모두
+     채우며, backend ref가 없는 summary node는 `ref: null`, `text: ""`, `depth: 0`으로
+     고정한다. role/name 두 필드만 반환하는 내부 mapping은 MCP output gate에서 거부한다.
+   - mapping/list 정상형, legacy 문자열 오입력, malformed/unbounded node를 각각
+     회귀 검사하고 실패 메시지에 페이지 데이터가 섞이지 않음을 확인한다.
+
+2. [x] **Firefox DOM probe 구문 손상을 분류·복구한다 (P0, deterministic).**
+   - 원본 `observe_script()`는 JavaScript syntax를 통과했지만 legacy 단일행 변환본은
+     `shadow_path:shadowPath; });`를 만들어 `Unexpected token ';'`로 실패함을 재현했다.
+   - primary `eval(JSON_STRING)`에 원본 multiline source를 그대로 보존하고, 위험한
+     `_safe_join_lines()` 변환과 불필요한 `re` 의존성을 제거했다.
+   - JavaScript expression 실패는 raw browser message를 노출하지 않는
+     `JavascriptExecutionError(reason="evaluation")`로 구분하고, timeout과 invalid DOM
+     payload는 기존 별도 경계를 유지한다.
+   - timeout 확대나 text-only fallback 없이 정확한 source corruption만 수정했다.
+
+3. [x] **TMPDIR 재현성을 별도 P1 계약으로 고정한다.**
+   - Hermes native 환경에서는 통과했으므로 observer 실패의 직접 원인으로 취급하지
+     않는다.
+   - generic MCP stdio harness에서도 validated `TMPDIR`가 child Chromium까지
+     전달되는지 검사하고, 누락 시 Android의 writable Termux temp root를 명시적으로
+     선택한다. 사용자가 Tailscale, DNS, crawl4ai 또는 전역 Python 환경을 바꾸게 하지 않는다.
+
+4. **로컬 검증 후 새 커밋을 side-by-side로만 배포한다.**
+   - [x] focused RED/GREEN → warning-as-error 전체 suite on Python 3.11/3.12/3.14 →
+     wheel install/pip check → observer/interactive stdio purity 순서로 검증한다.
+   - [x] `SIGTERM` 뒤 control socket 제거와 같은 data-root의 두 번째 stdio 기동을
+     fresh wheel에서 검증한다.
+   - [x] optional VirGL은 외부 process를 pattern-kill하지 않고 own-process launch 실패 시
+     SwiftShader로 복귀하며, verifier는 VirGL/xclip/xdotool survivor도 판정한다.
+   - [x] repository-owned `scripts/final_verify.py`가 clean commit/local wheel,
+     checkout/installed source와 release metadata provenance, exact 14/12 tools,
+     portable socket path, loopback full observation, EOF/hash/mode와 process/socket
+     cleanup을 fail-closed로 판정하도록 22개 회귀 테스트로 고정한다.
+   - [ ] 기존 Hermes 항목과 venv를 보존하고 새 commit-suffixed server를 등록한다.
+
+5. **S22U release gate를 순서대로 닫는다.**
+   - loopback deterministic fixture에서 Firefox와 Chromium 모두 기본
+     `include_accessibility=true` observation, text, ready state, interactive ref,
+     screenshot, EOF artifact read, local/metadata hash, mode 0600, clean stop를 검증한다.
+   - 그 다음 `example.com`은 DNS를 포함한 non-gating 외부 smoke로만 실행한다.
+   - 양쪽 full smoke가 통과한 뒤에만 compact cold/observe/screenshot/RSS benchmark와
+     기존 baseline delta를 기록하며 기존 budget을 조용히 완화하지 않는다.
+   - 마지막에 보존된 `final_verify.py`를 실제 실행하고 manifest 검증 결과와 exit code를
+     함께 남긴다.
+   - [x] ad-hoc 장치 파일이 아니라 checkout의 canonical verifier와 private manifest,
+     checksum 형식을 구현하고 local fail-closed/installed-wheel stdio를 검증했다.
+   - [ ] 새 commit-suffixed Termux venv에서 canonical verifier를 실제 실행해 양 backend
+     PASS, `benchmark_allowed: true`, checksum OK를 확보한다.
+
+**Phase 7A Exit Gate**
+
+- Chromium observation이 legacy summary 문자열에 의존하지 않고 bounded structured
+  accessibility를 반환한다.
+- Firefox observation이 `ready_state`, text와 최소 한 개의 fixture interactive ref를
+  반환하며 generic `backend_crashed`로 종료되지 않는다.
+- 양쪽 backend 모두 artifact 무결성·권한과 process/socket cleanup을 통과한다.
+- benchmark와 RC 승인 기록은 위 세 조건 이후에만 생성한다.
 
 **Deliverables**
 
@@ -871,6 +950,8 @@ Termu-inator MVP는 다음 조건을 모두 만족해야 한다.
 | 프로젝트별 지속 profile과 단일 활성 session을 사용한다. | 로그인 상태를 보존하면서 프로젝트 간 cookie/storage 노출을 차단한다. |
 | Shared view MVP는 읽기 전용 정적 dashboard로 시작한다. | 원격 가시성을 먼저 제공하고 별도의 승인·조작 공격면을 만들지 않는다. |
 | Raw device process output은 저장소 밖에 두고 sanitized aggregate와 hash만 추적한다. | device path, process argument, Hermes runtime detail의 공개를 막으면서 결과 무결성을 검증한다. |
+| RC verifier의 MCP child는 전용 HOME/XDG/TMP와 고정 owner scope를 사용하고 진단 override를 상속하지 않는다. | 기존 `~/.tbp`, config, `TBP_SINGLE_PROCESS`가 release candidate를 오염하거나 사용자 상태를 변경하지 못하게 한다. |
+| optional VirGL은 manager가 직접 시작한 process만 종료하며 외부 server를 선행 종료하지 않는다. | 동시 Termux 세션과 다른 앱의 GPU helper를 보호하고, 충돌·실행 실패는 안전한 SwiftShader fallback으로 처리한다. |
 
 ---
 
@@ -1110,9 +1191,60 @@ Termu-inator MVP는 다음 조건을 모두 만족해야 한다.
 | Firefox 기존-DevTools RED가 검증 가능한 창이 이미 열려 있어도 `_sync_console_state()`가 먼저 `Ctrl+Shift+K`를 눌러 닫을 수 있음을 재현함 | 1 | visible DevTools를 exact sentinel로 먼저 검증하고, 창을 찾고 focus한 경우에만 probe를 실행한다. 필요할 때만 최대 두 번 toggle하며 page/address bar에는 probe를 실행하지 않는다. |
 | compact tool schema 조회에서 존재하지 않는 `contract_manifest` 모듈과 manifest top-level list 형상을 차례로 가정해 import/type error가 발생함 | 2 | code graph에서 실제 `schema.build_tool_manifest` 정의를 찾고 `manifest["tools"]`의 14개 항목 중 장치 smoke 도구 8개의 exact schema를 확인했다. |
 | final graph/reachability 기록을 progress와 task-plan에 한 patch로 섞어 적용해 context mismatch로 거부됨 | 1 | 파일은 불변이었다. progress와 task-plan patch를 분리해 각각의 정확한 현재 문맥에 적용했다. |
+| 장치 검증 계약을 확인하려고 transport test/core schema와 자연어 graph 검색을 넓게 출력해 응답이 context 한도를 넘어 절단됨 | 2 | 파일은 불변이었다. 검색 결과에서 확인된 exact qualified name만 단건 조회하고, checkout 원문도 좁은 줄 범위로 나누어 확인한다. |
+| JSON Schema의 `$defs`를 jq dot identifier(`.$defs`)로 조회해 16개 compile error가 발생함 | 1 | 파일은 불변이었다. `$`가 포함된 키는 `.\"$defs\"` 또는 `.[$key]` 형태의 명시적 bracket lookup으로 다시 읽는다. |
+| MCP SDK probe가 존재하지 않는 `mcp.__version__` 속성을 읽어 `AttributeError`로 종료됨 | 1 | 파일은 불변이었다. SDK 버전은 `importlib.metadata.version(\"mcp\")`로 확인하고 public client API만 사용한다. |
+| final verifier 첫 backend-flow GREEN에서 SessionStatus의 `active_page_id`/`active_tab_id`를 Observation의 `page_id`/`tab_id`처럼 읽어 1 error와 1 failure가 발생함 | 1 | status와 observation의 frozen wire 이름을 별도 context decoder로 분리하고 같은 흐름·cleanup 테스트를 재실행한다. |
+| verifier fail-closed CLI 산출물의 SHA 파일을 저장소 cwd에서 검사해 basename `final-verify-manifest.json`을 찾지 못함 | 1 | 산출물과 권한은 정상이었다. SHA 파일의 의도대로 report directory를 cwd로 삼아 재검사하고 문서에도 같은 명령을 사용한다. |
+| MCP server identity 조건을 stdio PASS 식에 추가하면서 다음 기존 조건 앞의 `and`를 누락해 `py_compile` SyntaxError가 발생함 | 1 | 실행 전 정적 검사에서 발견됐다. 누락 연산자만 보완하고 focused verifier suite와 warning-as-error compile을 다시 수행한다. |
+| installed-environment probe를 checkout cwd에서 실행하자 `importlib.metadata.distribution()`이 venv wheel보다 repository egg-info를 먼저 골라 `direct_url.json` 부재로 오판함 | 1 | 명시적 venv purelib/platlib 경로에서 distribution을 유일하게 선택하는 RED를 추가하고, checkout metadata가 installed-wheel provenance를 가리지 못하게 한다. |
+| explicit-runtime-distribution GREEN의 임시 metadata fixture에서 version이 `None`으로 파싱됨 | 2 | 첫 교정으로 RFC822 빈 줄을 보완했지만 assertion 전에 TemporaryDirectory가 정리되어 lazy metadata가 사라진 것이 실제 원인이었다. 검증을 fixture 생존 범위 안으로 이동한다. |
+| `uv venv`로 만든 local fresh-wheel 환경에서 `python -m pip check`가 pip module 미시드로 실패함 | 1 | 이것은 `python -m venv`를 사용하는 Termux 설치 계약과 다른 local harness 특성이다. local 검증은 `uv pip check --python`으로 수행하고, 장치 verifier는 설치 가이드의 venv 내 pip check를 계속 요구한다. |
+| fresh-wheel same-data-root probe one-liner가 세미콜론 뒤에 `async def` compound statement를 선언해 실행 전 SyntaxError가 발생함 | 1 | 제품과 산출물은 불변이었다. 별도 coroutine 선언 없이 `_run_mcp_profile()`을 두 번 `asyncio.run()`해 동일 env/data-root 순서를 검증한다. |
+| Termux 설치 문서에 RC gate를 삽입한 첫 patch가 실제 줄바꿈과 다른 context라 적용 전 거부됨 | 1 | 문서는 불변이었다. Browser Smoke 말미와 benchmark heading의 정확한 현재 줄을 다시 읽고 작은 문맥으로 재적용한다. |
 | BrowserPilot start-cleanup 첫 RED가 로컬에 없는 explicit Chromium 경로 검증에서 먼저 실패함 | 1 | binary resolver를 주입해 실패 지점을 의도한 `_start_chromium`으로 좁혔고, 두 번째 RED에서 `stop()` 미호출을 직접 확인했다. |
 | BrowserPilot start-cleanup RED가 Chromium 실패 뒤 owned Xvfb/lease 정리를 상위 caller에만 의존함을 확인함 | 1 | `BrowserPilot.start()`가 예외·취소 시 자체 `stop()`을 시도하고 cleanup 오류는 원래 시작 오류를 가리지 않도록 제한 로그만 남긴다. |
 | display claim final-probe RED가 동시 교체된 lease를 무조건 unlink함을 재현함 | 1 | 생성 직후 PID/inode ownership을 먼저 기록하고 기존 identity-safe release 경로를 사용해 교체된 lease를 보존한다. |
+| `b5362f9` S22U Chromium full observe가 실제 `a11y_tree()` 요약 문자열을 structured accessibility로 거부함 | 1 | legacy summary wire shape를 보존하고 별도 bounded structured node 경로와 실제 반환형 RED를 추가한 뒤 adapter가 그 경로만 사용하게 한다. |
+| `b5362f9` S22U Firefox full observe가 underlying cause를 숨긴 generic `backend_crashed`로 다시 종료됨 | 1 | scalar, ready-state, small JSON, full DOM script, normalization을 단계별로 분리하는 private secret-free diagnostic으로 최초 실패 단계를 확정하기 전에는 timeout 확대나 fallback을 적용하지 않는다. |
+| Chromium accessibility 첫 RED 실행이 macOS system `python3` 3.9의 PEP 604 union import `TypeError`에서 중단됨 | 1 | 제품 동작 실패로 계산하지 않고, 저장소가 지원·검증하는 명시적 Python 3.11+ 인터프리터를 찾아 같은 focused test를 재실행한다. |
+| Pilot structured-a11y RED patch가 실제 첫 lifecycle test 이름과 맞지 않는 context로 거부됨 | 1 | 파일은 불변이었다. class 경계를 다시 확인하고 `LegacyBackendLifecycleTests` 선언 직후의 정확한 현재 문맥에 작은 patch로 재적용한다. |
+| Firefox 원본 DOM probe는 syntax-valid였지만 `_safe_join_lines()` 결과가 `shadow_path:shadowPath; });`를 생성해 Node syntax check에서 `Unexpected token ';'`를 반환함 | 1 | eval wrapper가 JSON-escaped 원문을 byte-for-byte 보존하는 RED를 추가하고 destructive line join helper를 제거한다. raw JS error는 secret-free typed cause로 바꾼다. |
+| 최종 wheel build에서 `python3.11 -m build`가 저장소의 ignored `build/` namespace에 가려져 `No module named build.__main__`으로 종료됨 | 1 | 저장소 산출물을 삭제하거나 호스트 환경을 변경하지 않고, 기존 `uv build --wheel`로 동일 PEP 517 wheel을 별도 임시 dist에 생성했다. |
+| 첫 fresh-wheel 연속 stdio probe에서 observer를 `SIGTERM`으로 종료한 뒤 `control.sock`이 남아 interactive가 rc 1/stderr 2,180 bytes로 조기 종료함 | 1 | 실제 subprocess RED를 추가하고 SIGTERM/SIGINT를 async shutdown으로 전환해 `finally` cleanup을 보장했다. 동일 data-root에서 observer와 interactive가 연속으로 rc 0, zero stdout/stderr, socket 제거를 통과한다. |
+| 최종 findings/progress 결합 patch가 두 문서의 서로 다른 section 표기와 일치하지 않아 적용 전 거부됨 | 1 | 두 파일 모두 불변임을 확인하고 각 EOF의 정확한 현재 heading/context를 읽은 뒤 독립 hunk로 재적용했다. |
+| progress 말미를 한 번에 읽는 진단 출력이 현재 응답 context 한도를 넘어 절단됨 | 1 | 파일은 불변이었다. `wc -l`로 범위를 확인하고 마지막 30여 줄만 좁게 다시 읽어 이어서 기록한다. |
+| platform-report RED가 존재하지 않는 `runtime_platform_summary` import error로 종료됨 | 1 | 예상한 RED다. 커널 버전을 Android 릴리스로 오표기하지 않는 작은 순수 helper를 구현하고 installed-environment 보고서에서 사용한다. |
+| 최종 인터프리터 확인을 `&&`로 묶어 현재 PATH에 없는 `python3.12`에서 rc 1로 조기 종료함 | 1 | 제품과 환경은 불변이다. 기존 uv Python 경로를 `uv python find 3.12`로 개별 조회하고 각 authority run을 독립 실행한다. |
+| final-verifier HOME 격리 RED가 예상대로 `paths["home"]` KeyError로 실패함 | 1 | child 환경이 XDG/TMP만 격리하고 inherited `$HOME/.tbp` 쓰기를 허용했다. 전용 mode 0700 HOME을 같은 output namespace에 만들고 자식에게만 주입한다. |
+| VirGL ownership RED가 기존 선행 `pkill -f virgl_test_server_android`를 실행해 fake process를 종료 상태로 만들고 `started=False`로 실패함 | 1 | 예상한 안전성 RED다. 무소유 프로세스 종료 단계를 제거하고 이 manager가 직접 만든 단일 subprocess만 보관·종료한다. 시작 실패는 기존 SwiftShader fallback으로 처리한다. |
+| final-verifier helper-survivor RED가 VirGL/xclip/xdotool을 process filter에서 찾지 못해 1 failure로 종료됨 | 1 | 브라우저 본체·Xvfb뿐 아니라 optional GPU와 Firefox 입력 helper도 baseline 대비 새 생존 프로세스가 있으면 benchmark를 닫도록 filter를 확장한다. |
+| optional VirGL launch-failure RED가 `create_subprocess_exec`의 `OSError`를 그대로 전파해 Chromium 전체 시작을 중단함 | 1 | 설치되어 보이지만 실행할 수 없는 optional accelerator는 secret-free warning 후 `False`를 반환해 기존 SwiftShader fallback을 사용하고 소유 process를 남기지 않는다. |
+| final-verifier deterministic-env RED가 inherited `TBP_SINGLE_PROCESS=1`을 그대로 보존해 1 failure로 종료됨 | 1 | 이전 장치 진단용 override가 RC gate를 바꾸지 못하도록 `PYTHONHOME/PYTHONPATH/TERMUINATOR_CONFIG`와 함께 자식 환경에서 제거한다. |
+| README ownership-safety RED가 legacy troubleshooting의 broad `pkill -f Xvfb/firefox` 문구를 찾아 1 failure로 종료됨 | 1 | 예상한 문서 RED다. 임의 프로세스 종료·socket 삭제를 지시하지 않고 전용 troubleshooting의 identity 확인과 graceful stop 절차로 연결한다. |
+| README 전체를 포함한 `assertNotIn` failure 표현이 tool output 한도를 넘어 절단됨 | 1 | 소스 파일은 불변이었다. 실패 원문은 불필요하게 크므로 후속 실행은 안전 문구 수정 후 focused test의 요약만 확인한다. |
+| VirGL repeated-start RED가 같은 manager에서 live owned process를 두 번째로 생성해 launch await count 2로 실패함 | 1 | 기존 own process가 살아 있으면 idempotent success를 반환해 handle 유실과 helper leak을 막고, 종료된 process일 때만 새로 시작한다. |
+| final wheel fresh-venv install harness가 `/tmp` cwd에서 상대 constraint를 찾지 못한 선행 pip 실패를 즉시 중단하지 않아, `pip check` 뒤 installed tests가 `No module named src` 2건으로 종료됨 | 1 | 제품 wheel과 checkout은 불변이다. absolute repository constraint와 `set -e`를 사용해 설치·dependency·installed import를 하나의 fail-fast gate로 재실행한다. |
+| 최종 로컬 후보 후 S22U read-only 재확인에서 tailnet 상태가 `offline, last seen 1m ago`, ping timeout, TCP 8022 rc 1로 종료됨 | 1 | 장치·Tailscale 설정은 변경하지 않았다. 현재 Mac에서 직접 device gate를 실행할 수 없으므로 새 commit과 wheel을 보존한 뒤 on-device Hermes 절차 또는 장치 online+sshd 재개를 기다린다. |
+| `code-review-excellence`가 나열한 `references/common-bugs-checklist.md`를 읽으려 했지만 skill package에 해당 경로가 없어 rc 1로 중단됨 | 1 | 저장소 파일은 불변이다. skill 디렉터리의 실제 파일 목록을 좁게 확인하고, 누락된 선택 reference 없이 완전히 읽은 SKILL 본문의 체크리스트로 감사를 계속한다. |
+| wheel↔checkout binding RED가 존재하지 않는 `validate_wheel_source_binding` import error로 종료됨 | 1 | 예상한 blocking RED다. tracked Python source byte equality, exact console entrypoint metadata, safe unique wheel member allowlist를 검증하고 installed-environment preflight에 연결한다. |
+| wheel entrypoint 증거 필드 회귀 test patch 직후 도구 출력이 모델 한도를 넘어 절단됨 | 1 | 파일 변경 여부를 `rg`로 재확인해 assertion이 정상 적용된 것을 확인했다. 제품·wheel은 불변이며, 후속 실행은 좁은 focused test 출력만 수집한다. |
+| focused RED에 이전 기록과 다른 `/usr/local/bin/python3.11` 경로를 사용해 shell rc 127이 발생함 | 1 | 저장소·제품은 실행되지 않았다. 현재 host의 실제 `/Users/chiriri722/.local/bin/python3.11`을 확인해 같은 focused test를 재실행한다. |
+| wheel binding 증거 필드 RED가 `wheel_entrypoints_verified` KeyError로 실패해 boolean이 설치 entrypoint 개수 필드를 덮는 충돌을 재현함 | 1 | wheel 고유 boolean을 `wheel_entrypoints_verified`로 이름 붙이고 설치 환경의 `entrypoints_verified=4`와 독립적으로 보존한다. |
+| release-metadata binding RED가 변조 version, LICENSE, RECORD 세 표본을 모두 허용해 3 failures로 종료됨 | 1 | clean checkout README/LICENSE/NOTICE, exact release metadata/WHEEL contract, every-member RECORD hash·size를 wheel source binding에 추가한다. |
+| 결합 static gate가 long-line `awk` 성공 조건에 불필요한 shell `!`를 붙여 출력 없이 rc 1로 종료됨 | 1 | 앞선 diff/bash/compile 단계는 순서상 통과했다. long-line 검사를 올바른 exit 조건으로 독립 재실행하고 각 static gate도 다시 확인한다. |
+| checkout 밖 installed-wheel profile harness가 비패키지 `scripts.final_verify`를 import하지 못해 `ModuleNotFoundError`로 종료됨 | 1 | installed `src`를 먼저 절대 site-packages 경로로 확인한 뒤 verifier는 파일 경로 기반 별도 module로 로드해 checkout package가 import precedence를 바꾸지 않게 한다. |
+| installed profile 재시도가 macOS의 긴 임시 경로 때문에 control socket portable Unix 길이 제한에서 `ValueError`로 종료됨 | 1 | stderr 원문으로 제품 startup 이전의 harness 경로 문제를 확인했다. 장치 문서 경로 길이도 계산하고, 검증용 data root는 짧은 mode-0700 `/tmp` 경로로 재실행한다. |
+| ASCII socket 경로 길이 계산에 V8 isolate에 없는 `TextEncoder`를 사용해 `ReferenceError`가 발생함 | 1 | 입력 경로는 ASCII만 포함하므로 문자열 길이와 UTF-8 byte 길이가 같다. 지원되는 `String.length`로 즉시 재계산한다. |
+| documented S22U output path가 control socket 106 bytes로 100-byte runtime contract를 초과했고 compact-path RED 2건도 기존 `home`/무차단 동작을 재현함 | 1 | isolated child directory 이름을 private one-letter roots로 줄이고, 100 bytes를 넘는 사용자 output은 subprocess 시작 전에 명시적으로 거부한다. 전체 문서 명령의 추가 suffix는 다음 회귀에서 별도로 교정한다. |
+| 첫 문서 경로 재계산에서 실제 명령의 `/COMMIT12` suffix를 누락해 99 bytes로 잘못 판정함 | 1 | 전체 명령을 다시 대입한 실제 길이는 compact root에서도 108 bytes다. 문서 output을 짧은 `~/.cache/tfv/COMMIT12`로 바꾸고 Termux 절대 경로 회귀를 추가한다. |
+| portable-output documentation RED가 기존 `~/.cache/termuinator/final-verify/COMMIT12` 명령을 찾아 1 failure로 종료됨 | 1 | 예상한 문서 계약 실패다. parent/output/hash-check 경로를 모두 `~/.cache/tfv`로 통일하고 87-byte S22U socket path assertion을 유지한다. |
+| Termux/install 및 integration 문서 결합 patch가 integration의 실제 `/forms` 문맥과 달라 적용 전 거부됨 | 1 | 두 문서 모두 불변임을 확인했다. 현재 정확한 문맥을 기준으로 각각 작은 patch로 분리한다. |
+| 확대된 long-line static gate가 기존 packaging assertion 1줄(106자)을 찾아 rc 1로 종료됨 | 1 | 의미를 바꾸지 않고 assertion 인자를 여러 줄로 나눈 뒤 동일한 전체 정적 검사를 재실행한다. |
+| archive 검증 결합 명령이 실제 `SHA256SUMS.txt` 대신 `SHA256SUMS`를 사용하고 변경된 cwd에서 Git 검사를 이어 rc 128로 종료됨 | 1 | archive 파일 권한은 정상 확인됐다. checksum은 실제 파일명과 archive cwd로, Git 검사는 repository workdir에서 독립 재실행한다. |
+| read-only tailnet 재확인에서 `tailscale`이 현재 shell PATH에 없어 rc 127로 종료됨 | 1 | 장치나 네트워크는 변경되지 않았다. 설치된 macOS 앱 bundle의 CLI 절대 경로를 확인해 동일한 status 조회를 재실행한다. |
+| macOS `nc -z -w 5` TCP 8022 probe가 10초 후에도 종료되지 않아 owned PID 13343이 남음 | 1 | exact argv를 `pgrep -fl`로 확인한 뒤 해당 probe PID만 TERM하고 종료를 확인했다. 후속 TCP 확인은 macOS connect-timeout 옵션 `-G`를 사용한다. |
+| candidate benchmark documentation RED가 기존 `termuinator-mcp-v1` venv 경로를 찾아 1 failure로 종료됨 | 1 | verifier가 통과한 commit-suffixed `RC_VENV`의 Python과 tbp만 benchmark에 사용하도록 예시를 교정한다. |
 
 ---
 
@@ -1129,7 +1261,7 @@ Termu-inator MVP는 다음 조건을 모두 만족해야 한다.
 - [x] shared-view MVP
 - [x] Developer Mode
 - [x] Hermes and Codex integration examples
-- [ ] deterministic fixture test suite
+- [x] deterministic fixture test suite
 - [x] architecture/security/migration documentation
 - [ ] `v0.1.0-alpha` release
 

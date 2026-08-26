@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
+from contextlib import suppress
 import json
 import os
 from pathlib import Path
+import signal
 import sys
 from typing import Mapping
 
@@ -160,32 +163,72 @@ async def _run_stdio(
     runtime: CompactRuntime,
     tool_profile: str = "interactive",
 ) -> None:
-    await runtime.host_server.start()
-    shared_view = runtime.shared_view_server
+    loop = asyncio.get_running_loop()
+    shutdown_requested = asyncio.Event()
+    handled_signals: list[signal.Signals] = []
+    for termination_signal in (signal.SIGTERM, signal.SIGINT):
+        try:
+            loop.add_signal_handler(
+                termination_signal,
+                shutdown_requested.set,
+            )
+        except (NotImplementedError, RuntimeError, ValueError):
+            continue
+        handled_signals.append(termination_signal)
+
     try:
-        if shared_view is not None:
-            await shared_view.start()
-            print(
-                f"Termu-inator shared view: {shared_view.url}",
-                file=sys.stderr,
-                flush=True,
-            )
-        server = build_compact_server(
-            runtime.mcp_router,
-            tool_profile=tool_profile,
-        )
-        async with stdio_server() as (read_stream, write_stream):
-            await server.run(
-                read_stream,
-                write_stream,
-                server.create_initialization_options(),
-            )
-    finally:
+        await runtime.host_server.start()
+        shared_view = runtime.shared_view_server
         try:
             if shared_view is not None:
-                await shared_view.close()
+                await shared_view.start()
+                print(
+                    f"Termu-inator shared view: {shared_view.url}",
+                    file=sys.stderr,
+                    flush=True,
+                )
+            server = build_compact_server(
+                runtime.mcp_router,
+                tool_profile=tool_profile,
+            )
+            async with stdio_server() as (read_stream, write_stream):
+                server_task = asyncio.create_task(
+                    server.run(
+                        read_stream,
+                        write_stream,
+                        server.create_initialization_options(),
+                    )
+                )
+                signal_task = asyncio.create_task(shutdown_requested.wait())
+                try:
+                    completed, _pending = await asyncio.wait(
+                        (server_task, signal_task),
+                        return_when=asyncio.FIRST_COMPLETED,
+                    )
+                    if server_task in completed:
+                        await server_task
+                    else:
+                        server_task.cancel()
+                        with suppress(asyncio.CancelledError):
+                            await server_task
+                finally:
+                    for task in (server_task, signal_task):
+                        if not task.done():
+                            task.cancel()
+                    await asyncio.gather(
+                        server_task,
+                        signal_task,
+                        return_exceptions=True,
+                    )
         finally:
-            await runtime.host_server.close()
+            try:
+                if shared_view is not None:
+                    await shared_view.close()
+            finally:
+                await runtime.host_server.close()
+    finally:
+        for termination_signal in handled_signals:
+            loop.remove_signal_handler(termination_signal)
 
 
 def _shared_view_port(value: str) -> int:

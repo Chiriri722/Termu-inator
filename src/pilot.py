@@ -413,6 +413,9 @@ class Pilot:
 
     # --- Accessibility ---
 
+    async def a11y_nodes(self):
+        return await self.accessibility.get_tree()
+
     async def a11y_tree(self):
         return await self.accessibility.get_tree_summary()
 

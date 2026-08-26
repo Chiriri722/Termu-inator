@@ -192,13 +192,93 @@ the private bounded-diagnostic procedure in the
 [operations and troubleshooting guide](troubleshooting.md); do not clear X11
 locks or kill unrelated browser/window-manager processes.
 
-## Re-running the Device Benchmark
+## Release-candidate Device Gate
 
-Use the repository harness with explicit environment and network evidence:
+For a new commit, install its wheel into a new commit-suffixed MCP venv. Keep
+the prior venv and Hermes entry unchanged until the new one passes. Use that
+venv's pip to install the wheel, and do not move or delete the wheel afterward:
+the final verifier compares the preserved bytes and SHA-256 with pip's installed
+`direct_url.json` record. It also binds every tracked `cli.py` / `src/**/*.py`
+byte, the README payload, LICENSE/NOTICE, exact package metadata and entrypoints,
+and every wheel `RECORD` hash and size to the clean checkout. Editable installs
+and installers that omit the archive hash do not qualify as release-candidate
+evidence.
+
+Create the side-by-side environment explicitly with system site packages so
+Termux's native cryptography remains authoritative. The checkout constraint
+file pins the compact MCP dependencies:
 
 ```bash
-~/.venvs/termuinator-mcp-v1/bin/python scripts/benchmark_device.py \
-  --tbp ~/.venvs/termuinator-mcp-v1/bin/tbp \
+PROJECT_ROOT=/ABSOLUTE/PATH/TO/Termu-inator
+COMMIT12=REPLACE_WITH_COMMIT12
+RC_VENV="$HOME/.venvs/termuinator-mcp-$COMMIT12"
+WHEEL=/ABSOLUTE/PATH/TO/termux_browser_pilot-0.1.0a1-py3-none-any.whl
+
+test ! -e "$RC_VENV"
+python -m venv --system-site-packages "$RC_VENV"
+"$RC_VENV/bin/python" -m pip install \
+  --constraint "$PROJECT_ROOT/requirements-termux.txt" \
+  --only-binary=cryptography \
+  "${WHEEL}[mcp]"
+"$RC_VENV/bin/python" -m pip --disable-pip-version-check check
+```
+
+Do not use `uv pip` for this release-candidate install: the verifier requires
+pip's archive hash in `direct_url.json`. Do not change the existing Hermes MCP
+entry until the side-by-side candidate passes.
+
+Run the canonical verifier from a clean checkout at the exact expected commit.
+Replace every uppercase placeholder; the output parent may exist, but the
+commit-specific output directory must not. Use the short output parent below:
+the compact runtime limits its owner-private Unix socket path to 100 bytes, and
+the verifier rejects a path that cannot fit before starting MCP or a browser.
+
+```bash
+mkdir -p ~/.cache/tfv
+
+~/.venvs/termuinator-mcp-COMMIT12/bin/python scripts/final_verify.py \
+  --project-root /ABSOLUTE/PATH/TO/Termu-inator \
+  --mcp-command ~/.venvs/termuinator-mcp-COMMIT12/bin/tbp-mcp-v1 \
+  --control-command ~/.venvs/termuinator-mcp-COMMIT12/bin/tbp-control \
+  --wheel ~/.cache/termuinator/wheels/termux_browser_pilot-0.1.0a1-py3-none-any.whl \
+  --expected-commit FULL_40_HEX_COMMIT \
+  --expected-wheel-sha256 FULL_64_HEX_WHEEL_SHA256 \
+  --output ~/.cache/tfv/COMMIT12
+```
+
+The script always tests both Chromium and Firefox; there is no single-backend
+pass option. It uses only the bundled `127.0.0.1` fixture, grants that ephemeral
+origin through the owner-local control socket, requires default accessibility,
+text, ready state, a usable interactive ref, a valid PNG read to EOF, matching
+URI/metadata/local hashes, 0700/0600 storage modes, clean session/process/socket
+cleanup, and an observer restart on the same isolated data root. Raw stderr,
+process, and error diagnostics stay in the private output directory.
+The child MCP processes also receive an isolated mode 0700 `HOME`, so inherited
+`~/.tbp` profiles, downloads, and daemon state cannot affect or be changed by
+the gate.
+
+On success the command exits 0 and prints `status: PASS` with
+`benchmark_allowed: true`. From the report directory, verify the manifest hash:
+
+```bash
+cd ~/.cache/tfv/COMMIT12
+sha256sum -c final-verify-manifest.sha256
+```
+
+Any exit code 1, FAIL/SKIPPED backend, nonzero stderr, stale process/socket, or
+`benchmark_allowed: false` keeps the benchmark and RC approval closed. Do not
+fix such a result by weakening bounds, changing Tailscale/DNS, or removing
+packages; preserve the report and diagnose the recorded stage first.
+
+## Re-running the Device Benchmark
+
+Only after the release-candidate device manifest permits it, use the repository
+harness with explicit environment and network evidence:
+
+```bash
+RC_VENV="$HOME/.venvs/termuinator-mcp-COMMIT12"
+"$RC_VENV/bin/python" scripts/benchmark_device.py \
+  --tbp "$RC_VENV/bin/tbp" \
   --tailscale-termux-state "Excluding mode; Termux OFF" \
   --network-kind "current Tailscale path"
 ```

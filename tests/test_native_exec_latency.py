@@ -9,9 +9,51 @@ from unittest.mock import AsyncMock, patch
 
 from src import commands
 from src.native import NativeFirefoxSession, _navigate
+from src.termuinator.backends.legacy_dom import observe_script
 
 
 class NativeExecutionLatencyTests(unittest.IsolatedAsyncioTestCase):
+    async def test_multiline_dom_probe_is_preserved_inside_eval_wrapper(self) -> None:
+        session = NativeFirefoxSession()
+        source = observe_script("__diagnostic_registry_key")
+        wrappers: list[str] = []
+
+        async def capture_wrapper(
+            javascript: str, _marker: str, _timeout: float
+        ) -> dict[str, object]:
+            wrappers.append(javascript)
+            return {
+                "ready_state": "complete",
+                "dom_version": 0,
+                "elements": [],
+            }
+
+        session._run_js_and_read = capture_wrapper
+
+        result = await session._exec_js_inner(source, timeout=1)
+
+        self.assertEqual(result["ready_state"], "complete")
+        self.assertEqual(len(wrappers), 1)
+        self.assertIn(f"eval({json.dumps(source.strip())})", wrappers[0])
+        self.assertNotIn("shadow_path:shadowPath; });", wrappers[0])
+
+    async def test_javascript_error_is_typed_without_echoing_expression_data(self) -> None:
+        session = NativeFirefoxSession()
+        secret = "do-not-echo-javascript-error-data"
+
+        async def return_javascript_error(
+            _javascript: str, _marker: str, _timeout: float
+        ) -> str:
+            return f"ERR:Unexpected token near {secret}"
+
+        session._run_js_and_read = return_javascript_error
+
+        with self.assertRaises(commands.JavascriptExecutionError) as caught:
+            await session._exec_js_inner("invalid expression", timeout=1)
+
+        self.assertEqual(caught.exception.reason, "evaluation")
+        self.assertNotIn(secret, str(caught.exception))
+
     async def test_immediate_callback_is_polled_without_post_execute_delay(self) -> None:
         session = NativeFirefoxSession()
         session._console_synced = True

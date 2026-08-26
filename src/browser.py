@@ -9,6 +9,7 @@ from pathlib import Path
 import shutil
 import socket
 import stat
+import sys
 import tempfile
 import urllib.error
 import urllib.request
@@ -43,6 +44,31 @@ CDP_PORT = 9222
 CHROMIUM_STDERR_LIMIT = 64 * 1024
 CHROMIUM_BIN = shutil.which("chromium-browser") or shutil.which("chromium") or "chromium-browser"
 CHROMIUM_CANDIDATES = ("chromium", "chromium-browser", "google-chrome-stable")
+
+
+def _validated_chromium_tmpdir(environment):
+    candidates = [environment.get("TMPDIR")]
+    prefix = environment.get("PREFIX")
+    if prefix:
+        candidates.append(str(Path(prefix) / "tmp"))
+    candidates.append(str(Path(sys.base_prefix) / "tmp"))
+
+    for candidate in candidates:
+        if not candidate or not os.path.isabs(candidate):
+            continue
+        path = Path(candidate)
+        try:
+            if (
+                path.is_dir()
+                and not path.is_symlink()
+                and os.access(path, os.W_OK | os.X_OK)
+            ):
+                return str(path)
+        except OSError:
+            continue
+    return None
+
+
 # Chromium flags for Termux — minimal set to avoid automation fingerprint
 CHROMIUM_BASE_FLAGS = [
     # Required for Termux (no root, no namespaces, no /dev/shm)
@@ -363,6 +389,9 @@ class BrowserPilot:
         """
         env = os.environ.copy()
         env["DISPLAY"] = self.display
+        chromium_tmpdir = _validated_chromium_tmpdir(env)
+        if chromium_tmpdir is not None:
+            env["TMPDIR"] = chromium_tmpdir
 
         if self._gpu_mode == "virgl" and self._virgl:
             env.update(self._virgl.get_env())

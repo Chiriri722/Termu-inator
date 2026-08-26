@@ -49,10 +49,68 @@ from .legacy_dom import (
 from .legacy_devtools import devtools_script, normalize_devtools_result
 
 
+_MAX_ACCESSIBILITY_NODES = 200
+_MAX_ACCESSIBILITY_ROLE = 64
+_MAX_ACCESSIBILITY_NAME = 512
+_IGNORED_ACCESSIBILITY_ROLES = frozenset(
+    {"none", "generic", "InlineTextBox"}
+)
+
+
 def _create_legacy_pilot(**kwargs: object) -> object:
     from ...pilot import Pilot
 
     return Pilot(**kwargs)
+
+
+def _invalid_accessibility() -> NoReturn:
+    raise TermuinatorError(
+        ErrorCode.BACKEND_CRASHED,
+        "Inherited browser returned invalid accessibility data",
+    )
+
+
+def _accessibility_value(
+    node: Mapping[str, Any], field: str, maximum: int
+) -> str:
+    raw_field = node.get(field, {})
+    if not isinstance(raw_field, Mapping):
+        _invalid_accessibility()
+    raw_value = raw_field.get("value", "")
+    if not isinstance(raw_value, str) or len(raw_value) > maximum:
+        _invalid_accessibility()
+    return raw_value
+
+
+def _normalize_accessibility_nodes(
+    payload: object,
+) -> tuple[Mapping[str, Any], ...]:
+    if not isinstance(payload, (list, tuple)):
+        _invalid_accessibility()
+
+    normalized: list[Mapping[str, Any]] = []
+    for item in payload[:_MAX_ACCESSIBILITY_NODES]:
+        if not isinstance(item, Mapping):
+            _invalid_accessibility()
+        role = _accessibility_value(
+            item, "role", _MAX_ACCESSIBILITY_ROLE
+        )
+        name = _accessibility_value(
+            item, "name", _MAX_ACCESSIBILITY_NAME
+        )
+        if role in _IGNORED_ACCESSIBILITY_ROLES:
+            continue
+        if role or name:
+            normalized.append(
+                {
+                    "ref": None,
+                    "role": role,
+                    "name": name,
+                    "text": "",
+                    "depth": 0,
+                }
+            )
+    return tuple(normalized)
 
 
 class LegacyPilotBackend:
@@ -320,18 +378,8 @@ class LegacyPilotBackend:
 
         accessibility: tuple[Mapping[str, Any], ...] = ()
         if include_accessibility:
-            raw_accessibility = await pilot.a11y_tree()  # type: ignore[attr-defined]
-            if isinstance(raw_accessibility, Mapping):
-                accessibility = (raw_accessibility,)
-            elif isinstance(raw_accessibility, (list, tuple)) and all(
-                isinstance(item, Mapping) for item in raw_accessibility
-            ):
-                accessibility = tuple(raw_accessibility)
-            else:
-                raise TermuinatorError(
-                    ErrorCode.BACKEND_CRASHED,
-                    "Inherited browser returned invalid accessibility data",
-                )
+            raw_accessibility = await pilot.a11y_nodes()  # type: ignore[attr-defined]
+            accessibility = _normalize_accessibility_nodes(raw_accessibility)
         screenshot = (
             await self.screenshot("viewport")
             if include_screenshot

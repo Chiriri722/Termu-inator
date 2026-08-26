@@ -15,6 +15,14 @@ class JavascriptExecutionTimeout(RuntimeError):
     """Firefox native JavaScript channel did not produce a verified result."""
 
 
+class JavascriptExecutionError(RuntimeError):
+    """Firefox executed JavaScript but the expression failed safely."""
+
+    def __init__(self, reason: str) -> None:
+        self.reason = reason
+        super().__init__("Firefox JavaScript evaluation failed")
+
+
 class PageCommands:
     """Navigate, wait, evaluate, extract content."""
 

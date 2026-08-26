@@ -79,7 +79,10 @@ class InstallerContractTests(unittest.TestCase):
 
     def test_installer_creates_separate_cli_and_mcp_venvs(self) -> None:
         self.assertIn('CLI_VENV="${TERMUINATOR_CLI_VENV:-$VENV_ROOT/termuinator}"', self.installer)
-        self.assertIn('MCP_VENV="${TERMUINATOR_MCP_VENV:-$VENV_ROOT/termuinator-mcp-v1}"', self.installer)
+        self.assertIn(
+            'MCP_VENV="${TERMUINATOR_MCP_VENV:-$VENV_ROOT/termuinator-mcp-v1}"',
+            self.installer,
+        )
         self.assertIn("python -m venv", self.installer)
         self.assertIn("--system-site-packages", self.installer)
 
@@ -120,6 +123,38 @@ class InstallationDocumentationTests(unittest.TestCase):
         self.assertIn("bash setup.sh", quick_start)
         self.assertNotIn("pip install websockets", quick_start)
 
+    def test_final_gate_uses_a_portable_termux_output_path(self) -> None:
+        guide = (ROOT / "docs" / "termux-install.md").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("--output ~/.cache/tfv/COMMIT12", guide)
+        self.assertIn("cd ~/.cache/tfv/COMMIT12", guide)
+        self.assertNotIn(
+            "--output ~/.cache/termuinator/final-verify/COMMIT12",
+            guide,
+        )
+        device_socket = Path(
+            "/data/data/com.termux/files/home/.cache/tfv/COMMIT12/"
+            "d/termuinator/runtime/control.sock"
+        )
+        self.assertLessEqual(len(os.fsencode(device_socket)), 100)
+
+    def test_benchmark_uses_the_verified_commit_suffixed_venv(self) -> None:
+        guide = (ROOT / "docs" / "termux-install.md").read_text(
+            encoding="utf-8"
+        )
+        benchmark = guide.split("## Re-running the Device Benchmark", 1)[1]
+        self.assertIn(
+            'RC_VENV="$HOME/.venvs/termuinator-mcp-COMMIT12"',
+            benchmark,
+        )
+        self.assertIn(
+            '"$RC_VENV/bin/python" scripts/benchmark_device.py',
+            benchmark,
+        )
+        self.assertIn('--tbp "$RC_VENV/bin/tbp"', benchmark)
+        self.assertNotIn("~/.venvs/termuinator-mcp-v1/bin/python", benchmark)
+
     def test_lifecycle_and_troubleshooting_guide_is_explicit_and_safe(self) -> None:
         guide = (ROOT / "docs" / "troubleshooting.md").read_text(
             encoding="utf-8"
@@ -146,6 +181,7 @@ class InstallationDocumentationTests(unittest.TestCase):
         )
         self.assertIn("docs/troubleshooting.md", readme)
         self.assertIn("troubleshooting.md", install)
+        self.assertNotIn("pkill -f", readme)
 
     def test_design_docs_distinguish_normative_targets_from_current_alpha(self) -> None:
         architecture = (ROOT / "docs" / "architecture.md").read_text(

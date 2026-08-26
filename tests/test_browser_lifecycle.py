@@ -9,6 +9,7 @@ import tempfile
 import unittest
 from unittest.mock import AsyncMock, patch
 
+import src.browser as browser_module
 from src.browser import BrowserPilot
 from src.pilot import Pilot
 
@@ -79,6 +80,19 @@ class BrowserLifecycleTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             resolved, "/data/data/com.termux/files/usr/bin/chromium"
         )
+
+    def test_chromium_tmpdir_falls_back_to_python_base_prefix(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            base_prefix = Path(root) / "usr"
+            expected = base_prefix / "tmp"
+            expected.mkdir(parents=True)
+
+            with patch("sys.base_prefix", str(base_prefix)):
+                resolved = browser_module._validated_chromium_tmpdir(
+                    {"PATH": "/usr/bin"}
+                )
+
+        self.assertEqual(resolved, str(expected))
 
     async def test_browser_start_cleans_owned_resources_on_failure(self) -> None:
         pilot = BrowserPilot(
@@ -344,6 +358,43 @@ class BrowserLifecycleTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertNotEqual(debugging_flag, "--remote-debugging-port=0")
         self.assertGreater(pilot.cdp_port, 0)
+
+    async def test_chromium_child_derives_termux_tmpdir_when_stdio_omits_it(self) -> None:
+        launched_environments: list[dict[str, str]] = []
+
+        async def capture_launch(
+            environment: dict[str, str], extra_flags: list[str]
+        ) -> None:
+            launched_environments.append(dict(environment))
+            self.assertEqual(extra_flags, [])
+
+        with tempfile.TemporaryDirectory() as root:
+            prefix = Path(root) / "usr"
+            termux_tmp = prefix / "tmp"
+            profile = Path(root) / "profile"
+            termux_tmp.mkdir(parents=True)
+            profile.mkdir()
+            pilot = BrowserPilot(
+                display=":77",
+                cdp_port=9333,
+                chromium_bin="/usr/bin/chromium",
+                user_data_dir=str(profile),
+            )
+            pilot._launch_chromium = capture_launch
+            pilot._wait_for_cdp = AsyncMock(return_value="ws://127.0.0.1:9333")
+
+            with patch.dict(
+                "src.browser.os.environ",
+                {"PATH": "/usr/bin", "PREFIX": str(prefix)},
+                clear=True,
+            ):
+                await pilot._start_chromium()
+
+        self.assertEqual(len(launched_environments), 1)
+        self.assertEqual(
+            launched_environments[0]["TMPDIR"],
+            str(termux_tmp),
+        )
 
     async def test_chromium_launch_keeps_stderr_and_has_no_fixed_sleep(self) -> None:
         kwargs: dict[str, object] = {}

@@ -4,6 +4,12 @@ from __future__ import annotations
 
 import importlib.util
 from contextlib import asynccontextmanager
+import os
+from pathlib import Path
+import subprocess
+import sys
+import tempfile
+import time
 from types import SimpleNamespace
 import unittest
 from unittest.mock import ANY, patch
@@ -14,6 +20,49 @@ MCP_AVAILABLE = importlib.util.find_spec("mcp") is not None
 
 @unittest.skipUnless(MCP_AVAILABLE, "requires the pinned MCP optional dependency")
 class CompactMcpServerTests(unittest.IsolatedAsyncioTestCase):
+    def test_sigterm_cleans_control_socket_and_allows_restart(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            data_home = Path(root) / "data"
+            environment = os.environ.copy()
+            environment.pop("TERMUINATOR_CONFIG", None)
+            environment["HOME"] = root
+            environment["XDG_DATA_HOME"] = str(data_home)
+            socket_path = data_home / "termuinator" / "runtime" / "control.sock"
+
+            for _attempt in range(2):
+                process = subprocess.Popen(
+                    [
+                        sys.executable,
+                        "-m",
+                        "src.mcp_v1_server",
+                        "--tool-profile",
+                        "observer",
+                    ],
+                    stdin=subprocess.PIPE,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    env=environment,
+                )
+                try:
+                    deadline = time.monotonic() + 5
+                    while not socket_path.exists() and time.monotonic() < deadline:
+                        if process.poll() is not None:
+                            break
+                        time.sleep(0.01)
+                    self.assertIsNone(process.poll())
+                    self.assertTrue(socket_path.exists())
+
+                    process.terminate()
+                    stdout, stderr = process.communicate(timeout=5)
+                finally:
+                    if process.poll() is None:
+                        process.kill()
+                        process.communicate(timeout=5)
+
+                self.assertEqual(stdout, b"")
+                self.assertEqual(stderr, b"")
+                self.assertFalse(socket_path.exists())
+
     def test_main_requires_explicit_privileged_viewer_and_tool_profile_flags(self) -> None:
         from src.mcp_v1_server import main
 

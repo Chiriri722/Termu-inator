@@ -13,7 +13,6 @@ import base64
 import json
 import logging
 import os
-import re
 import time
 import shutil
 import tempfile
@@ -21,7 +20,7 @@ import threading
 import uuid
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
-from .commands import JavascriptExecutionTimeout
+from .commands import JavascriptExecutionError, JavascriptExecutionTimeout
 
 logger = logging.getLogger(__name__)
 
@@ -311,40 +310,6 @@ class NativeFirefoxSession:
             return ""
         return out.decode().strip()
 
-    @staticmethod
-    def _safe_join_lines(lines):
-        """Join multi-line JS into one line, inserting semicolons where needed.
-
-        Simple space-join breaks code that relies on ASI (Automatic Semicolon
-        Insertion). This inserts explicit semicolons between statements while
-        preserving continuations (operators, braces, etc.).
-        """
-        cont_end = re.compile(r'[{(\[,;+\-*/=<>&|?:!~^%]$')
-        cont_start = re.compile(r'^\s*(else|catch|finally|=>|[.?])\b')
-        # Control flow with braceless body: if/for/while/else if ending with )
-        ctrl_flow = re.compile(r'^\s*(?:if|for|while|else\s+if)\s*\(.*\)\s*$')
-        parts = []
-        for line in lines:
-            stripped = line.strip()
-            if not stripped or stripped.startswith('//'):
-                continue
-            parts.append(stripped)
-        if not parts:
-            return ""
-        out = [parts[0]]
-        for i in range(1, len(parts)):
-            prev, cur = parts[i - 1], parts[i]
-            if ctrl_flow.match(prev):
-                out.append(' ')
-            elif cont_end.search(prev) or cont_start.match(cur):
-                out.append(' ')
-            elif prev.endswith((';', '{', '}')):
-                out.append(' ')
-            else:
-                out.append('; ')
-            out.append(cur)
-        return ''.join(out)
-
     async def _exec_js(self, expression, timeout=60):
         """Execute JavaScript via browser console and read result.
 
@@ -374,8 +339,7 @@ class NativeFirefoxSession:
         the expression is a string, not inline code. Fall back to inline
         ({expr}) only if eval is blocked (CSP-restricted sites).
         """
-        lines = expression.strip().splitlines()
-        expr = lines[0].strip() if len(lines) == 1 else self._safe_join_lines(lines)
+        expr = expression.strip()
 
         # Primary: eval() wrapper — always parseable, handles multi-statement code
         marker1 = f"TBP{uuid.uuid4().hex}"
@@ -403,6 +367,9 @@ class NativeFirefoxSession:
             self._js_available = False
         elif result is not None:
             self._js_available = True
+
+        if isinstance(result, str) and result.startswith("ERR:"):
+            raise JavascriptExecutionError("evaluation")
 
         return result
 

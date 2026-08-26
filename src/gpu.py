@@ -30,29 +30,33 @@ class VirglManager:
     async def start(self):
         """Start virgl_test_server_android in background.
 
-        Returns True if started successfully.
+        Returns True if this manager started its own server successfully.
+        Existing servers are never killed; a resource conflict falls back to
+        the caller's software-rendering path.
         """
+        if self._proc is not None:
+            if self._proc.returncode is None:
+                return True
+            await self._proc.wait()
+            self._proc = None
         if not self.is_available():
             return False
 
-        # Kill any existing virgl server
-        kill_proc = await asyncio.create_subprocess_exec(
-            "pkill", "-f", "virgl_test_server_android",
-            stdout=asyncio.subprocess.DEVNULL,
-            stderr=asyncio.subprocess.DEVNULL,
-        )
-        await kill_proc.wait()
-        await asyncio.sleep(0.3)
-
-        self._proc = await asyncio.create_subprocess_exec(
-            "virgl_test_server_android",
-            stdout=asyncio.subprocess.DEVNULL,
-            stderr=asyncio.subprocess.DEVNULL,
-        )
+        try:
+            self._proc = await asyncio.create_subprocess_exec(
+                "virgl_test_server_android",
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+        except OSError:
+            self._proc = None
+            logger.warning("virgl_test_server_android could not be executed")
+            return False
         await asyncio.sleep(1.0)
 
         if self._proc.returncode is not None:
             logger.warning("virgl_test_server_android failed to start")
+            await self._proc.wait()
             self._proc = None
             return False
 

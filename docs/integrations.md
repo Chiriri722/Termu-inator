@@ -115,7 +115,36 @@ reviewed fixture.
 ## Smoke evidence
 
 For each backend, capture the first and final `browser_session_status`, the
-normalized URL/title/body from `browser_observe`, a non-empty PNG recovered
-through `browser_artifact_read`, the active capability record, and a clean
-`browser_session_stop`. A successful local server import or screenshot path by
-itself is not a browser round-trip pass.
+normalized URL/title/body/ready state from `browser_observe`, at least one
+fixture interactive ref, the active capability record, and bounded role/name
+accessibility records. Keep `include_accessibility: true`; a text-only
+observation is diagnostic evidence and does not pass the default observer gate.
+
+Run the deterministic loopback fixture before any public URL. Recover a
+non-empty PNG through `browser_artifact_read`, require EOF and matching URI,
+metadata, and reconstructed-byte SHA-256 values, and verify the device artifact
+is owner-only before `browser_session_stop`. A successful import, screenshot
+path, or `example.com` result by itself is not a browser round-trip pass.
+
+Stop the first compact stdio process and start the second profile on the same
+isolated data root to verify that no stale `control.sock` blocks reconnection.
+The canonical automation for this gate is
+[`scripts/final_verify.py`](../scripts/final_verify.py). Run it with the Python,
+`tbp-mcp-v1`, and `tbp-control` entrypoints from one commit-suffixed MCP venv,
+the full expected commit, and the preserved wheel path and SHA-256 used by pip.
+It refuses editable installs, dirty or mismatched checkouts, a non-Termux
+cryptography origin, partial backend selection, and an existing output
+directory. Before startup it also requires exact checkout/wheel/installed
+Python source bytes, release metadata, entrypoints, licenses, and wheel RECORD
+integrity. Use the short `~/.cache/tfv/COMMIT12` output path from the Termux
+guide so the private Unix control socket remains within its portable limit. It
+then runs Chromium and Firefox against `/forms` on the bundled
+loopback fixture, reads the screenshot artifact to EOF, compares MCP, URI,
+durable-file, and reconstructed hashes, checks modes 0700/0600, stops each
+session, and restarts the observer profile on the same data root.
+
+Exit code 0 plus manifest `status: PASS` and `benchmark_allowed: true` is the
+only result that opens the compact benchmark gate. A FAIL manifest remains
+useful diagnostic evidence but must not be renamed or summarized as a partial
+pass. Verify `final-verify-manifest.sha256` from inside its output directory.
+Keep public-site navigation and DNS results as non-gating smoke evidence.

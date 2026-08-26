@@ -65,9 +65,30 @@ class _RecordingPilot:
         self.calls.append("text")
         return "abcdef"
 
-    async def a11y_tree(self) -> list[dict[str, str]]:
+    async def a11y_tree(self) -> str:
         self.calls.append("a11y_tree")
-        return [{"role": "heading", "name": "Example Domain"}]
+        return "[heading] Example Domain"
+
+    async def a11y_nodes(self) -> list[dict[str, object]]:
+        self.calls.append("a11y_nodes")
+        return [
+            {
+                "nodeId": "private-generic-node",
+                "role": {"type": "role", "value": "generic"},
+                "name": {"type": "computedString", "value": ""},
+            },
+            {
+                "nodeId": "private-ax-node",
+                "role": {"type": "role", "value": "heading"},
+                "name": {
+                    "type": "computedString",
+                    "value": "Example Domain",
+                },
+                "properties": [
+                    {"name": "raw-private-property", "value": "not-public"}
+                ],
+            }
+        ]
 
     async def evaluate(self, script: str) -> object:
         if "TERMUINATOR_DEVTOOLS_CONSOLE_V1" in script:
@@ -364,6 +385,32 @@ class LegacyBackendAdapterTests(unittest.TestCase):
 
 
 class LegacyBackendLifecycleTests(unittest.IsolatedAsyncioTestCase):
+    async def test_pilot_exposes_structured_accessibility_without_changing_summary(self) -> None:
+        pilot_module = importlib.import_module("src.pilot")
+
+        class Accessibility:
+            def __init__(self) -> None:
+                self.calls: list[str] = []
+
+            async def get_tree(self) -> list[dict[str, object]]:
+                self.calls.append("get_tree")
+                return [{"role": {"value": "heading"}}]
+
+            async def get_tree_summary(self) -> str:
+                self.calls.append("get_tree_summary")
+                return "[heading] Example Domain"
+
+        accessibility = Accessibility()
+        pilot = object.__new__(pilot_module.Pilot)
+        pilot.accessibility = accessibility
+
+        nodes = await pilot.a11y_nodes()
+        summary = await pilot.a11y_tree()
+
+        self.assertEqual(nodes, [{"role": {"value": "heading"}}])
+        self.assertEqual(summary, "[heading] Example Domain")
+        self.assertEqual(accessibility.calls, ["get_tree", "get_tree_summary"])
+
     async def test_start_and_stop_wrap_one_explicit_inherited_backend(self) -> None:
         pilot = _RecordingPilot()
         factory_calls: list[dict[str, object]] = []
@@ -437,11 +484,110 @@ class LegacyBackendLifecycleTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(pilot.calls[1], ("goto", "https://example.com", 45.0))
         self.assertEqual(observed.text, "abcde")
         self.assertTrue(observed.text_truncated)
-        self.assertEqual(observed.accessibility[0]["role"], "heading")
+        self.assertEqual(
+            observed.accessibility,
+            (
+                {
+                    "ref": None,
+                    "role": "heading",
+                    "name": "Example Domain",
+                    "text": "",
+                    "depth": 0,
+                },
+            ),
+        )
+        self.assertIn("a11y_nodes", pilot.calls)
+        self.assertNotIn("a11y_tree", pilot.calls)
         self.assertEqual(adapter.cached_status().url, "https://example.com")
         by_id = {item.capability_id: item for item in capabilities.capabilities}
         self.assertEqual(by_id["navigate"].status, CapabilityStatus.PARTIAL)
         self.assertEqual(by_id["observe"].status, CapabilityStatus.PARTIAL)
+
+    async def test_observe_bounds_accessibility_node_count(self) -> None:
+        class UnboundedPilot(_RecordingPilot):
+            async def a11y_nodes(self) -> list[dict[str, object]]:
+                return [
+                    {
+                        "role": {"value": "button"},
+                        "name": {"value": f"Button {index}"},
+                    }
+                    for index in range(201)
+                ]
+
+        pilot = UnboundedPilot()
+        adapter = LegacyPilotBackend(
+            Backend.CHROMIUM,
+            pilot_factory=lambda **_: pilot,
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            profile = Path(temp_dir) / "profile"
+            profile.mkdir(mode=0o700)
+            await adapter.start(profile, Viewport(width=1000, height=700))
+
+        observed = await adapter.observe(
+            include_screenshot=False,
+            include_accessibility=True,
+            text_limit=0,
+        )
+
+        self.assertEqual(len(observed.accessibility), 200)
+        self.assertEqual(
+            observed.accessibility[-1],
+            {
+                "ref": None,
+                "role": "button",
+                "name": "Button 199",
+                "text": "",
+                "depth": 0,
+            },
+        )
+
+    async def test_observe_rejects_invalid_accessibility_without_echoing_page_data(self) -> None:
+        secret = "do-not-echo-accessibility-page-data"
+        invalid_payloads: tuple[list[dict[str, object]], ...] = (
+            [
+                {
+                    "role": {"value": {"secret": secret}},
+                    "name": {"value": "Example Domain"},
+                }
+            ],
+            [
+                {
+                    "role": {"value": "heading"},
+                    "name": {"value": secret + ("x" * 513)},
+                }
+            ],
+        )
+
+        for payload in invalid_payloads:
+            with self.subTest(payload_kind=type(payload[0]["role"]["value"]).__name__):
+                class InvalidPilot(_RecordingPilot):
+                    async def a11y_nodes(self) -> list[dict[str, object]]:
+                        return payload
+
+                pilot = InvalidPilot()
+                adapter = LegacyPilotBackend(
+                    Backend.CHROMIUM,
+                    pilot_factory=lambda **_: pilot,
+                )
+                with tempfile.TemporaryDirectory() as temp_dir:
+                    profile = Path(temp_dir) / "profile"
+                    profile.mkdir(mode=0o700)
+                    await adapter.start(profile, Viewport(width=1000, height=700))
+
+                with self.assertRaises(TermuinatorError) as caught:
+                    await adapter.observe(
+                        include_screenshot=False,
+                        include_accessibility=True,
+                        text_limit=0,
+                    )
+
+                self.assertEqual(caught.exception.code, ErrorCode.BACKEND_CRASHED)
+                self.assertNotIn(secret, str(caught.exception))
+                self.assertNotIn(
+                    secret,
+                    json.dumps(dict(caught.exception.details), sort_keys=True),
+                )
 
     async def test_viewport_full_and_observation_screenshots_return_raw_png(self) -> None:
         pilot = _RecordingPilot()
