@@ -25,12 +25,17 @@ Chromium `TMPDIR` 누락을 실제 실패형 RED 뒤에 복구했다. 검증 중
 회귀로 닫았다. canonical verifier의 HOME/XDG/TMP 격리와 diagnostic override 제거,
 VirGL 소유권 경계도 RED/GREEN으로 보강했다. verifier는 wheel/checkout/installed source,
 release metadata, license, RECORD와 portable control-socket 경로까지 묶는다. Python
-3.11/3.12/3.14의 warning-as-error 339-test suite, pinned MCP 전체 suite, fresh pip wheel
+3.11/3.12/3.14의 warning-as-error 341-test suite, pinned MCP 전체 suite, fresh pip wheel
 install/check, 네 entrypoint, interactive→observer 연속 stdio purity가 모두 GREEN이다.
-다음은 이 uncommitted candidate를 새 commit으로 만든 뒤 S22U에 side-by-side 설치하여
-checkout의 `scripts/final_verify.py`를 실행하는 것이다. 현재 S22U는 tailnet map에서
-online이지만 ping 무응답이고 TCP 8022도 닫혀 있어 Mac 직접 실행은 불가능하다. 양 backend
-PASS와 `benchmark_allowed: true` 전에는 benchmark나 RC 승인을 진행하지 않는다.
+commit `d40f4d3e3d801643ca0433116d7d951b3ce0c483`의 wheel/source/provenance와 새
+commit-suffixed Termux venv는 모두 통과했다. canonical verifier는 최신 Termux Python의
+`platform.system() == "Android"`를 Linux-only 조건으로 거부해 `installed-environment`에서
+FAIL했고 benchmark는 올바르게 보류됐다. coherent modern `android/Android`와 legacy
+`linux/Linux` identity만 허용하는 RED/GREEN 수정 및 전체 local authority는 완료됐다.
+보존 wheel은 새 checkout에도 57-source/metadata/RECORD 결합을 통과하므로 재빌드하지 않는다.
+다음은 이 수정만 새 commit으로 만든 뒤 새 commit-suffixed venv에서 동일 canonical device
+gate를 재실행하는 것이다. 양 backend PASS와 `benchmark_allowed: true` 전에는 benchmark나
+RC 승인을 진행하지 않는다.
 
 ## Current Phase
 
@@ -774,6 +779,17 @@ Termu-inator MVP는 다음 조건을 모두 만족해야 한다.
    - [ ] 새 commit-suffixed Termux venv에서 canonical verifier를 실제 실행해 양 backend
      PASS, `benchmark_allowed: true`, checksum OK를 확보한다.
 
+6. **`d40f4d3` Android identity preflight 결함을 TDD로 복구한다.**
+   - [x] 전달된 manifest/checksum/raw error를 독립 검증하고 failure stage와 benchmark
+     보류를 확인한다.
+   - [x] `platform.system() == "Android"`, `sys.platform == "android"`, 유효한
+     `ANDROID_ROOT`/Termux `PREFIX`를 가진 최신 Termux Python을 허용하는 RED를 추가한다.
+   - [x] Linux-host 위장이나 Android/Termux 일부 표지만 있는 환경은 계속 거부하는
+     fail-closed 경계를 유지한다.
+   - [x] focused verifier suite와 Python 3.11/3.12/3.14 전체 authority, wheel binding,
+     static gate를 재검증한다.
+   - [ ] 새 commit에서 side-by-side venv와 canonical device gate를 재실행한다.
+
 **Phase 7A Exit Gate**
 
 - Chromium observation이 legacy summary 문자열에 의존하지 않고 bounded structured
@@ -1226,7 +1242,7 @@ Termu-inator MVP는 다음 조건을 모두 만족해야 한다.
 | VirGL repeated-start RED가 같은 manager에서 live owned process를 두 번째로 생성해 launch await count 2로 실패함 | 1 | 기존 own process가 살아 있으면 idempotent success를 반환해 handle 유실과 helper leak을 막고, 종료된 process일 때만 새로 시작한다. |
 | final wheel fresh-venv install harness가 `/tmp` cwd에서 상대 constraint를 찾지 못한 선행 pip 실패를 즉시 중단하지 않아, `pip check` 뒤 installed tests가 `No module named src` 2건으로 종료됨 | 1 | 제품 wheel과 checkout은 불변이다. absolute repository constraint와 `set -e`를 사용해 설치·dependency·installed import를 하나의 fail-fast gate로 재실행한다. |
 | 최종 로컬 후보 후 S22U read-only 재확인에서 tailnet 상태가 `offline, last seen 1m ago`, ping timeout, TCP 8022 rc 1로 종료됨 | 1 | 장치·Tailscale 설정은 변경하지 않았다. 현재 Mac에서 직접 device gate를 실행할 수 없으므로 새 commit과 wheel을 보존한 뒤 on-device Hermes 절차 또는 장치 online+sshd 재개를 기다린다. |
-| `code-review-excellence`가 나열한 `references/common-bugs-checklist.md`를 읽으려 했지만 skill package에 해당 경로가 없어 rc 1로 중단됨 | 1 | 저장소 파일은 불변이다. skill 디렉터리의 실제 파일 목록을 좁게 확인하고, 누락된 선택 reference 없이 완전히 읽은 SKILL 본문의 체크리스트로 감사를 계속한다. |
+| `code-review-excellence`가 나열한 `references/common-bugs-checklist.md` 등 resource를 읽으려 했지만 skill package에는 `SKILL.md`만 존재함 | 2 | 저장소 파일은 불변이다. 실제 package inventory를 확인했으며, 누락된 선택 resource를 꾸며내지 않고 완전히 읽은 SKILL 본문의 logic/security/test checklist로 감사를 계속한다. |
 | wheel↔checkout binding RED가 존재하지 않는 `validate_wheel_source_binding` import error로 종료됨 | 1 | 예상한 blocking RED다. tracked Python source byte equality, exact console entrypoint metadata, safe unique wheel member allowlist를 검증하고 installed-environment preflight에 연결한다. |
 | wheel entrypoint 증거 필드 회귀 test patch 직후 도구 출력이 모델 한도를 넘어 절단됨 | 1 | 파일 변경 여부를 `rg`로 재확인해 assertion이 정상 적용된 것을 확인했다. 제품·wheel은 불변이며, 후속 실행은 좁은 focused test 출력만 수집한다. |
 | focused RED에 이전 기록과 다른 `/usr/local/bin/python3.11` 경로를 사용해 shell rc 127이 발생함 | 1 | 저장소·제품은 실행되지 않았다. 현재 host의 실제 `/Users/chiriri722/.local/bin/python3.11`을 확인해 같은 focused test를 재실행한다. |
@@ -1245,6 +1261,11 @@ Termu-inator MVP는 다음 조건을 모두 만족해야 한다.
 | read-only tailnet 재확인에서 `tailscale`이 현재 shell PATH에 없어 rc 127로 종료됨 | 1 | 장치나 네트워크는 변경되지 않았다. 설치된 macOS 앱 bundle의 CLI 절대 경로를 확인해 동일한 status 조회를 재실행한다. |
 | macOS `nc -z -w 5` TCP 8022 probe가 10초 후에도 종료되지 않아 owned PID 13343이 남음 | 1 | exact argv를 `pgrep -fl`로 확인한 뒤 해당 probe PID만 TERM하고 종료를 확인했다. 후속 TCP 확인은 macOS connect-timeout 옵션 `-G`를 사용한다. |
 | candidate benchmark documentation RED가 기존 `termuinator-mcp-v1` venv 경로를 찾아 1 failure로 종료됨 | 1 | verifier가 통과한 commit-suffixed `RC_VENV`의 Python과 tbp만 benchmark에 사용하도록 예시를 교정한다. |
+| `d40f4d3` S22U canonical gate가 최신 Termux Python의 `platform.system() == "Android"`를 거부해 `installed-environment`에서 FAIL함 | 1 | 첨부 manifest SHA/checksum/raw error를 검증했다. source patch나 환경 위장 없이 benchmark를 닫은 결과를 보존하고, Android/Termux identity helper의 RED부터 수정한다. |
+| Android identity focused RED가 존재하지 않는 `validate_android_termux_identity` import error 2건으로 종료됨 | 1 | 의도한 미구현 실패다. modern Android/legacy Linux의 coherent pair만 허용하고 partial/mismatched identity는 동일 VerificationFailure로 닫는 최소 helper를 구현한다. |
+| Python 3.11/3.12/3.14 전체 suite가 workspace sandbox의 loopback TCP·Unix socket bind `PermissionError`로 실패하고 결합 출력이 절단됨 | 1 | 제품 회귀로 판정하지 않는다. 동일한 세 authority 명령을 로컬 socket 사용이 허용된 sandbox 외부에서 독립 재실행해 실제 결과를 확정한다. |
+| macOS 앱 bundle의 `Tailscale status --json`이 sandbox에서 출력 없이 종료되고 `--help`는 rc 134로 중단됨 | 1 | 장치·설정은 불변이다. GUI/network-service 접근이 필요한 앱 binary이므로 동일한 읽기 전용 status를 sandbox 밖에서 재실행해 CLI 부재와 sandbox failure를 구분한다. |
+| 2026-08-26 최신 S22U 확인에서 tailnet direct pong은 38ms로 성공했지만 TCP 8022가 `Connection refused`를 반환함 | 1 | 장치·Tailscale은 변경하지 않았다. Mac 직접 transport는 여전히 없으므로 clean commit 뒤 on-device Hermes 재실행을 사용하거나 사용자가 Termux `sshd`를 명시적으로 시작해야 한다. |
 
 ---
 

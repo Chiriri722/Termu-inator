@@ -23,6 +23,7 @@ from scripts.final_verify import (
     project_digest,
     reconstruct_artifact,
     runtime_platform_summary,
+    validate_android_termux_identity,
     validate_artifact_store,
     validate_installed_source_binding,
     validate_observation,
@@ -491,6 +492,52 @@ class InstalledWheelProvenanceTests(unittest.TestCase):
         self.assertEqual(summary["python"], platform.python_version())
         self.assertEqual(summary["kernel_release"], platform.release())
         self.assertNotIn("android_release", summary)
+
+    def test_accepts_modern_and_legacy_termux_runtime_identities(self) -> None:
+        valid_identities = (
+            ("android", "Android"),
+            ("linux", "Linux"),
+        )
+        for python_platform, system_name in valid_identities:
+            with self.subTest(
+                python_platform=python_platform,
+                system_name=system_name,
+            ):
+                summary = validate_android_termux_identity(
+                    python_platform=python_platform,
+                    system_name=system_name,
+                    android_root="/system",
+                )
+
+                self.assertEqual(summary["python_sys_platform"], python_platform)
+                self.assertEqual(summary["platform_system"], system_name)
+                self.assertTrue(summary["android_runtime_verified"])
+
+    def test_rejects_partial_or_incoherent_termux_runtime_identities(self) -> None:
+        invalid_identities = (
+            ("darwin", "Darwin", "/system"),
+            ("android", "Android", None),
+            ("linux", "Linux", "relative/system"),
+            ("android", "Linux", "/system"),
+            ("linux", "Android", "/system"),
+            ("android", "Android", "/"),
+            ("android", "Android", "/system/../system"),
+        )
+        for python_platform, system_name, android_root in invalid_identities:
+            with self.subTest(
+                python_platform=python_platform,
+                system_name=system_name,
+                android_root=android_root,
+            ):
+                with self.assertRaisesRegex(
+                    VerificationFailure,
+                    "final verifier must run on Android/Termux",
+                ):
+                    validate_android_termux_identity(
+                        python_platform=python_platform,
+                        system_name=system_name,
+                        android_root=android_root,
+                    )
 
     def test_runtime_distribution_is_selected_only_from_explicit_venv_paths(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

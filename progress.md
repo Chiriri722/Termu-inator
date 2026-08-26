@@ -563,3 +563,18 @@
 - Refreshed the final fast graph to 2,998 nodes and 17,470 edges. Its configured exclusions still omit `scripts/`; the verifier is covered directly by 22 focused tests and source review.
 - No packaged candidate source changed, so the preserved wheel and checksum remain valid. No commit, push, Hermes/device mutation, benchmark, or RC approval was performed; the clean S22U manifest remains the open gate.
 - The final read-only tailnet refresh lists the S22U as online, but one Tailscale ping timed out and a bounded TCP 8022 probe returned rc 1. The Mac still has no usable Termux transport; no device or Tailscale setting was changed.
+
+## 2026-08-26 — `d40f4d3` device evidence intake
+
+- Verified all three transferred evidence files independently; the manifest checksum passes and exactly records an `installed-environment` Android identity failure with benchmark disabled.
+- Local `main` is at `d40f4d3e3d801643ca0433116d7d951b3ce0c483` (`v.0.2.03`). Only unrelated untracked `.DS_Store` files are present and will be preserved.
+- No production source has been changed in this repair cycle yet. The next action is a failing verifier regression for modern Termux's `platform.system() == "Android"` identity before any implementation edit.
+- Added two verifier contract tests before implementation. The focused RED fails because `validate_android_termux_identity` does not exist, while its cases explicitly require modern `android/Android`, preserve legacy `linux/Linux`, and reject missing, relative, root-only, traversing, or mismatched Android signals.
+- Added `validate_android_termux_identity()` and connected its evidence to the installed-environment report. The focused RED is GREEN, and all 24 canonical-verifier tests pass on Python 3.11 with warnings treated as errors.
+- Re-ran the complete authority suite outside the workspace sandbox because it requires loopback TCP and Unix sockets. Python 3.11.15 and 3.12.13 each pass 341 tests with eight optional MCP skips; pinned-MCP Python 3.14.7 executes and passes all 341.
+- Static gates pass: `git diff --check`, `bash -n setup.sh`, warning-as-error `compileall` on all three supported interpreters, and the 100-column limit for the changed verifier and test files.
+- The preserved 273,622-byte wheel remains SHA-256 `85ec62fa15200c689e25044e564642e9b2e505764c2327ed673da77bc24a1299` and still binds to all 57 packaged checkout sources, source-tree digest `9693c07cb450d1da342006a595b8e0a0fb3662dec09a55e7202b0f5ad00e812b`, exact metadata, entrypoints, license files, member allowlist, and RECORD.
+- Refreshed the fast code graph to 3,002 nodes and 17,477 edges. Its configured exclusions still omit `scripts/`; both new identity regression methods are indexed, while the verifier helper remains covered by direct source review and the 24-test verifier suite.
+- A fresh read-only tailnet check outside the app sandbox reports `Galaxy S22 Ultra` online and a direct-path pong in 38 ms. The bounded TCP 8022 probe still returns `Connection refused`, so Mac-side SSH cannot replace the on-device Hermes gate. No device or Tailscale setting changed.
+- A commit-scope code review found no blocking or important issue: the runtime pair and canonical root checks are constant-time, secret-free, and stricter than the former one-marker check; they execute only after real Termux prefix/pkg and native-cryptography validation. The 24-test focused verifier suite and final diff check remain GREEN.
+- No wheel rebuild, commit, push, Hermes/device mutation, benchmark, or RC approval was performed. A clean new commit and on-device canonical PASS manifest remain required.

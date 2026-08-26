@@ -729,6 +729,26 @@ def runtime_platform_summary() -> dict[str, str]:
     }
 
 
+def validate_android_termux_identity(
+    *,
+    python_platform: str,
+    system_name: str,
+    android_root: str | None,
+) -> dict[str, object]:
+    """Accept only coherent modern or legacy Termux runtime identities."""
+
+    identity = (python_platform, system_name)
+    if identity not in {("android", "Android"), ("linux", "Linux")}:
+        raise VerificationFailure("final verifier must run on Android/Termux")
+    if android_root != "/system":
+        raise VerificationFailure("final verifier must run on Android/Termux")
+    return {
+        "android_runtime_verified": True,
+        "python_sys_platform": python_platform,
+        "platform_system": system_name,
+    }
+
+
 def _installed_environment_preflight(
     *,
     project_root: Path,
@@ -810,8 +830,11 @@ def _installed_environment_preflight(
         raise VerificationFailure(
             "cryptography is not the Termux native system package"
         )
-    if platform.system() != "Linux" or not os.environ.get("ANDROID_ROOT"):
-        raise VerificationFailure("final verifier must run on Android/Termux")
+    runtime_identity = validate_android_termux_identity(
+        python_platform=sys.platform,
+        system_name=platform.system(),
+        android_root=os.environ.get("ANDROID_ROOT"),
+    )
 
     pip_check = _run_bounded(
         [
@@ -833,6 +856,7 @@ def _installed_environment_preflight(
         raise VerificationFailure("release-candidate venv failed pip check")
     return {
         **runtime_platform_summary(),
+        **runtime_identity,
         "termux_prefix_verified": True,
         "native_cryptography": crypto_version,
         "termux_browser_pilot": package_version,
@@ -2122,6 +2146,7 @@ __all__ = [
     "project_digest",
     "reconstruct_artifact",
     "runtime_platform_summary",
+    "validate_android_termux_identity",
     "validate_artifact_store",
     "validate_installed_source_binding",
     "validate_observation",
