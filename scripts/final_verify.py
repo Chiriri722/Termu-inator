@@ -12,6 +12,8 @@ import csv
 from datetime import datetime, timedelta, timezone
 from email import policy as email_policy
 from email.parser import BytesParser
+import errno
+import fcntl
 import hashlib
 from importlib import metadata as importlib_metadata
 from importlib import util as importlib_util
@@ -1522,7 +1524,7 @@ async def verify_backend(
             artifact=artifact,
         )
         artifact_summary = validate_artifact_store(
-            data_root,
+            data_root / "state",
             owner_scope=owner_scope,
             project_id=project_id,
             artifact=artifact,
@@ -1861,16 +1863,170 @@ async def _wait_for_new_processes(
     return latest, survivors
 
 
-def _cleanup_summary(data_root: Path, temporary_root: Path) -> dict[str, object]:
+def validate_released_session_lock(
+    lock_path: Path,
+    *,
+    owner_scope: str,
+) -> dict[str, bool]:
+    """Report the safety evidence for a released persistent session lock."""
+
+    if not isinstance(lock_path, Path) or not lock_path.is_absolute():
+        raise ValueError("lock_path must be an absolute Path")
+    if not isinstance(owner_scope, str) or not 1 <= len(owner_scope) <= 256:
+        raise ValueError("owner_scope must be a bounded string")
+    summary = {
+        "session_lock_path_safe": False,
+        "session_lock_owner_safe": False,
+        "session_lock_pid_inactive": False,
+        "session_lock_lease_available": False,
+    }
+    flags = os.O_RDWR | getattr(os, "O_CLOEXEC", 0)
+    flags |= getattr(os, "O_NOFOLLOW", 0)
+    try:
+        descriptor = os.open(lock_path, flags)
+    except FileNotFoundError:
+        try:
+            lock_path.lstat()
+        except FileNotFoundError:
+            return {name: True for name in summary}
+        except OSError:
+            return summary
+        return summary
+    except OSError:
+        return summary
+
+    lease_acquired = False
+    try:
+        info = os.fstat(descriptor)
+        try:
+            parent_info = lock_path.parent.lstat()
+            path_info = lock_path.lstat()
+        except OSError:
+            return summary
+        if (
+            not stat.S_ISDIR(parent_info.st_mode)
+            or stat.S_IMODE(parent_info.st_mode) != 0o700
+            or parent_info.st_uid != os.getuid()
+            or not stat.S_ISREG(info.st_mode)
+            or stat.S_IMODE(info.st_mode) != 0o600
+            or info.st_uid != os.getuid()
+            or (info.st_dev, info.st_ino) != (path_info.st_dev, path_info.st_ino)
+        ):
+            return summary
+        summary["session_lock_path_safe"] = True
+        try:
+            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError as exc:
+            if exc.errno not in {errno.EACCES, errno.EAGAIN}:
+                return summary
+            return summary
+        lease_acquired = True
+        summary["session_lock_lease_available"] = True
+
+        if not 1 <= info.st_size <= 8192:
+            return summary
+        os.lseek(descriptor, 0, os.SEEK_SET)
+        chunks: list[bytes] = []
+        remaining = info.st_size
+        while remaining:
+            chunk = os.read(descriptor, min(4096, remaining))
+            if not chunk:
+                return summary
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        try:
+            payload = json.loads(
+                b"".join(chunks).decode("utf-8"),
+                parse_constant=_reject_json_constant,
+            )
+        except (UnicodeDecodeError, json.JSONDecodeError, ValueError):
+            return summary
+        if not isinstance(payload, dict) or frozenset(payload) != {
+            "format",
+            "owner_digest",
+            "pid",
+            "acquired_at",
+        }:
+            return summary
+        expected_owner = hashlib.sha256(
+            b"termuinator-session-owner-v1\x00" + owner_scope.encode("utf-8")
+        ).hexdigest()
+        owner_digest = payload.get("owner_digest")
+        if (
+            payload.get("format") != "termuinator-session-lock-v1"
+            or not isinstance(owner_digest, str)
+            or not secrets.compare_digest(owner_digest, expected_owner)
+        ):
+            return summary
+        acquired_at = payload.get("acquired_at")
+        if not isinstance(acquired_at, str) or len(acquired_at) > 128:
+            return summary
+        try:
+            acquired_time = datetime.fromisoformat(acquired_at)
+        except ValueError:
+            return summary
+        if acquired_time.tzinfo is None:
+            return summary
+        summary["session_lock_owner_safe"] = True
+
+        pid = payload.get("pid")
+        if isinstance(pid, bool) or not isinstance(pid, int) or not 1 <= pid < 2**31:
+            return summary
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            summary["session_lock_pid_inactive"] = True
+        except PermissionError:
+            return summary
+        except OSError as exc:
+            if exc.errno != errno.ESRCH:
+                return summary
+            summary["session_lock_pid_inactive"] = True
+        else:
+            return summary
+
+        try:
+            current_parent_info = lock_path.parent.lstat()
+            current_info = lock_path.lstat()
+        except OSError:
+            summary["session_lock_path_safe"] = False
+            return summary
+        if (
+            (parent_info.st_dev, parent_info.st_ino)
+            != (current_parent_info.st_dev, current_parent_info.st_ino)
+            or (info.st_dev, info.st_ino)
+            != (current_info.st_dev, current_info.st_ino)
+        ):
+            summary["session_lock_path_safe"] = False
+        return summary
+    finally:
+        try:
+            if lease_acquired:
+                fcntl.flock(descriptor, fcntl.LOCK_UN)
+        finally:
+            os.close(descriptor)
+
+
+def _cleanup_summary(
+    data_root: Path,
+    temporary_root: Path,
+    *,
+    owner_scope: str,
+) -> dict[str, object]:
     paths = {
         "control_socket_absent": data_root / "runtime" / "control.sock",
-        "session_lock_absent": data_root / "runtime" / "session.lock",
         "legacy_lock_absent": temporary_root / ".tbp_browser.lock",
     }
     summary = {
         name: not path.exists() and not path.is_symlink()
         for name, path in paths.items()
     }
+    summary.update(
+        validate_released_session_lock(
+            data_root / "runtime" / "session.lock",
+            owner_scope=owner_scope,
+        )
+    )
     lease_root = temporary_root / "termuinator-runtime"
     lease_files = list(lease_root.glob("*.lease")) if lease_root.is_dir() else []
     summary["display_leases_absent"] = not lease_files
@@ -1945,7 +2101,11 @@ async def _run_device_verification(
                             "message": repr(exc)[:8192],
                         }
                     )
-                    cleanup = _cleanup_summary(data_root, paths["tmp"])
+                    cleanup = _cleanup_summary(
+                        data_root,
+                        paths["tmp"],
+                        owner_scope=owner_scope,
+                    )
                     if not all(cleanup.values()):
                         remaining = (
                             "firefox" if backend == "chromium" else None
@@ -1991,7 +2151,11 @@ async def _run_device_verification(
     write_private_json(output_dir / "processes-after.json", final_processes)
     if survivors:
         write_private_json(output_dir / "process-survivors.json", survivors)
-    cleanup = _cleanup_summary(data_root, paths["tmp"])
+    cleanup = _cleanup_summary(
+        data_root,
+        paths["tmp"],
+        owner_scope=owner_scope,
+    )
     cleanup["new_process_survivors"] = len(survivors)
     backend_pass = (
         len(backend_results) == 2
@@ -2150,6 +2314,7 @@ __all__ = [
     "validate_artifact_store",
     "validate_installed_source_binding",
     "validate_observation",
+    "validate_released_session_lock",
     "validate_tool_inventory",
     "validate_wheel_provenance",
     "validate_wheel_source_binding",

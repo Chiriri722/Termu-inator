@@ -592,4 +592,16 @@
 - Static gates pass: `git diff --check`, `bash -n setup.sh`, warning-as-error compileall on all three interpreters, changed-test 100-column check, and repository-wide `.DS_Store` ignore verification.
 - The preserved 273,622-byte wheel remains SHA-256 `85ec62fa15200c689e25044e564642e9b2e505764c2327ed673da77bc24a1299` and passes all 57-source, source-tree digest, metadata, entrypoint, license, member allowlist, and RECORD checks against the current checkout.
 - Refreshed the fast code graph to 3,005 nodes and 17,487 edges. `scripts/` remains intentionally excluded; the new portability contract is indexed in the verifier tests.
-- No venv, browser gate, benchmark, wheel rebuild, device setting, or package mutation has been performed in this follow-up.
+
+## 2026-08-29 — `0a4a212` S22U canonical follow-up
+
+- Reconciled Hermes evidence with local `main`/`origin/main` at clean commit `0a4a21298a7aa242f85f0cd783ba51ef681b6a24` (`v.0.2.05`).
+- Confirmed runtime artifact layout is `data_root/state/artifacts`, while canonical `verify_backend()` currently validates `data_root/artifacts` and its test fixture reproduces that incorrect layout.
+- Confirmed `ProcessSessionLock.release()` preserves its private regular file and releases only the kernel flock/descriptor. Current `_cleanup_summary()` incorrectly requires the pathname to disappear.
+- Added backend-layout and released-lock RED tests before implementation. The tests reproduce the S22U artifact-root failure, require exact owner/mode/dead-PID/reacquirable-flock evidence, and reject live, wrong-owner, non-private, symlink-parent, and ENOENT-race states.
+- Updated only the canonical verifier to validate `data_root/state/artifacts` and to treat a confirmed-absent or safely released persistent lock as clean without rewriting or unlinking it. Both failure-path and final cleanup pass the commit-bound owner scope.
+- Focused verifier authority passes 31/31. Python 3.11.15 and 3.12.13 each pass 348 tests with eight optional MCP skips; pinned-MCP Python 3.14.7 executes and passes all 348.
+- Static gates pass: `git diff --check`, `bash -n setup.sh`, warning-as-error compileall on all three interpreters, changed-Python 100-column checks, and pinned Python 3.14 `pip check`.
+- The preserved 273,622-byte wheel remains SHA-256 `85ec62fa15200c689e25044e564642e9b2e505764c2327ed673da77bc24a1299` and passes the unchanged 57-source tree digest `9693c07cb450d1da342006a595b8e0a0fb3662dec09a55e7202b0f5ad00e812b`, metadata, entrypoint, license, allowlist, and RECORD checks.
+- Refreshed the fast code graph to 3,015 nodes and 17,535 edges. `scripts/` remains intentionally excluded; the new verifier regression methods are indexed.
+- No device setting, existing venv, browser process, benchmark, wheel rebuild, package mutation, commit, or push was performed. The next authority is a new clean commit followed by the S22U canonical gate.

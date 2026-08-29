@@ -5,16 +5,20 @@ from __future__ import annotations
 import ast
 import base64
 import hashlib
+import inspect
 import json
 import os
 from pathlib import Path
 import platform
 import subprocess
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
 import zipfile
 
+import scripts.final_verify as final_verify_module
+from src.termuinator.core.sessions import ProcessSessionLock
 from scripts.final_verify import (
     _child_environment,
     _PROCESS_TERMS,
@@ -622,6 +626,167 @@ class InstalledWheelProvenanceTests(unittest.TestCase):
                         )
 
 
+class ReleasedSessionLockEvidenceTests(unittest.TestCase):
+    def _create_released_lock(self, lock_path: Path, owner_scope: str) -> None:
+        project_root = Path(__file__).resolve().parents[1]
+        code = "\n".join(
+            (
+                "from pathlib import Path",
+                "from src.termuinator.core.sessions import ProcessSessionLock",
+                "lock = ProcessSessionLock(",
+                f"    lock_path=Path({str(lock_path)!r}),",
+                f"    owner_scope={owner_scope!r},",
+                ")",
+                "lock.acquire()",
+                "lock.release()",
+            )
+        )
+        completed = subprocess.run(
+            [sys.executable, "-c", code],
+            cwd=project_root,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+
+    def test_accepts_owner_bound_released_persistent_lock(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            lock_path = Path(temp_dir) / "runtime" / "session.lock"
+            owner_scope = "final-verify-deadbeef1234"
+            self._create_released_lock(lock_path, owner_scope)
+            validator = getattr(
+                final_verify_module,
+                "validate_released_session_lock",
+                None,
+            )
+
+            self.assertTrue(callable(validator))
+            assert callable(validator)
+            summary = validator(lock_path, owner_scope=owner_scope)
+
+            self.assertEqual(
+                summary,
+                {
+                    "session_lock_path_safe": True,
+                    "session_lock_owner_safe": True,
+                    "session_lock_pid_inactive": True,
+                    "session_lock_lease_available": True,
+                },
+            )
+            self.assertTrue(lock_path.exists())
+
+    def test_rejects_live_session_lock(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            lock_path = Path(temp_dir) / "runtime" / "session.lock"
+            owner_scope = "final-verify-deadbeef1234"
+            lock = ProcessSessionLock(
+                lock_path=lock_path,
+                owner_scope=owner_scope,
+            )
+            lock.acquire()
+            try:
+                validator = final_verify_module.validate_released_session_lock
+                summary = validator(lock_path, owner_scope=owner_scope)
+            finally:
+                lock.release()
+
+            self.assertEqual(
+                summary,
+                {
+                    "session_lock_path_safe": True,
+                    "session_lock_owner_safe": False,
+                    "session_lock_pid_inactive": False,
+                    "session_lock_lease_available": False,
+                },
+            )
+
+    def test_rejects_wrong_owner_or_non_private_lock(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            lock_path = Path(temp_dir) / "runtime" / "session.lock"
+            owner_scope = "final-verify-deadbeef1234"
+            self._create_released_lock(lock_path, owner_scope)
+            validator = final_verify_module.validate_released_session_lock
+
+            wrong_owner = validator(
+                lock_path,
+                owner_scope="final-verify-cafebabefeed",
+            )
+            self.assertFalse(wrong_owner["session_lock_owner_safe"])
+
+            lock_path.chmod(0o644)
+            non_private = validator(lock_path, owner_scope=owner_scope)
+            self.assertFalse(non_private["session_lock_path_safe"])
+
+    def test_rejects_symlinked_runtime_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            real_lock = root / "real-runtime" / "session.lock"
+            owner_scope = "final-verify-deadbeef1234"
+            self._create_released_lock(real_lock, owner_scope)
+            linked_runtime = root / "linked-runtime"
+            linked_runtime.symlink_to(real_lock.parent, target_is_directory=True)
+
+            summary = final_verify_module.validate_released_session_lock(
+                linked_runtime / "session.lock",
+                owner_scope=owner_scope,
+            )
+
+            self.assertFalse(summary["session_lock_path_safe"])
+
+    def test_rejects_path_created_after_open_reports_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            lock_path = Path(temp_dir) / "runtime" / "session.lock"
+            owner_scope = "final-verify-deadbeef1234"
+            self._create_released_lock(lock_path, owner_scope)
+
+            with patch.object(
+                final_verify_module.os,
+                "open",
+                side_effect=FileNotFoundError,
+            ):
+                summary = final_verify_module.validate_released_session_lock(
+                    lock_path,
+                    owner_scope=owner_scope,
+                )
+
+            self.assertFalse(any(summary.values()))
+
+    def test_cleanup_accepts_absent_or_released_persistent_lock(self) -> None:
+        parameters = inspect.signature(
+            final_verify_module._cleanup_summary
+        ).parameters
+        self.assertIn("owner_scope", parameters)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            data_root = root / "data"
+            temporary_root = root / "tmp"
+            runtime_root = data_root / "runtime"
+            runtime_root.mkdir(parents=True, mode=0o700)
+            temporary_root.mkdir(mode=0o700)
+            owner_scope = "final-verify-deadbeef1234"
+
+            absent = final_verify_module._cleanup_summary(
+                data_root,
+                temporary_root,
+                owner_scope=owner_scope,
+            )
+            self.assertNotIn("session_lock_absent", absent)
+            self.assertTrue(all(absent.values()))
+
+            lock_path = runtime_root / "session.lock"
+            self._create_released_lock(lock_path, owner_scope)
+            released = final_verify_module._cleanup_summary(
+                data_root,
+                temporary_root,
+                owner_scope=owner_scope,
+            )
+            self.assertTrue(all(released.values()))
+            self.assertTrue(lock_path.exists())
+
+
 class ChildEnvironmentIsolationTests(unittest.TestCase):
     def test_verifier_tests_do_not_force_posix_root_tmp(self) -> None:
         tree = ast.parse(Path(__file__).read_text(encoding="utf-8"))
@@ -768,11 +933,13 @@ class BackendReleaseFlowTests(unittest.IsolatedAsyncioTestCase):
                 "created_at": "2026-08-26T01:02:03+00:00",
                 "expires_at": "2026-08-27T01:02:03+00:00",
             }
-            namespace = data_root / "artifacts" / project_digest(
+            state_root = data_root / "state"
+            namespace = state_root / "artifacts" / project_digest(
                 owner_scope,
                 project_id,
             )
             namespace.mkdir(parents=True, mode=0o700)
+            os.chmod(state_root, 0o700)
             os.chmod(namespace.parent, 0o700)
             data_path = namespace / f"{digest}.bin"
             metadata_path = namespace / f"{digest}.json"

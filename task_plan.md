@@ -27,14 +27,16 @@ VirGL 소유권 경계도 RED/GREEN으로 보강했다. verifier는 wheel/checko
 release metadata, license, RECORD와 portable control-socket 경로까지 묶는다. Python
 3.11/3.12/3.14의 warning-as-error 341-test suite, pinned MCP 전체 suite, fresh pip wheel
 install/check, 네 entrypoint, interactive→observer 연속 stdio purity가 모두 GREEN이다.
-commit `e29320d35fa836e8fc353c255994902379510637`에서 Android identity 수정은 S22U focused
-검사를 통과했다. 그러나 verifier test 두 곳이 macOS writable `/tmp`를 직접 지정해 Termux
-앱 UID에서 `PermissionError`를 냈고, 실수로 `.DS_Store` 두 개도 commit에 포함됐다. canonical
-venv/browser gate와 benchmark는 올바르게 시작되지 않았다. portable temp-root RED 뒤 두
-hardcode와 불필요한 `/output` suffix를 제거했고, `.DS_Store`는 private backup 뒤 snapshot에서
-삭제하고 ignore했다. Python 3.11/3.12/3.14의 342-test authority, static gate, 기존 wheel의
-57-source/metadata/RECORD binding이 모두 통과했다. 다음은 이 7-path 정리를 새 clean commit으로
-만든 뒤 S22U canonical gate를 재실행하는 것이다. 양 backend PASS와
+commit `0a4a21298a7aa242f85f0cd783ba51ef681b6a24`는 clean checkout, 25 focused tests,
+wheel/native ABI/pinned dependencies를 모두 통과했다. Chromium은 verifier가 runtime의
+`data_root/state/artifacts` 대신 `data_root/artifacts`를 검사해 FAIL했고, 안전하게 보존된
+released `session.lock`을 파일 존재만으로 unsafe로 오판해 Firefox는 SKIPPED됐다. process와
+control socket survivor는 없었고 benchmark는 올바르게 보류됐다. 실제 state-root backend와
+persistent lock의 owner/mode/dead-PID/reacquirable-flock 계약을 RED로 고정한 뒤 verifier만
+수정했고, ENOENT race와 symlink runtime도 fail-closed로 보강했다. Python 3.11/3.12/3.14의
+warning-as-error 348-test authority, static gate, pinned environment와 기존 wheel binding이
+모두 GREEN이다. 다음은 이 변경을 새 clean commit으로 만든 뒤 S22U에서 재검사하는 것이다.
+그 commit의 양 backend PASS와
 `benchmark_allowed: true` 전에는 benchmark나 RC 승인을 진행하지 않는다.
 
 ## Current Phase
@@ -801,6 +803,19 @@ Termu-inator MVP는 다음 조건을 모두 만족해야 한다.
    - [x] focused suite, Python 3.11/3.12/3.14 authority, static gate, wheel binding을 재검증한다.
    - [ ] 새 clean commit에서 side-by-side S22U canonical gate를 재실행한다.
 
+8. **`0a4a212` artifact state-root와 persistent session-lock verifier 계약을 복구한다.**
+   - [x] clean checkout, focused/install/provenance PASS와 Chromium FAIL, Firefox cleanup
+     SKIPPED, benchmark 보류 증거를 runtime source와 대조한다.
+   - [x] backend fixture를 실제 `data_root/state/artifacts` layout으로 바꿔 artifact-root
+     mismatch RED를 재현한다.
+   - [x] persistent mode-0600 owner-bound lock, dead PID, 동일 inode non-blocking flock
+     재획득을 요구하고 live/tampered lock을 거부하는 RED를 추가한다.
+   - [x] `verify_backend()`는 runtime state-root를 검증하고 cleanup은 file absence 대신
+     released persistent-lock 증거를 판정하도록 최소 수정한다.
+   - [x] focused suite, session-lock suite, Python 3.11/3.12/3.14 authority, static gate와
+     기존 wheel binding을 재검증한다.
+   - [ ] 새 clean commit에서 side-by-side S22U canonical gate를 재실행한다.
+
 **Phase 7A Exit Gate**
 
 - Chromium observation이 legacy summary 문자열에 의존하지 않고 bounded structured
@@ -1282,6 +1297,13 @@ Termu-inator MVP는 다음 조건을 모두 만족해야 한다.
 | 이전 3.14 authority venv `/tmp/termuinator-final-rc.OCglWK/venv`가 재검증 시점에 더 이상 존재하지 않음 | 1 | 제품·checkout과 무관한 임시 환경 소멸이다. 현재 Python 3.14 interpreter와 package cache를 확인해 새 격리 authority venv를 만들고 pinned MCP suite를 재실행한다. |
 | sandbox 안 `uv python find 3.14`가 사용자 cache의 내부 `.git` 접근에서 `Operation not permitted`로 종료됨 | 1 | `/opt/homebrew/bin/python3.14` 3.14.7 자체는 확인됐다. uv cache를 우회해 `/tmp`에 stdlib venv를 만들고 pinned packages만 설치한다. |
 | 새 Python 3.14 authority venv의 pinned MCP 설치가 sandbox DNS 차단으로 PyPI를 해석하지 못해 종료됨 | 1 | dependency conflict가 아니라 network isolation 결과다. 같은 exact pins와 repository constraint를 sandbox 밖에서 재실행한다. |
+| actual state-root backend RED가 `data_root/artifacts`에서 `artifact root is missing or unsafe`로 종료됨 | 1 | S22U와 동일한 의도된 RED다. `verify_backend()`가 service state root인 `data_root/state`를 durable validator에 전달하도록 수정한다. |
+| released persistent-lock RED가 `validate_released_session_lock` 부재를 callable assertion으로 검출함 | 1 | 의도한 RED다. 먼저 owner-bound persistent file의 dead PID와 available kernel lease 증거를 반환하는 최소 contract를 추가한다. |
+| 최소 released-lock contract 확대 RED가 live holder와 wrong-owner/mode 변조를 모두 허용해 2 failures로 종료됨 | 1 | 동일 inode flock을 먼저 non-blocking 획득한 뒤에만 bounded metadata, owner digest, dead PID를 신뢰하고 unsafe state는 false evidence로 닫는다. |
+| cleanup integration RED가 `_cleanup_summary()`의 `owner_scope` 부재를 검출함 | 1 | persistent lock helper를 canonical failure/final cleanup 양쪽에 연결하고 기존 `session_lock_absent` 판정을 제거한다. |
+| state-root backend GREEN 재검사에서 test fixture의 암묵적 `state/` mode 0755가 private-root 검증에 걸림 | 1 | 실제 `BrowserService._prepare_state_root()` 계약대로 fixture의 `state/`도 명시적으로 mode 0700으로 만든다. |
+| expanded path-safety RED가 ENOENT 뒤 생성 race와 symlink `runtime/`을 모두 허용해 2 failures로 종료됨 | 1 | 부재를 후속 `lstat()`으로 재확인하고, 존재하는 lock은 owner-private real parent inode까지 전후 동일성을 검증한다. |
+| path-safety 구현 직후 조건식 연결 `or` 누락으로 import가 `SyntaxError`로 종료됨 | 1 | 오류를 기록하고 누락된 논리 연산자만 즉시 복구한 뒤 focused suite부터 다시 실행한다. |
 
 ---
 

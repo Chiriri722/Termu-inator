@@ -702,3 +702,17 @@
 - `.DS_Store` is ignored at every depth, both tracked copies are removed from the candidate snapshot, and their recoverable backup is private under `/tmp/termuinator-dsstore-backup.fxvH4l/`.
 - All local authority is now GREEN at 342 tests per supported interpreter. The package wheel hash and 57-source tree digest are unchanged, confirming this is test/repository hygiene work rather than a new release artifact.
 - Local GREEN still does not authorize the benchmark. A new clean commit must first run the canonical S22U venv, Chromium, Firefox, artifact, cleanup, manifest, and checksum gates.
+
+## 2026-08-29 `0a4a212` S22U artifact and lock evidence
+
+- Commit `0a4a21298a7aa242f85f0cd783ba51ef681b6a24` passed clean-source, 25 focused verifier tests, wheel hash, fresh venv install, pip check, Android identity, pinned MCP/websockets, and native Termux cryptography checks.
+- Chromium reached durable-artifact verification and failed because the verifier passed `data_root` to `validate_artifact_store()`, while `BrowserService._prepare_state_root()` creates `data_root/state` and `DurableArtifactStore` writes below that state root.
+- The failure cleanup then treated the persistent `runtime/session.lock` pathname as unsafe even though the candidate owner process had exited, the control socket was absent, and no new process survived. Firefox was correctly withheld under the verifier's current fail-closed logic.
+- `ProcessSessionLock.release()` intentionally unlocks and closes the descriptor without unlinking the file. Unlinking would permit competing processes to lock different inodes, so the runtime design must remain unchanged.
+- Correct cleanup evidence is a real owner-owned mode-0600 regular file with exact owner metadata, an exited recorded PID, and successful non-blocking exclusive flock acquisition on the opened inode. Absence remains safe for failures before lock creation.
+- The device manifest remained `FAIL`, `benchmark_allowed=false`, checksum-valid, and stderr-free; it is not partial release authority.
+- `verify_backend()` now passes the real service state root, `data_root/state`, to durable artifact validation. The integration fixture uses the same private mode-0700 hierarchy and therefore no longer masks layout drift.
+- Cleanup now accepts either confirmed absence or a released persistent lock only after checking a real owner-owned mode-0700 runtime directory, a same-inode owner-owned mode-0600 regular file, exact owner-bound metadata, an inactive recorded PID, and a reacquirable non-blocking exclusive flock.
+- Live holders, wrong owner metadata, non-private files, symlink runtime directories, and an ENOENT-then-created race all remain fail-closed. The verifier never rewrites or unlinks the persistent lock.
+- The repaired candidate passes 31 focused verifier tests and 348 warning-as-error tests on Python 3.11, 3.12, and pinned-MCP Python 3.14. Static gates, `pip check`, and the unchanged 57-source wheel binding also pass.
+- These local results repair the two reported verifier contracts but do not establish device authority. A new clean commit must still return both backend PASS, checksum-valid `status=PASS`, and `benchmark_allowed=true` on the S22U before benchmark execution.
