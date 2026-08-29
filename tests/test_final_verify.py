@@ -651,6 +651,49 @@ class ReleasedSessionLockEvidenceTests(unittest.TestCase):
         )
         self.assertEqual(completed.returncode, 0, completed.stderr)
 
+    def _start_released_live_lock(
+        self,
+        lock_path: Path,
+        owner_scope: str,
+    ) -> subprocess.Popen[str]:
+        project_root = Path(__file__).resolve().parents[1]
+        code = "\n".join(
+            (
+                "import sys",
+                "from pathlib import Path",
+                "from src.termuinator.core.sessions import ProcessSessionLock",
+                "lock = ProcessSessionLock(",
+                f"    lock_path=Path({str(lock_path)!r}),",
+                f"    owner_scope={owner_scope!r},",
+                ")",
+                "lock.acquire()",
+                "lock.release()",
+                "print('ready', flush=True)",
+                "sys.stdin.readline()",
+            )
+        )
+        process = subprocess.Popen(
+            [sys.executable, "-c", code],
+            cwd=project_root,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        assert process.stdout is not None
+        ready = process.stdout.readline()
+        if ready != "ready\n":
+            _stdout, stderr = process.communicate(timeout=10)
+            self.fail(f"live lock child failed: {stderr}")
+        return process
+
+    def _stop_live_lock(self, process: subprocess.Popen[str]) -> None:
+        assert process.stdin is not None
+        process.stdin.write("\n")
+        process.stdin.flush()
+        _stdout, stderr = process.communicate(timeout=10)
+        self.assertEqual(process.returncode, 0, stderr)
+
     def test_accepts_owner_bound_released_persistent_lock(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             lock_path = Path(temp_dir) / "runtime" / "session.lock"
@@ -735,6 +778,34 @@ class ReleasedSessionLockEvidenceTests(unittest.TestCase):
 
             self.assertFalse(summary["session_lock_path_safe"])
 
+    def test_rejects_unsafe_parent_when_session_lock_is_absent(self) -> None:
+        for unsafe_kind in ("symlink", "non-private"):
+            with self.subTest(unsafe_kind=unsafe_kind):
+                with tempfile.TemporaryDirectory() as temp_dir:
+                    root = Path(temp_dir)
+                    data_root = root / "data"
+                    data_root.mkdir(mode=0o700)
+                    runtime_root = data_root / "runtime"
+                    if unsafe_kind == "symlink":
+                        real_runtime = root / "real-runtime"
+                        real_runtime.mkdir(mode=0o700)
+                        runtime_root.symlink_to(
+                            real_runtime,
+                            target_is_directory=True,
+                        )
+                    else:
+                        runtime_root.mkdir(mode=0o700)
+                        runtime_root.chmod(0o755)
+
+                    summary = (
+                        final_verify_module.validate_released_session_lock(
+                            runtime_root / "session.lock",
+                            owner_scope="final-verify-deadbeef1234",
+                        )
+                    )
+
+                    self.assertFalse(summary["session_lock_path_safe"])
+
     def test_rejects_path_created_after_open_reports_missing(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             lock_path = Path(temp_dir) / "runtime" / "session.lock"
@@ -785,6 +856,155 @@ class ReleasedSessionLockEvidenceTests(unittest.TestCase):
             )
             self.assertTrue(all(released.values()))
             self.assertTrue(lock_path.exists())
+
+    def test_intermediate_cleanup_accepts_trusted_live_child(self) -> None:
+        parameters = inspect.signature(
+            final_verify_module._cleanup_summary
+        ).parameters
+        self.assertIn("expected_active_pid", parameters)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            data_root = root / "data"
+            temporary_root = root / "tmp"
+            runtime_root = data_root / "runtime"
+            runtime_root.mkdir(parents=True, mode=0o700)
+            temporary_root.mkdir(mode=0o700)
+            owner_scope = "final-verify-deadbeef1234"
+            process = self._start_released_live_lock(
+                runtime_root / "session.lock",
+                owner_scope,
+            )
+            try:
+                summary = final_verify_module._cleanup_summary(
+                    data_root,
+                    temporary_root,
+                    owner_scope=owner_scope,
+                    expected_active_pid=process.pid,
+                )
+            finally:
+                self._stop_live_lock(process)
+
+            self.assertNotIn("session_lock_pid_inactive", summary)
+            self.assertTrue(
+                summary["session_lock_pid_matches_expected_active"]
+            )
+            self.assertTrue(all(summary.values()))
+
+    def test_intermediate_cleanup_rejects_a_different_live_pid(self) -> None:
+        parameters = inspect.signature(
+            final_verify_module._cleanup_summary
+        ).parameters
+        self.assertIn("expected_active_pid", parameters)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            data_root = root / "data"
+            temporary_root = root / "tmp"
+            runtime_root = data_root / "runtime"
+            runtime_root.mkdir(parents=True, mode=0o700)
+            temporary_root.mkdir(mode=0o700)
+            owner_scope = "final-verify-deadbeef1234"
+            process = self._start_released_live_lock(
+                runtime_root / "session.lock",
+                owner_scope,
+            )
+            try:
+                summary = final_verify_module._cleanup_summary(
+                    data_root,
+                    temporary_root,
+                    owner_scope=owner_scope,
+                    expected_active_pid=os.getpid(),
+                )
+            finally:
+                self._stop_live_lock(process)
+
+            self.assertFalse(
+                summary["session_lock_pid_matches_expected_active"]
+            )
+
+    def test_final_cleanup_requires_the_same_child_to_exit(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            data_root = root / "data"
+            temporary_root = root / "tmp"
+            runtime_root = data_root / "runtime"
+            runtime_root.mkdir(parents=True, mode=0o700)
+            temporary_root.mkdir(mode=0o700)
+            owner_scope = "final-verify-deadbeef1234"
+            process = self._start_released_live_lock(
+                runtime_root / "session.lock",
+                owner_scope,
+            )
+            self._stop_live_lock(process)
+
+            summary = final_verify_module._cleanup_summary(
+                data_root,
+                temporary_root,
+                owner_scope=owner_scope,
+            )
+
+            self.assertTrue(summary["session_lock_pid_inactive"])
+            self.assertNotIn(
+                "session_lock_pid_matches_expected_active",
+                summary,
+            )
+            self.assertTrue(all(summary.values()))
+
+
+class TrustedMcpChildIdentityTests(unittest.TestCase):
+    def test_launcher_pid_survives_exec_into_exact_mcp_command(self) -> None:
+        launcher = getattr(
+            final_verify_module,
+            "_trusted_mcp_launch_parameters",
+            None,
+        )
+        self.assertTrue(callable(launcher))
+        assert callable(launcher)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            pid_path = root / "trusted.pid"
+            observed_path = root / "observed.pid"
+            fake_mcp = root / "fake-mcp"
+            fake_mcp.write_text(
+                "\n".join(
+                    (
+                        f"#!{sys.executable}",
+                        "import os",
+                        "from pathlib import Path",
+                        "Path(os.environ['OBSERVED_PID_PATH']).write_text(",
+                        "    f'{os.getpid()}\\n', encoding='ascii'",
+                        ")",
+                    )
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            fake_mcp.chmod(0o700)
+            command, arguments = launcher(
+                fake_mcp,
+                pid_path=pid_path,
+                profile="interactive",
+            )
+            environment = dict(os.environ)
+            environment["OBSERVED_PID_PATH"] = str(observed_path)
+
+            completed = subprocess.run(
+                [command, *arguments],
+                env=environment,
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            trusted_pid = pid_path.read_text(encoding="ascii")
+            observed_pid = observed_path.read_text(encoding="ascii")
+            self.assertEqual(trusted_pid, observed_pid)
+            self.assertRegex(trusted_pid, r"^[1-9][0-9]*\n$")
+            self.assertEqual(pid_path.stat().st_mode & 0o777, 0o600)
 
 
 class ChildEnvironmentIsolationTests(unittest.TestCase):

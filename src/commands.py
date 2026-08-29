@@ -1,12 +1,14 @@
 """High-level browser automation commands."""
 
 import asyncio
+from collections.abc import Mapping
 import logging
 from urllib.parse import urlparse
 
 from ._utils import escape_js_string
 
 _ALLOWED_SCHEMES = {"http", "https"}
+_NATIVE_NAVIGATION_KEY = "termuinatorNavigation"
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +60,24 @@ class PageCommands:
             raise RuntimeError(
                 f"Navigation failed: {nav_result['errorText']}"
             )
+        native_navigation = nav_result.get(_NATIVE_NAVIGATION_KEY)
+        if native_navigation is not None:
+            if not isinstance(native_navigation, Mapping):
+                raise RuntimeError("Native navigation metadata is invalid")
+            current_url = native_navigation.get("url")
+            title = native_navigation.get("title")
+            current = urlparse(current_url) if isinstance(current_url, str) else None
+            if (
+                frozenset(native_navigation) != {"url", "title"}
+                or current is None
+                or current.scheme not in _ALLOWED_SCHEMES
+                or not current.netloc
+                or len(current_url) > 8_192
+                or not isinstance(title, str)
+                or len(title) > 4_096
+            ):
+                raise RuntimeError("Native navigation metadata is invalid")
+            return {"url": current_url, "title": title}
 
         deadline = asyncio.get_running_loop().time() + timeout
         target_state = "complete" if wait_until == "load" else "interactive"

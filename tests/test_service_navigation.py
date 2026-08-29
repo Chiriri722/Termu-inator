@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import AsyncMock
 
 from src.termuinator.backends import BackendPageSnapshot
 from src.termuinator.backends.fake import FakeBackend
@@ -129,6 +130,38 @@ class BrowserServiceNavigationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             backend.navigation_calls,
             [("goto", self.allowed_url, 12_000)],
+        )
+
+    async def test_backend_navigation_timeout_remains_a_typed_timeout(self) -> None:
+        service, backend = self._service(
+            {("goto", self.allowed_url): self.allowed_snapshot}
+        )
+        session_id, before = await self._start_and_observe(service)
+        assert self.permissions is not None
+        self.permissions.record(
+            origin="https://allowed.example",
+            policy=PermissionPolicy.SESSION_ALLOW,
+            session_id=session_id,
+        )
+        backend.navigate = AsyncMock(
+            side_effect=TimeoutError("private backend timeout detail")
+        )
+
+        with self.assertRaises(TermuinatorError) as timed_out:
+            await service.navigate(
+                session_id=session_id,
+                tab_id=before.tab_id,
+                page_id=before.page_id,
+                expected_revision=before.page_revision,
+                operation="goto",
+                url=self.allowed_url,
+                timeout_ms=12_000,
+            )
+
+        self.assertEqual(timed_out.exception.code, ErrorCode.TIMEOUT)
+        self.assertNotIn(
+            "private backend timeout detail",
+            str(timed_out.exception),
         )
 
     async def test_ask_and_block_are_rejected_before_backend_dispatch(self) -> None:

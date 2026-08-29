@@ -169,6 +169,15 @@ class _RecordingPilot:
         return b"\x89PNG\r\n\x1a\nlegacy-image"
 
 
+class _NativeNavigationPilot(_RecordingPilot):
+    async def goto(self, url: str, timeout: float) -> dict[str, str]:
+        await super().goto(url, timeout)
+        return {
+            "url": "http://127.0.0.1:43123/forms?redirected=1",
+            "title": "Forms — Mozilla Firefox",
+        }
+
+
 class _StructuredPilot(_RecordingPilot):
     def __init__(self) -> None:
         super().__init__()
@@ -502,6 +511,31 @@ class LegacyBackendLifecycleTests(unittest.IsolatedAsyncioTestCase):
         by_id = {item.capability_id: item for item in capabilities.capabilities}
         self.assertEqual(by_id["navigate"].status, CapabilityStatus.PARTIAL)
         self.assertEqual(by_id["observe"].status, CapabilityStatus.PARTIAL)
+
+    async def test_firefox_navigation_uses_verified_native_metadata(self) -> None:
+        pilot = _NativeNavigationPilot()
+        adapter = LegacyPilotBackend(
+            Backend.FIREFOX,
+            pilot_factory=lambda **_: pilot,
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            profile = Path(temp_dir) / "profile"
+            profile.mkdir(mode=0o700)
+            await adapter.start(profile, Viewport(width=1000, height=700))
+
+        snapshot = await adapter.navigate(
+            "goto",
+            "http://127.0.0.1:43123/forms",
+            45_000,
+        )
+
+        self.assertEqual(
+            snapshot.url,
+            "http://127.0.0.1:43123/forms?redirected=1",
+        )
+        self.assertEqual(snapshot.title, "Forms — Mozilla Firefox")
+        self.assertNotIn("url", pilot.calls)
+        self.assertNotIn("title", pilot.calls)
 
     async def test_observe_bounds_accessibility_node_count(self) -> None:
         class UnboundedPilot(_RecordingPilot):

@@ -320,13 +320,37 @@ class LegacyPilotBackend:
                 "navigation timeout_ms must be between 1 and 120000",
             )
         pilot = self._require_pilot()
-        await pilot.goto(url, timeout=timeout_ms / 1000)  # type: ignore[attr-defined]
-        current_url = await pilot.url()  # type: ignore[attr-defined]
-        title = await pilot.title()  # type: ignore[attr-defined]
+        navigation = await pilot.goto(  # type: ignore[attr-defined]
+            url,
+            timeout=timeout_ms / 1000,
+        )
+        if self.backend is Backend.FIREFOX and navigation is not None:
+            if not isinstance(navigation, Mapping) or frozenset(navigation) != {
+                "url",
+                "title",
+            }:
+                raise TermuinatorError(
+                    ErrorCode.BACKEND_CRASHED,
+                    "Inherited Firefox returned invalid navigation metadata",
+                )
+            current_url = navigation.get("url")
+            title = navigation.get("title")
+        else:
+            current_url = await pilot.url()  # type: ignore[attr-defined]
+            title = await pilot.title()  # type: ignore[attr-defined]
         if not isinstance(current_url, str) or not isinstance(title, str):
             raise TermuinatorError(
                 ErrorCode.BACKEND_CRASHED,
                 "Inherited browser returned invalid navigation metadata",
+            )
+        if (
+            not current_url.startswith(("http://", "https://"))
+            or len(current_url) > 8_192
+            or len(title) > 4_096
+        ):
+            raise TermuinatorError(
+                ErrorCode.BACKEND_CRASHED,
+                "Inherited browser returned unsafe navigation metadata",
             )
         self._status = BackendStatus(
             backend=self.backend,

@@ -234,7 +234,7 @@ class Pilot:
 
     async def goto(self, url, timeout=45):
         """Navigate to URL."""
-        await self.page.navigate(url, timeout=timeout)
+        return await self.page.navigate(url, timeout=timeout)
 
     async def goto_idle(self, url, timeout=45):
         """Navigate and wait for network idle (best for heavy JS pages)."""

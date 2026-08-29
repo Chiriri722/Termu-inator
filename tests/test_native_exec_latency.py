@@ -197,6 +197,7 @@ class NativeExecutionLatencyTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_navigation_falls_back_when_console_returns_timeout(self) -> None:
         session = NativeFirefoxSession()
+        session._main_wid = "4242"
         xdt_calls: list[list[str]] = []
 
         async def fake_exec_js(_expression: str, timeout: float = 60) -> str:
@@ -205,16 +206,27 @@ class NativeExecutionLatencyTests(unittest.IsolatedAsyncioTestCase):
         async def fake_close_console() -> None:
             return None
 
-        async def fake_xdt(args: list[str]) -> None:
+        async def fake_xdt(args: list[str]) -> str:
             xdt_calls.append(args)
+            if args == ["getwindowname", "4242"]:
+                return "Example Domain — Mozilla Firefox"
+            return ""
 
         async def fake_clipboard_paste(_text: str) -> bool:
             return True
+
+        async def fake_clipboard_read() -> str:
+            return "https://example.com/"
 
         session._exec_js = fake_exec_js
         session._close_console = fake_close_console
         session._xdt = fake_xdt
         session._clipboard_paste = fake_clipboard_paste
+        session._clipboard_read = fake_clipboard_read
+        session._prime_navigation_clipboard = AsyncMock(
+            return_value=("navigation-marker", object())
+        )
+        session._release_clipboard_owner = AsyncMock()
 
         with patch("src.native.asyncio.sleep", new=AsyncMock()):
             await _navigate(
@@ -225,6 +237,165 @@ class NativeExecutionLatencyTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertIn(["key", "ctrl+l"], xdt_calls)
         self.assertIn(["key", "Return"], xdt_calls)
+
+    async def test_native_navigation_returns_address_bar_metadata(self) -> None:
+        session = NativeFirefoxSession()
+        session._main_wid = "4242"
+        xdt_calls: list[list[str]] = []
+
+        async def fake_exec_js(_expression: str, timeout: float = 60) -> bool:
+            return True
+
+        async def fake_close_console() -> None:
+            return None
+
+        async def fake_focus_main_window() -> None:
+            return None
+
+        async def fake_xdt(args: list[str]) -> str:
+            xdt_calls.append(args)
+            if args == ["getwindowname", "4242"]:
+                return "Forms — Mozilla Firefox"
+            return ""
+
+        async def fake_clipboard_read() -> str:
+            return "http://127.0.0.1:43123/forms?redirected=1"
+
+        session._exec_js = fake_exec_js
+        session._close_console = fake_close_console
+        session._focus_main_window = fake_focus_main_window
+        session._xdt = fake_xdt
+        session._clipboard_read = fake_clipboard_read
+        session._prime_navigation_clipboard = AsyncMock(
+            return_value=("navigation-marker", object())
+        )
+        session._release_clipboard_owner = AsyncMock()
+
+        with patch("src.native.asyncio.sleep", new=AsyncMock()):
+            result = await _navigate(
+                session,
+                {"url": "http://127.0.0.1:43123/forms"},
+                timeout=5,
+            )
+
+        self.assertEqual(
+            result.get("termuinatorNavigation"),
+            {
+                "url": "http://127.0.0.1:43123/forms?redirected=1",
+                "title": "Forms — Mozilla Firefox",
+            },
+        )
+        self.assertIn(["key", "ctrl+l"], xdt_calls)
+        self.assertIn(["key", "ctrl+c"], xdt_calls)
+        self.assertIn(["key", "Escape"], xdt_calls)
+
+    async def test_navigation_rejects_unchanged_primed_clipboard(self) -> None:
+        session = NativeFirefoxSession()
+        session._main_wid = "4242"
+        marker = "termuinator-navigation-marker"
+        clipboard_owner = object()
+        session._focus_main_window = AsyncMock()
+        session._xdt = AsyncMock(return_value="Forms — Mozilla Firefox")
+        session._clipboard_read = AsyncMock(return_value=marker)
+        session._prime_navigation_clipboard = AsyncMock(
+            return_value=(marker, clipboard_owner)
+        )
+        session._release_clipboard_owner = AsyncMock()
+
+        with patch("src.native.asyncio.sleep", new=AsyncMock()):
+            with self.assertRaisesRegex(
+                RuntimeError,
+                "navigation metadata is unavailable",
+            ):
+                await session._navigation_metadata(timeout=5)
+
+        session._prime_navigation_clipboard.assert_awaited_once_with()
+        session._release_clipboard_owner.assert_awaited_once_with(
+            clipboard_owner
+        )
+
+    async def test_navigation_clipboard_marker_is_verified_and_cleaned(self) -> None:
+        class _FakeStdin:
+            def __init__(self) -> None:
+                self.payload = b""
+                self.closed = False
+
+            def write(self, payload: bytes) -> None:
+                self.payload = payload
+
+            async def drain(self) -> None:
+                return None
+
+            def close(self) -> None:
+                self.closed = True
+
+        class _FakeProcess:
+            def __init__(self) -> None:
+                self.stdin = _FakeStdin()
+                self.returncode = None
+                self.terminated = False
+
+            def terminate(self) -> None:
+                self.terminated = True
+
+            def kill(self) -> None:
+                raise AssertionError("cooperative xclip should not be killed")
+
+            async def wait(self) -> int:
+                self.returncode = 0
+                return 0
+
+        session = NativeFirefoxSession()
+        process = _FakeProcess()
+        session._clipboard_read = AsyncMock(return_value="stale-valid-url")
+
+        with (
+            patch(
+                "src.native.asyncio.create_subprocess_exec",
+                new=AsyncMock(return_value=process),
+            ) as create_process,
+            patch("src.native.asyncio.sleep", new=AsyncMock()),
+        ):
+            with self.assertRaisesRegex(
+                RuntimeError,
+                "navigation clipboard is unavailable",
+            ):
+                await session._prime_navigation_clipboard()
+
+        self.assertTrue(process.stdin.payload.startswith(b"TBP_NAV_"))
+        self.assertTrue(process.stdin.closed)
+        self.assertTrue(process.terminated)
+        create_process.assert_awaited_once()
+
+    async def test_page_commands_accept_verified_native_navigation_metadata(
+        self,
+    ) -> None:
+        expected = {
+            "url": "http://127.0.0.1:43123/forms",
+            "title": "Forms — Mozilla Firefox",
+        }
+
+        class _NativeSession:
+            async def send(
+                self,
+                method: str,
+                params: dict[str, str],
+            ) -> dict[str, object]:
+                if method != "Page.navigate":
+                    raise AssertionError(method)
+                return {
+                    "frameId": "native",
+                    "termuinatorNavigation": expected,
+                }
+
+        page = commands.PageCommands(_NativeSession())
+        page.evaluate = AsyncMock(
+            side_effect=AssertionError("native navigation must not poll console")
+        )
+        result = await page.navigate(expected["url"], timeout=0)
+
+        self.assertEqual(result, expected)
+        page.evaluate.assert_not_awaited()
 
 
 if __name__ == "__main__":

@@ -146,6 +146,24 @@ _PROCESS_TERMS = (
     "xdotool",
 )
 _MAX_CONTROL_SOCKET_PATH_BYTES = 100
+_MCP_EXEC_LAUNCHER = "\n".join(
+    (
+        "import os, sys",
+        "pid_path, command = sys.argv[1:3]",
+        "flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL",
+        "flags |= getattr(os, 'O_CLOEXEC', 0)",
+        "flags |= getattr(os, 'O_NOFOLLOW', 0)",
+        "fd = os.open(pid_path, flags, 0o600)",
+        "try:",
+        "    payload = f'{os.getpid()}\\n'.encode('ascii')",
+        "    written = os.write(fd, payload)",
+        "    if written != len(payload): raise OSError('short PID write')",
+        "    os.fsync(fd)",
+        "finally:",
+        "    os.close(fd)",
+        "os.execv(command, [command, *sys.argv[3:]])",
+    )
+)
 
 
 class VerificationFailure(RuntimeError):
@@ -1571,8 +1589,15 @@ async def verify_backend(
 
 
 class _McpToolCaller:
-    def __init__(self, session: object) -> None:
+    def __init__(self, session: object, *, server_pid: int) -> None:
+        if (
+            isinstance(server_pid, bool)
+            or not isinstance(server_pid, int)
+            or not 1 <= server_pid < 2**31
+        ):
+            raise ValueError("server_pid must be a positive process ID")
         self._session = session
+        self.server_pid = server_pid
 
     async def __call__(
         self,
@@ -1621,6 +1646,49 @@ def _open_private_text(path: Path):
     return os.fdopen(descriptor, "w", encoding="utf-8", errors="strict")
 
 
+def _trusted_mcp_launch_parameters(
+    mcp_command: Path,
+    *,
+    pid_path: Path,
+    profile: str,
+) -> tuple[str, tuple[str, ...]]:
+    if not isinstance(mcp_command, Path) or not mcp_command.is_absolute():
+        raise ValueError("mcp_command must be an absolute Path")
+    if not isinstance(pid_path, Path) or not pid_path.is_absolute():
+        raise ValueError("pid_path must be an absolute Path")
+    if profile not in {"interactive", "observer"}:
+        raise ValueError("profile must be interactive or observer")
+    return (
+        sys.executable,
+        (
+            "-c",
+            _MCP_EXEC_LAUNCHER,
+            os.fspath(pid_path),
+            os.fspath(mcp_command),
+            "--tool-profile",
+            profile,
+        ),
+    )
+
+
+def _read_trusted_child_pid(path: Path) -> int:
+    payload = _read_private_regular(
+        path,
+        "trusted MCP child PID",
+        32,
+    )
+    if re.fullmatch(rb"[1-9][0-9]{0,9}\n", payload) is None:
+        raise VerificationFailure("trusted MCP child PID is invalid")
+    pid = int(payload)
+    if pid >= 2**31 or pid == os.getpid():
+        raise VerificationFailure("trusted MCP child PID is unsafe")
+    try:
+        os.kill(pid, 0)
+    except OSError as exc:
+        raise VerificationFailure("trusted MCP child is not active") from exc
+    return pid
+
+
 def _require_private_control_socket(path: Path) -> None:
     try:
         info = path.lstat()
@@ -1656,9 +1724,15 @@ async def _run_mcp_profile(
     except ImportError as exc:
         raise VerificationFailure("MCP 1.29 client SDK cannot be imported") from exc
 
+    pid_path = stderr_path.with_name(f"{profile}-mcp-child.pid")
+    launch_command, launch_arguments = _trusted_mcp_launch_parameters(
+        mcp_command,
+        pid_path=pid_path,
+        profile=profile,
+    )
     server_parameters = StdioServerParameters(
-        command=os.fspath(mcp_command),
-        args=["--tool-profile", profile],
+        command=launch_command,
+        args=list(launch_arguments),
         env=dict(environ),
         cwd=working_directory,
     )
@@ -1673,6 +1747,7 @@ async def _run_mcp_profile(
                 read_timeout_seconds=timedelta(seconds=180),
             ) as session:
                 initialized = await session.initialize()
+                server_pid = _read_trusted_child_pid(pid_path)
                 initialized_wire = (
                     initialized.model_dump(by_alias=True)
                     if hasattr(initialized, "model_dump")
@@ -1699,7 +1774,9 @@ async def _run_mcp_profile(
                 )
                 _require_private_control_socket(control_socket)
                 if body is not None:
-                    body_result = await body(_McpToolCaller(session))
+                    body_result = await body(
+                        _McpToolCaller(session, server_pid=server_pid)
+                    )
         errlog.flush()
         os.fsync(errlog.fileno())
     stderr_bytes = stderr_path.stat().st_size
@@ -1710,6 +1787,7 @@ async def _run_mcp_profile(
         "stderr_bytes": stderr_bytes,
         "control_socket_private_while_running": True,
         "control_socket_absent_after_exit": socket_absent,
+        "trusted_child_pid": server_pid,
     }
     return summary, body_result
 
@@ -1867,6 +1945,7 @@ def validate_released_session_lock(
     lock_path: Path,
     *,
     owner_scope: str,
+    expected_active_pid: int | None = None,
 ) -> dict[str, bool]:
     """Report the safety evidence for a released persistent session lock."""
 
@@ -1874,10 +1953,21 @@ def validate_released_session_lock(
         raise ValueError("lock_path must be an absolute Path")
     if not isinstance(owner_scope, str) or not 1 <= len(owner_scope) <= 256:
         raise ValueError("owner_scope must be a bounded string")
+    if expected_active_pid is not None and (
+        isinstance(expected_active_pid, bool)
+        or not isinstance(expected_active_pid, int)
+        or not 1 <= expected_active_pid < 2**31
+    ):
+        raise ValueError("expected_active_pid must be a positive process ID")
+    pid_evidence = (
+        "session_lock_pid_matches_expected_active"
+        if expected_active_pid is not None
+        else "session_lock_pid_inactive"
+    )
     summary = {
         "session_lock_path_safe": False,
         "session_lock_owner_safe": False,
-        "session_lock_pid_inactive": False,
+        pid_evidence: False,
         "session_lock_lease_available": False,
     }
     flags = os.O_RDWR | getattr(os, "O_CLOEXEC", 0)
@@ -1886,12 +1976,43 @@ def validate_released_session_lock(
         descriptor = os.open(lock_path, flags)
     except FileNotFoundError:
         try:
-            lock_path.lstat()
+            parent_info = lock_path.parent.lstat()
         except FileNotFoundError:
-            return {name: True for name in summary}
+            parent_info = None
         except OSError:
             return summary
-        return summary
+        if parent_info is not None and (
+            not stat.S_ISDIR(parent_info.st_mode)
+            or stat.S_IMODE(parent_info.st_mode) != 0o700
+            or parent_info.st_uid != os.getuid()
+        ):
+            return summary
+        try:
+            lock_path.lstat()
+        except FileNotFoundError:
+            pass
+        except OSError:
+            return summary
+        else:
+            return summary
+        try:
+            current_parent_info = lock_path.parent.lstat()
+        except FileNotFoundError:
+            if parent_info is not None:
+                return summary
+        except OSError:
+            return summary
+        else:
+            if (
+                parent_info is None
+                or not stat.S_ISDIR(current_parent_info.st_mode)
+                or stat.S_IMODE(current_parent_info.st_mode) != 0o700
+                or current_parent_info.st_uid != os.getuid()
+                or (parent_info.st_dev, parent_info.st_ino)
+                != (current_parent_info.st_dev, current_parent_info.st_ino)
+            ):
+                return summary
+        return {name: True for name in summary}
     except OSError:
         return summary
 
@@ -1972,18 +2093,27 @@ def validate_released_session_lock(
         pid = payload.get("pid")
         if isinstance(pid, bool) or not isinstance(pid, int) or not 1 <= pid < 2**31:
             return summary
-        try:
-            os.kill(pid, 0)
-        except ProcessLookupError:
-            summary["session_lock_pid_inactive"] = True
-        except PermissionError:
-            return summary
-        except OSError as exc:
-            if exc.errno != errno.ESRCH:
+        if expected_active_pid is not None:
+            if pid != expected_active_pid:
                 return summary
-            summary["session_lock_pid_inactive"] = True
+            try:
+                os.kill(pid, 0)
+            except OSError:
+                return summary
+            summary[pid_evidence] = True
         else:
-            return summary
+            try:
+                os.kill(pid, 0)
+            except ProcessLookupError:
+                summary[pid_evidence] = True
+            except PermissionError:
+                return summary
+            except OSError as exc:
+                if exc.errno != errno.ESRCH:
+                    return summary
+                summary[pid_evidence] = True
+            else:
+                return summary
 
         try:
             current_parent_info = lock_path.parent.lstat()
@@ -2012,6 +2142,7 @@ def _cleanup_summary(
     temporary_root: Path,
     *,
     owner_scope: str,
+    expected_active_pid: int | None = None,
 ) -> dict[str, object]:
     paths = {
         "control_socket_absent": data_root / "runtime" / "control.sock",
@@ -2025,6 +2156,7 @@ def _cleanup_summary(
         validate_released_session_lock(
             data_root / "runtime" / "session.lock",
             owner_scope=owner_scope,
+            expected_active_pid=expected_active_pid,
         )
     )
     lease_root = temporary_root / "termuinator-runtime"
@@ -2105,6 +2237,7 @@ async def _run_device_verification(
                         data_root,
                         paths["tmp"],
                         owner_scope=owner_scope,
+                        expected_active_pid=caller.server_pid,
                     )
                     if not all(cleanup.values()):
                         remaining = (

@@ -587,6 +587,13 @@ class BrowserService:
                 )
             except TermuinatorError:
                 raise
+            except TimeoutError as exc:
+                raise TermuinatorError(
+                    ErrorCode.TIMEOUT,
+                    "Backend navigation timed out",
+                    retryable=True,
+                    details={"backend": active.capabilities.backend.value},
+                ) from exc
             except Exception as exc:
                 raise TermuinatorError(
                     ErrorCode.BACKEND_CRASHED,

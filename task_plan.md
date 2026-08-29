@@ -35,9 +35,19 @@ control socket survivor는 없었고 benchmark는 올바르게 보류됐다. 실
 persistent lock의 owner/mode/dead-PID/reacquirable-flock 계약을 RED로 고정한 뒤 verifier만
 수정했고, ENOENT race와 symlink runtime도 fail-closed로 보강했다. Python 3.11/3.12/3.14의
 warning-as-error 348-test authority, static gate, pinned environment와 기존 wheel binding이
-모두 GREEN이다. 다음은 이 변경을 새 clean commit으로 만든 뒤 S22U에서 재검사하는 것이다.
-그 commit의 양 backend PASS와
-`benchmark_allowed: true` 전에는 benchmark나 RC 승인을 진행하지 않는다.
+모두 GREEN이었다. 그러나 exact `1bec1b0fbac2c57ddb9fe6b9f3824cc85774a5f4` (`v.0.2.06`)
+S22U 재검사는 Chromium만 PASS했고 Firefox loopback navigation이 45초 timeout 뒤
+`backend_crashed`로 잘못 분류됐다. 이 세 blocker는 RED부터 복구했다. verifier는 exec로
+보존한 exact MCP child PID를 중간 cleanup에 결합하고 최종 cleanup만 inactive PID를 요구한다.
+Absent lock도 stable owner-private real runtime parent를 요구한다. Firefox는 navigation 직후
+주소창의 actual URL과 window title을 native metadata로 반환해 실패하던 console readiness poll을
+생략하며, clipboard marker 소유·변경을 검증해 stale URL을 거부한다. built-in timeout은 이제
+typed `TIMEOUT`으로 유지된다. Python 3.11/3.12/3.14 warning-as-error 359-test authority, static gate,
+새 wheel의 57-source/RECORD/metadata binding, fresh Python 3.14 install과 observer→interactive stdio
+재시작이 모두 GREEN이다. 다음은 전체 patch를 새 clean commit으로 고정하고 새 wheel
+`45b7198135163f95c590fef84a5fc8c97131cac4029e6d3c4286f5412421eb05`를 사용해 S22U canonical
+gate를 재실행하는 것이다. 양 backend PASS와 `benchmark_allowed: true` 전에는 benchmark나 RC
+승인을 진행하지 않는다.
 
 ## Current Phase
 
@@ -816,6 +826,20 @@ Termu-inator MVP는 다음 조건을 모두 만족해야 한다.
      기존 wheel binding을 재검증한다.
    - [ ] 새 clean commit에서 side-by-side S22U canonical gate를 재실행한다.
 
+9. **`v0.2.06`의 2단계 cleanup과 Firefox timeout blocker를 복구한다.**
+   - [x] exact clean commit, Chromium PASS, Firefox loopback timeout, 잘못된
+     `backend_crashed`, benchmark 보류와 독립 lock 재현을 로컬 source와 대조한다.
+   - [x] 실제 MCP subprocess가 acquire→release 뒤 생존하는 중간 cleanup과 종료 뒤 최종
+     cleanup의 서로 다른 PID 계약을 RED로 추가한다.
+   - [x] absent `session.lock`의 symlink/non-private runtime parent를 거부하는 RED를 추가한다.
+   - [x] verifier가 직접 시작한 신뢰된 MCP child PID만 중간 cleanup에서 허용하고 최종
+     cleanup에서는 inactive PID를 요구하도록 최소 수정한다.
+   - [x] Firefox loopback navigation timeout을 재현하고 timeout과 backend crash의 오류
+     경계를 분리한 뒤 실제 navigation blocker를 수정한다.
+   - [x] focused suite, Python 3.11/3.12/3.14 authority, static gate와 wheel/source binding을
+     재검증한다.
+   - [ ] 새 clean commit에서 S22U canonical gate를 재실행한다.
+
 **Phase 7A Exit Gate**
 
 - Chromium observation이 legacy summary 문자열에 의존하지 않고 bounded structured
@@ -1304,6 +1328,16 @@ Termu-inator MVP는 다음 조건을 모두 만족해야 한다.
 | state-root backend GREEN 재검사에서 test fixture의 암묵적 `state/` mode 0755가 private-root 검증에 걸림 | 1 | 실제 `BrowserService._prepare_state_root()` 계약대로 fixture의 `state/`도 명시적으로 mode 0700으로 만든다. |
 | expanded path-safety RED가 ENOENT 뒤 생성 race와 symlink `runtime/`을 모두 허용해 2 failures로 종료됨 | 1 | 부재를 후속 `lstat()`으로 재확인하고, 존재하는 lock은 owner-private real parent inode까지 전후 동일성을 검증한다. |
 | path-safety 구현 직후 조건식 연결 `or` 누락으로 import가 `SyntaxError`로 종료됨 | 1 | 오류를 기록하고 누락된 논리 연산자만 즉시 복구한 뒤 focused suite부터 다시 실행한다. |
+| `v0.2.06` 2단계 cleanup RED가 expected active PID API 부재 2건, absent symlink/non-private parent 허용 2건, trusted launcher 부재 1건으로 정확히 5 failures를 냄 | 1 | private O_EXCL PID launcher가 exact MCP command로 exec한 PID를 중간 cleanup에 전달하고, absent path도 runtime parent identity를 검증한다. |
+| Firefox navigation RED가 timeout의 `backend_crashed` 오분류, native address-bar metadata 부재, console polling 지속, adapter metadata 무시를 각각 4 failures로 재현함 | 1 | actual URL/title을 native navigation 결과로 전달하고 검증된 Firefox metadata만 adapter가 사용하며, built-in timeout은 typed `TIMEOUT`으로 변환한다. |
+| native metadata 결합 patch가 `_clipboard_paste()`의 현재 cleanup 문맥과 달라 적용 전에 거부됨 | 1 | 파일은 변경되지 않았다. 정확한 method 경계를 다시 읽고 import, helper, 두 return 지점을 작은 patch로 분리한다. |
+| stale clipboard URL 회귀가 navigation marker를 prime하지 않아 expected `RuntimeError` 대신 이전 값을 metadata로 수용해 1 failure를 냄 | 1 | unique marker의 실제 X11 clipboard 소유를 먼저 확인하고 Ctrl+C 뒤 marker가 교체되지 않으면 fail-closed하며 소유한 xclip만 정리한다. |
+| 첫 final wheel build가 sandbox에서 uv cache 내부 `.git` 접근 `Operation not permitted`로 종료됨 | 1 | source 문제로 보지 않고 동일한 격리 output build를 승인된 uv cache 접근으로 재실행한다. |
+| fresh-install venv 생성에 추측한 uv Python 3.14 경로를 사용해 `no such file or directory`로 종료됨 | 1 | 기존 authority interpreter의 `sys._base_executable`을 읽어 실제 Homebrew Python 3.14 경로로 새 venv를 생성한다. |
+| 설치 wheel observer stdio 첫 probe가 sandbox의 Unix socket bind `PermissionError`로 종료됨 | 1 | 제품 회귀로 보지 않고 같은 private HOME/XDG/TMP probe를 socket 사용이 허용된 실행으로 재시도해 rc 0, zero output, cleanup을 확인한다. |
+| 후보 artifact 권한 검증에서 이미 artifact directory를 cwd로 둔 채 parent-relative 경로를 다시 사용해 `chmod`가 대상을 찾지 못함 | 1 | 절대 경로로 owner-private 0600 권한과 checksum을 재검증했으며 artifact bytes는 변경되지 않았다. |
+| 최종 changed-line 검사에서 JavaScript 문자열의 awk 정규식을 한 번 과도하게 escape해 awk syntax error가 발생함 | 1 | 제품 파일은 불변이다. 앞서 검증된 단일 escape 형태로 즉시 재실행해 changed Python line의 100-column gate가 통과함을 확인한다. |
+| 보존 wheel 최종 binding과 checksum을 한 command에서 검사하며 checksum 파일 내부의 상대 filename을 repository cwd에서 해석해 `FAILED open or read`가 발생함 | 1 | wheel binding 자체는 PASS했다. checksum 파일이 있는 private artifact directory를 cwd로 두고 재실행해 `OK`와 0700/0600 권한을 확인한다. |
 
 ---
 

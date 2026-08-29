@@ -20,7 +20,11 @@ import threading
 import uuid
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
-from .commands import JavascriptExecutionError, JavascriptExecutionTimeout
+from .commands import (
+    _NATIVE_NAVIGATION_KEY,
+    JavascriptExecutionError,
+    JavascriptExecutionTimeout,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -482,6 +486,62 @@ class NativeFirefoxSession:
         out, _ = await proc.communicate()
         return out.decode("utf-8", errors="replace").strip()
 
+    async def _release_clipboard_owner(self, process):
+        """Stop only the xclip process created for a navigation marker."""
+
+        if process.returncode is not None:
+            return
+        try:
+            process.terminate()
+        except ProcessLookupError:
+            return
+        try:
+            await asyncio.wait_for(process.wait(), timeout=2)
+        except asyncio.TimeoutError:
+            try:
+                process.kill()
+                await process.wait()
+            except ProcessLookupError:
+                pass
+
+    async def _prime_navigation_clipboard(self):
+        """Own the clipboard with a unique marker before copying the URL."""
+
+        marker = f"TBP_NAV_{uuid.uuid4().hex}"
+        env = os.environ.copy()
+        env["DISPLAY"] = self._display
+        process = await asyncio.create_subprocess_exec(
+            "xclip",
+            "-selection",
+            "clipboard",
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL,
+            env=env,
+        )
+        if process.stdin is None:
+            await self._release_clipboard_owner(process)
+            raise RuntimeError("Firefox navigation clipboard is unavailable")
+        try:
+            process.stdin.write(marker.encode("ascii"))
+            await process.stdin.drain()
+            process.stdin.close()
+            await asyncio.sleep(0.1)
+            observed = await asyncio.wait_for(
+                self._clipboard_read(),
+                timeout=2,
+            )
+            if observed != marker:
+                raise RuntimeError(
+                    "Firefox navigation clipboard is unavailable"
+                )
+        except BaseException:
+            await self._release_clipboard_owner(process)
+            raise
+        if process.returncode is not None:
+            raise RuntimeError("Firefox navigation clipboard is unavailable")
+        return marker, process
+
     async def _clipboard_paste(self, text):
         """Write text to clipboard and paste into focused field.
 
@@ -520,6 +580,38 @@ class NativeFirefoxSession:
         except Exception as e:
             logger.debug("Clipboard paste failed: %s", e)
             return False
+
+    async def _navigation_metadata(self, timeout):
+        """Read the post-navigation URL and title without the JS console."""
+
+        marker, clipboard_owner = await self._prime_navigation_clipboard()
+        try:
+            await self._focus_main_window()
+            wid = self._main_wid
+            if not isinstance(wid, str) or not wid:
+                raise RuntimeError("Firefox main window is unavailable")
+            await self._xdt(["key", "ctrl+l"])
+            try:
+                await asyncio.sleep(0.1)
+                await self._xdt(["key", "ctrl+c"])
+                await asyncio.sleep(0.1)
+                current_url = await asyncio.wait_for(
+                    self._clipboard_read(),
+                    timeout=max(0.1, min(float(timeout), 3.0)),
+                )
+            finally:
+                await self._xdt(["key", "Escape"])
+        finally:
+            await self._release_clipboard_owner(clipboard_owner)
+        title = await self._xdt(["getwindowname", wid])
+        if (
+            not isinstance(current_url, str)
+            or not current_url
+            or current_url == marker
+            or not isinstance(title, str)
+        ):
+            raise RuntimeError("Firefox navigation metadata is unavailable")
+        return {"url": current_url, "title": title}
 
     async def _dismiss_popup(self):
         """Dismiss Firefox chrome popups (save password, save address, etc.).
@@ -870,7 +962,11 @@ async def _navigate(session, params, timeout):
         session._viewport_offset = None
         # Console may survive same-origin navigation — close it properly
         await session._close_console()
-        return {"frameId": "native"}
+        metadata = await session._navigation_metadata(timeout)
+        return {
+            "frameId": "native",
+            _NATIVE_NAVIGATION_KEY: metadata,
+        }
     except Exception:
         pass
 
@@ -888,7 +984,11 @@ async def _navigate(session, params, timeout):
 
     await asyncio.sleep(3)
     session._viewport_offset = None
-    return {"frameId": "native"}
+    metadata = await session._navigation_metadata(timeout)
+    return {
+        "frameId": "native",
+        _NATIVE_NAVIGATION_KEY: metadata,
+    }
 
 
 async def _evaluate(session, params, timeout):
