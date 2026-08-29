@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import base64
 import hashlib
 import json
@@ -622,10 +623,35 @@ class InstalledWheelProvenanceTests(unittest.TestCase):
 
 
 class ChildEnvironmentIsolationTests(unittest.TestCase):
+    def test_verifier_tests_do_not_force_posix_root_tmp(self) -> None:
+        tree = ast.parse(Path(__file__).read_text(encoding="utf-8"))
+        offenders: list[int] = []
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            function = node.func
+            if not (
+                isinstance(function, ast.Attribute)
+                and function.attr == "TemporaryDirectory"
+            ):
+                continue
+            for keyword in node.keywords:
+                if (
+                    keyword.arg == "dir"
+                    and isinstance(keyword.value, ast.Constant)
+                    and keyword.value.value == "/tmp"
+                ):
+                    offenders.append(node.lineno)
+
+        self.assertEqual(
+            offenders,
+            [],
+            f"verifier tests force unwritable root /tmp at lines {offenders}",
+        )
+
     def test_isolates_home_alongside_xdg_and_tmp_roots(self) -> None:
-        with tempfile.TemporaryDirectory(dir="/tmp") as temp_dir:
-            output = Path(temp_dir) / "output"
-            output.mkdir(mode=0o700)
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output = Path(temp_dir)
 
             with patch.dict(os.environ, {"TBP_SINGLE_PROCESS": "1"}):
                 environ, paths = _child_environment(
@@ -645,7 +671,7 @@ class ChildEnvironmentIsolationTests(unittest.TestCase):
             self.assertLessEqual(len(os.fsencode(control_socket)), 100)
 
     def test_rejects_output_path_that_cannot_fit_private_control_socket(self) -> None:
-        with tempfile.TemporaryDirectory(dir="/tmp") as temp_dir:
+        with tempfile.TemporaryDirectory() as temp_dir:
             output = Path(temp_dir) / ("x" * 80)
             output.mkdir(mode=0o700)
 

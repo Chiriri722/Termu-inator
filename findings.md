@@ -689,3 +689,16 @@
 - These local results prove the defect is repaired at the verifier contract boundary, but they do not prove the S22U browser/device gate. Benchmark authority remains closed until the new clean commit produces `status=PASS` and `benchmark_allowed=true` on-device.
 - The S22U is currently reachable over the tailnet data path (direct pong, 38 ms), but Termux TCP 8022 actively refuses connections. This distinguishes device reachability from an SSH transport and leaves the existing on-device Hermes workflow as the available canonical execution path.
 - Final commit-scope review found no new defect in the identity patch. Adding a mock-only macOS preflight test would not establish Android ABI or browser behavior, so the direct helper contract, explicit preflight call site, full local matrix, and forthcoming real S22U manifest remain the evidence chain.
+
+## 2026-08-29 `e29320d` Termux test-portability evidence
+
+- Remote and local HEAD are `e29320d35fa836e8fc353c255994902379510637` (`v.0.2.04`), and the local worktree was clean before this repair.
+- The S22U clean checkout passed `git diff --check` and both modern/legacy identity tests. The 24-test verifier suite stopped with exactly two `PermissionError` cases before venv, browser, or benchmark execution.
+- Both failures originate from `tempfile.TemporaryDirectory(dir="/tmp")` in `ChildEnvironmentIsolationTests`. Termux exposes `/tmp` but the app UID cannot write there; Python's default temporary directory correctly resolves through the usable Termux `$TMPDIR` under `$PREFIX/tmp`.
+- The same commit also tracks root and `scripts/` `.DS_Store` files. They are unrelated Finder metadata, are not part of the release evidence, and must be removed from the next repository snapshot with an ignore rule preventing recurrence.
+- The preserved wheel remains the expected candidate because neither test portability nor repository hygiene changes alter `cli.py`, `src/**/*.py`, README, LICENSE, NOTICE, or wheel metadata.
+- A plain `TemporaryDirectory()` is portable on Termux but macOS's default temp path is longer. The original test's extra `/output` component—not the production socket limit—pushed the modeled control socket from 95 to 102 bytes, so the test now uses the private temporary directory itself while retaining the exact 100-byte production assertion.
+- The S22U `$PREFIX/tmp` model now yields an 82-byte control socket path, leaving 18 bytes of margin under the unchanged portable limit.
+- `.DS_Store` is ignored at every depth, both tracked copies are removed from the candidate snapshot, and their recoverable backup is private under `/tmp/termuinator-dsstore-backup.fxvH4l/`.
+- All local authority is now GREEN at 342 tests per supported interpreter. The package wheel hash and 57-source tree digest are unchanged, confirming this is test/repository hygiene work rather than a new release artifact.
+- Local GREEN still does not authorize the benchmark. A new clean commit must first run the canonical S22U venv, Chromium, Firefox, artifact, cleanup, manifest, and checksum gates.

@@ -27,15 +27,15 @@ VirGL 소유권 경계도 RED/GREEN으로 보강했다. verifier는 wheel/checko
 release metadata, license, RECORD와 portable control-socket 경로까지 묶는다. Python
 3.11/3.12/3.14의 warning-as-error 341-test suite, pinned MCP 전체 suite, fresh pip wheel
 install/check, 네 entrypoint, interactive→observer 연속 stdio purity가 모두 GREEN이다.
-commit `d40f4d3e3d801643ca0433116d7d951b3ce0c483`의 wheel/source/provenance와 새
-commit-suffixed Termux venv는 모두 통과했다. canonical verifier는 최신 Termux Python의
-`platform.system() == "Android"`를 Linux-only 조건으로 거부해 `installed-environment`에서
-FAIL했고 benchmark는 올바르게 보류됐다. coherent modern `android/Android`와 legacy
-`linux/Linux` identity만 허용하는 RED/GREEN 수정 및 전체 local authority는 완료됐다.
-보존 wheel은 새 checkout에도 57-source/metadata/RECORD 결합을 통과하므로 재빌드하지 않는다.
-다음은 이 수정만 새 commit으로 만든 뒤 새 commit-suffixed venv에서 동일 canonical device
-gate를 재실행하는 것이다. 양 backend PASS와 `benchmark_allowed: true` 전에는 benchmark나
-RC 승인을 진행하지 않는다.
+commit `e29320d35fa836e8fc353c255994902379510637`에서 Android identity 수정은 S22U focused
+검사를 통과했다. 그러나 verifier test 두 곳이 macOS writable `/tmp`를 직접 지정해 Termux
+앱 UID에서 `PermissionError`를 냈고, 실수로 `.DS_Store` 두 개도 commit에 포함됐다. canonical
+venv/browser gate와 benchmark는 올바르게 시작되지 않았다. portable temp-root RED 뒤 두
+hardcode와 불필요한 `/output` suffix를 제거했고, `.DS_Store`는 private backup 뒤 snapshot에서
+삭제하고 ignore했다. Python 3.11/3.12/3.14의 342-test authority, static gate, 기존 wheel의
+57-source/metadata/RECORD binding이 모두 통과했다. 다음은 이 7-path 정리를 새 clean commit으로
+만든 뒤 S22U canonical gate를 재실행하는 것이다. 양 backend PASS와
+`benchmark_allowed: true` 전에는 benchmark나 RC 승인을 진행하지 않는다.
 
 ## Current Phase
 
@@ -790,6 +790,17 @@ Termu-inator MVP는 다음 조건을 모두 만족해야 한다.
      static gate를 재검증한다.
    - [ ] 새 commit에서 side-by-side venv와 canonical device gate를 재실행한다.
 
+7. **`e29320d` Termux test portability와 repository hygiene blocker를 제거한다.**
+   - [x] S22U focused 결과가 identity 2개 PASS, 전체 24개 중 `/tmp` 관련 2 ERROR이며
+     venv/browser/benchmark가 시작되지 않았음을 확인한다.
+   - [x] test suite가 platform-specific writable `/tmp`를 강제하지 않는 portability RED를
+     추가하고 정확히 두 기존 위치에서 실패함을 확인한다.
+   - [x] 두 `TemporaryDirectory(dir="/tmp")`를 runtime-selected temp root로 전환한다.
+   - [x] 두 `.DS_Store`를 복구 가능하게 보존하면서 repository snapshot에서 제거하고
+     `.gitignore`로 재유입을 막는다.
+   - [x] focused suite, Python 3.11/3.12/3.14 authority, static gate, wheel binding을 재검증한다.
+   - [ ] 새 clean commit에서 side-by-side S22U canonical gate를 재실행한다.
+
 **Phase 7A Exit Gate**
 
 - Chromium observation이 legacy summary 문자열에 의존하지 않고 bounded structured
@@ -1266,6 +1277,11 @@ Termu-inator MVP는 다음 조건을 모두 만족해야 한다.
 | Python 3.11/3.12/3.14 전체 suite가 workspace sandbox의 loopback TCP·Unix socket bind `PermissionError`로 실패하고 결합 출력이 절단됨 | 1 | 제품 회귀로 판정하지 않는다. 동일한 세 authority 명령을 로컬 socket 사용이 허용된 sandbox 외부에서 독립 재실행해 실제 결과를 확정한다. |
 | macOS 앱 bundle의 `Tailscale status --json`이 sandbox에서 출력 없이 종료되고 `--help`는 rc 134로 중단됨 | 1 | 장치·설정은 불변이다. GUI/network-service 접근이 필요한 앱 binary이므로 동일한 읽기 전용 status를 sandbox 밖에서 재실행해 CLI 부재와 sandbox failure를 구분한다. |
 | 2026-08-26 최신 S22U 확인에서 tailnet direct pong은 38ms로 성공했지만 TCP 8022가 `Connection refused`를 반환함 | 1 | 장치·Tailscale은 변경하지 않았다. Mac 직접 transport는 여전히 없으므로 clean commit 뒤 on-device Hermes 재실행을 사용하거나 사용자가 Termux `sshd`를 명시적으로 시작해야 한다. |
+| Termux test portability RED가 hardcoded root `/tmp` 위치 `[653, 675]`를 검출해 1 failure로 종료됨 | 1 | 의도한 RED다. 두 `TemporaryDirectory`가 Python의 runtime-selected writable temp root를 사용하도록 `dir` 인자를 제거한다. |
+| 두 `dir="/tmp"`를 단순 제거한 GREEN 확대 실행에서 macOS 기본 `$TMPDIR` 경로가 길어 private control socket 100-byte 계약을 초과함 | 1 | Termux 제안만 적용하면 Mac 회귀가 된다. platform 이름이 아니라 실제 writable·socket-safe 조건으로 짧은 test temp root를 선택하는 helper를 RED부터 추가한다. |
+| 이전 3.14 authority venv `/tmp/termuinator-final-rc.OCglWK/venv`가 재검증 시점에 더 이상 존재하지 않음 | 1 | 제품·checkout과 무관한 임시 환경 소멸이다. 현재 Python 3.14 interpreter와 package cache를 확인해 새 격리 authority venv를 만들고 pinned MCP suite를 재실행한다. |
+| sandbox 안 `uv python find 3.14`가 사용자 cache의 내부 `.git` 접근에서 `Operation not permitted`로 종료됨 | 1 | `/opt/homebrew/bin/python3.14` 3.14.7 자체는 확인됐다. uv cache를 우회해 `/tmp`에 stdlib venv를 만들고 pinned packages만 설치한다. |
+| 새 Python 3.14 authority venv의 pinned MCP 설치가 sandbox DNS 차단으로 PyPI를 해석하지 못해 종료됨 | 1 | dependency conflict가 아니라 network isolation 결과다. 같은 exact pins와 repository constraint를 sandbox 밖에서 재실행한다. |
 
 ---
 

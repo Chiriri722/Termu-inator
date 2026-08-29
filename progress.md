@@ -578,3 +578,18 @@
 - A fresh read-only tailnet check outside the app sandbox reports `Galaxy S22 Ultra` online and a direct-path pong in 38 ms. The bounded TCP 8022 probe still returns `Connection refused`, so Mac-side SSH cannot replace the on-device Hermes gate. No device or Tailscale setting changed.
 - A commit-scope code review found no blocking or important issue: the runtime pair and canonical root checks are constant-time, secret-free, and stricter than the former one-marker check; they execute only after real Termux prefix/pkg and native-cryptography validation. The 24-test focused verifier suite and final diff check remain GREEN.
 - No wheel rebuild, commit, push, Hermes/device mutation, benchmark, or RC approval was performed. A clean new commit and on-device canonical PASS manifest remain required.
+
+## 2026-08-29 — `e29320d` S22U portability follow-up
+
+- Reconciled Hermes evidence with local `main` and `origin/main`; both point to clean commit `e29320d35fa836e8fc353c255994902379510637` before this repair.
+- Confirmed the commit contains the intended five repair files plus mistakenly tracked `.DS_Store` and `scripts/.DS_Store`.
+- Confirmed the two reported test sites hardcode `TemporaryDirectory(dir="/tmp")`; the next TDD cycle will add a portable-test invariant before removing those arguments.
+- Added an AST portability contract first; its RED found exactly the two hardcoded calls. Removing both `dir="/tmp"` arguments made that test GREEN.
+- The first expanded focused run then exposed a distinct macOS path-length edge: its default temporary path plus the test-only `/output` suffix produced a 102-byte control socket. Using the already-private temporary directory itself reduces it to 95 bytes without weakening the production 100-byte limit; all 25 focused verifier tests then pass.
+- The equivalent S22U `$PREFIX/tmp/tmpabcdefgh` model is 82 bytes, so the repaired test remains within the same production limit on both target hosts.
+- Added a repository-wide `.DS_Store` ignore rule. The two tracked Finder files are now unstaged deletions and are recoverably preserved at `/tmp/termuinator-dsstore-backup.fxvH4l/` in a mode-0700 directory with mode-0600 files.
+- Python 3.11.15 and 3.12.13 each pass 342 tests with eight optional MCP skips. A fresh Python 3.14.7 venv with MCP 1.29.0 and websockets 17.0.1 passes `pip check` and executes all 342 tests successfully.
+- Static gates pass: `git diff --check`, `bash -n setup.sh`, warning-as-error compileall on all three interpreters, changed-test 100-column check, and repository-wide `.DS_Store` ignore verification.
+- The preserved 273,622-byte wheel remains SHA-256 `85ec62fa15200c689e25044e564642e9b2e505764c2327ed673da77bc24a1299` and passes all 57-source, source-tree digest, metadata, entrypoint, license, member allowlist, and RECORD checks against the current checkout.
+- Refreshed the fast code graph to 3,005 nodes and 17,487 edges. `scripts/` remains intentionally excluded; the new portability contract is indexed in the verifier tests.
+- No venv, browser gate, benchmark, wheel rebuild, device setting, or package mutation has been performed in this follow-up.
