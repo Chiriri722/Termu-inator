@@ -10,7 +10,7 @@ import secrets
 import time
 from typing import Any, Callable, Mapping, NoReturn
 
-from ...commands import JavascriptExecutionTimeout
+from ...commands import JavascriptExecutionTimeout, NativeNavigationError
 from ..contracts import (
     ActionKind,
     Backend,
@@ -320,10 +320,35 @@ class LegacyPilotBackend:
                 "navigation timeout_ms must be between 1 and 120000",
             )
         pilot = self._require_pilot()
-        navigation = await pilot.goto(  # type: ignore[attr-defined]
-            url,
-            timeout=timeout_ms / 1000,
-        )
+        try:
+            navigation = await pilot.goto(  # type: ignore[attr-defined]
+                url,
+                timeout=timeout_ms / 1000,
+            )
+        except NativeNavigationError as exc:
+            raise TermuinatorError(
+                ErrorCode.BACKEND_CRASHED,
+                "Inherited Firefox navigation failed",
+                retryable=True,
+                details={
+                    "backend": self.backend.value,
+                    "operation": operation,
+                    "stage": exc.stage,
+                },
+            ) from exc
+        except (TermuinatorError, TimeoutError):
+            raise
+        except Exception as exc:
+            raise TermuinatorError(
+                ErrorCode.BACKEND_CRASHED,
+                "Inherited browser navigation failed",
+                retryable=True,
+                details={
+                    "backend": self.backend.value,
+                    "operation": operation,
+                    "stage": "pilot_dispatch",
+                },
+            ) from exc
         if self.backend is Backend.FIREFOX and navigation is not None:
             if not isinstance(navigation, Mapping) or frozenset(navigation) != {
                 "url",
@@ -332,6 +357,11 @@ class LegacyPilotBackend:
                 raise TermuinatorError(
                     ErrorCode.BACKEND_CRASHED,
                     "Inherited Firefox returned invalid navigation metadata",
+                    details={
+                        "backend": self.backend.value,
+                        "operation": operation,
+                        "stage": "adapter_metadata",
+                    },
                 )
             current_url = navigation.get("url")
             title = navigation.get("title")
@@ -342,6 +372,11 @@ class LegacyPilotBackend:
             raise TermuinatorError(
                 ErrorCode.BACKEND_CRASHED,
                 "Inherited browser returned invalid navigation metadata",
+                details={
+                    "backend": self.backend.value,
+                    "operation": operation,
+                    "stage": "adapter_metadata",
+                },
             )
         if (
             not current_url.startswith(("http://", "https://"))
@@ -351,6 +386,11 @@ class LegacyPilotBackend:
             raise TermuinatorError(
                 ErrorCode.BACKEND_CRASHED,
                 "Inherited browser returned unsafe navigation metadata",
+                details={
+                    "backend": self.backend.value,
+                    "operation": operation,
+                    "stage": "adapter_metadata",
+                },
             )
         self._status = BackendStatus(
             backend=self.backend,

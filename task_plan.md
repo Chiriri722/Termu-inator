@@ -840,6 +840,31 @@ Termu-inator MVP는 다음 조건을 모두 만족해야 한다.
      재검증한다.
    - [ ] 새 clean commit에서 S22U canonical gate를 재실행한다.
 
+10. **`v0.2.08` Firefox `backend_crashed`를 증거 보존부터 다시 닫는다.**
+   - [x] 전달된 manifest/checksum/raw error의 SHA-256, private mode, commit·wheel·source
+     binding을 독립 검증하고 원본 불변 사본을 repository 밖에 보존한다.
+   - [x] Chromium full gate와 최종 cleanup은 PASS했지만 Firefox 하위 예외는 현 evidence에
+     없으므로 이전 timeout 재발로 단정하지 않고 benchmark를 계속 닫는다.
+   - [x] native Firefox navigation의 bounded stage taxonomy와 compact MCP 오류 envelope를
+     연결해 URL·clipboard·exception 원문 없이도 canonical private evidence가 실패 단계를
+     식별하도록 RED부터 추가한다.
+   - [x] Android/X11에서 지연될 수 있는 address-bar clipboard 교체를 전체 timeout 안의
+     짧은 bounded retry로 검증하되 marker가 그대로이거나 비-HTTP(S) 값이면 fail-closed한다.
+   - [x] focused RED/GREEN, 전체 Python 3.11/3.12/3.14 authority, static gate, fresh wheel
+     source binding과 stdio purity를 재검증한다.
+   - [x] malformed MCP error envelope가 임의의 code/detail 값을 canonical private error에
+     주입하지 못하도록 frozen error-code allowlist를 RED부터 검증한다.
+   - [x] caller의 navigation timeout을 일반·network-idle transport 호출까지 전달해 native
+     기본 60초가 공개 45초 계약을 덮어쓰지 않도록 RED부터 검증한다.
+   - [x] 취소된 Firefox navigation helper가 자신이 생성한 `xdotool`/`xclip`만 회수하고
+     timeout/error 로그에 URL·clipboard 인자를 남기지 않도록 RED부터 검증한다.
+   - [x] 복사된 malformed URL의 parser exception도 `window_unavailable`가 아닌
+     `address_bar_copy`로 분류해 stage taxonomy를 닫는다.
+   - [x] fallback navigation이 첫 `Ctrl+L`·URL 입력 전에 Firefox main window를 활성화하고
+     유효한 WID가 없으면 `window_unavailable`로 fail-closed하도록 RED부터 검증한다.
+   - [ ] 새 clean commit에서 S22U canonical gate를 재실행해 양 backend PASS와
+     `benchmark_allowed: true`를 확보한 뒤에만 benchmark를 시작한다.
+
 **Phase 7A Exit Gate**
 
 - Chromium observation이 legacy summary 문자열에 의존하지 않고 bounded structured
@@ -1338,6 +1363,26 @@ Termu-inator MVP는 다음 조건을 모두 만족해야 한다.
 | 후보 artifact 권한 검증에서 이미 artifact directory를 cwd로 둔 채 parent-relative 경로를 다시 사용해 `chmod`가 대상을 찾지 못함 | 1 | 절대 경로로 owner-private 0600 권한과 checksum을 재검증했으며 artifact bytes는 변경되지 않았다. |
 | 최종 changed-line 검사에서 JavaScript 문자열의 awk 정규식을 한 번 과도하게 escape해 awk syntax error가 발생함 | 1 | 제품 파일은 불변이다. 앞서 검증된 단일 escape 형태로 즉시 재실행해 changed Python line의 100-column gate가 통과함을 확인한다. |
 | 보존 wheel 최종 binding과 checksum을 한 command에서 검사하며 checksum 파일 내부의 상대 filename을 repository cwd에서 해석해 `FAILED open or read`가 발생함 | 1 | wheel binding 자체는 PASS했다. checksum 파일이 있는 private artifact directory를 cwd로 두고 재실행해 `OK`와 0700/0600 권한을 확인한다. |
+| `v0.2.08` focused RED 첫 실행에 macOS 기본 `python3` 3.9.6을 사용해 PEP 604 union import에서 `TypeError`로 종료됨 | 1 | 제품과 신규 계약은 실행되지 않았다. 확인된 `/Users/chiriri722/.local/bin/python3.11` 3.11.15로 동일 focused RED를 재실행한다. |
+| `v0.2.08` Firefox evidence RED 16건이 delayed clipboard 두 경로, typed stage 세 경로, canonical safe detail 1경로에서 5 failures·1 error로 종료됨 | 1 | 의도한 계약 실패다. 고정 stage error, bounded marker/address-copy retry, legacy envelope mapping과 verifier allowlist를 최소 구현한다. |
+| Firefox production 결합 patch가 `_PROCESS_TERMS`를 set으로 가정한 문맥 차이 때문에 적용 전에 거부됨 | 1 | production source는 불변이다. 실제 tuple 선언을 기준으로 commands, native, adapter, verifier patch를 분리한다. |
+| adapter diagnostic 확대 RED 2건이 unknown Pilot `RuntimeError` 원문 누출과 metadata failure의 empty details를 각각 1 error·1 failure로 재현함 | 1 | timeout/기존 typed 오류는 보존하고 unknown dispatch와 adapter validation만 고정 stage의 secret-free `TermuinatorError`로 변환한다. |
+| 세 interpreter 전체 suite가 workspace sandbox의 TCP/Unix socket bind `PermissionError` 15건씩으로 종료됨 | 1 | 동일 source의 관련 87개 non-binding 회귀는 GREEN이다. 제품 실패로 보지 않고 세 exact authority 명령을 socket bind가 허용된 sandbox 밖에서 재실행한다. |
+| installed import provenance 출력 명령이 임시 probe의 `w` 대신 존재하지 않는 상위 `w`를 workdir로 지정해 실행 전에 거부됨 | 1 | wheel·venv·stdio 결과는 불변이다. 실제 private 경로 `stdio/w`에서 동일 import-origin 확인을 재실행한다. |
+| delayed address-bar 재시도 확대 RED가 두 번째 시도에서 main-window focus와 `Ctrl+L`을 반복하지 않아 1 failure를 반환함 | 1 | 매 bounded attempt마다 main WID를 재확인하고 주소창을 다시 선택한 뒤 clipboard 교체를 검사한다. |
+| cancelled clipboard-read RED가 해당 호출이 만든 `xclip -o` child를 reap하지 않아 1 failure를 반환함 | 1 | cancellation 때 exact owned process만 kill/wait하고 원래 `CancelledError`는 그대로 전파한다. |
+| clipboard read-error taxonomy RED가 X11 read failure를 `window_unavailable`로 잘못 분류해 1 failure를 반환함 | 1 | bounded read block에서 timeout은 retry하고 다른 read exception은 원문 없이 `address_bar_copy`로 변환한다. |
+| 최종 static 재확인 중 `uv python find 3.12`가 sandbox 밖 사용자 cache의 권한 오류로 interpreter 탐색 전에 종료됨 | 1 | 설치나 제품 실행으로 오인하지 않고 이미 설치된 uv Python 3.12.13 executable을 read-only `find`로 확인해 동일 compileall을 직접 실행한다. |
+| malformed MCP code RED가 `secret_token_value`를 canonical 오류 문자열에 그대로 포함해 1 failure를 반환함 | 1 | 형식 정규식 대신 frozen public `ErrorCode` 값만 허용하고 그 밖의 code는 고정 `mcp_error`로 축약한다. |
+| timeout RED test patch가 실제 fixture의 `method/params` 이름과 다른 문맥을 사용해 적용 전에 거부됨 | 1 | production과 test bytes는 불변이다. 정확한 현재 fixture를 읽고 작은 문맥으로 test-only patch를 다시 적용한다. |
+| 일반·network-idle timeout 전달 RED 2건이 transport에서 각각 `None`을 기록해 2 failures를 반환함 | 1 | 두 `Page.navigate` send 호출에 caller의 bounded timeout을 그대로 전달한다. |
+| Firefox helper cleanup/log RED 4건이 취소된 owned child 2개 미회수와 URL·예외 원문 로그 2건을 재현함 | 1 | `_xdt`와 `_clipboard_paste`를 owner-scoped finally cleanup으로 바꾸고 로그는 고정 value-free 문구만 남긴다. |
+| malformed copied URL RED가 `urlsplit()` 예외를 `window_unavailable`로 오분류해 1 failure를 반환함 | 1 | URL parse·shape 검증 블록의 `ValueError`를 원문 없이 `address_bar_copy`로 변환한다. |
+| fallback focus-order RED에서 첫 `Ctrl+L` index 0이 main-window activation index 3보다 먼저 실행돼 1 failure를 반환함 | 1 | 콘솔 정리 직후 main WID를 활성화·검증한 다음에만 주소창 입력을 시작한다. |
+| missing-main-window RED에서 focus 뒤 WID가 없어도 주소창 입력 경로가 완료돼 `NativeNavigationError`가 발생하지 않음 | 1 | 첫 입력 전에 non-empty string WID를 요구하고 없으면 `window_unavailable`로 종료한다. |
+| fresh-cache `uv build`가 managed network의 PyPI DNS 차단으로 `setuptools>=68.0` 조회 전에 종료됨 | 1 | source 결함으로 보지 않고 동일 exact build를 승인된 network 환경에서 재실행한다. |
+| 첫 fresh wheel venv를 Termux constraint 없이 설치해 `websockets 17.1`이 선택됨 | 1 | 설치 성공을 canonical authority로 사용하지 않고 새 venv에 `requirements-termux.txt` constraint를 적용해 17.0.1을 고정한다. |
+| App Store Tailscale GUI binary에 `status` 인자를 준 read-only probe가 출력 없이 rc 134로 종료됨 | 1 | CLI 설치나 앱 설정을 변경하지 않고 기존 MagicDNS 이름의 bounded TCP 8022 probe만 사용해 transport 여부를 구분한다. |
 
 ---
 

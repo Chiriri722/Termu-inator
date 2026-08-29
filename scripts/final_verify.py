@@ -145,6 +145,43 @@ _PROCESS_TERMS = (
     "xclip",
     "xdotool",
 )
+_MCP_ERROR_CODES = frozenset(
+    {
+        "action_failed",
+        "artifact_not_found",
+        "backend_crashed",
+        "confirmation_required",
+        "idempotency_conflict",
+        "internal_error",
+        "invalid_request",
+        "outcome_unknown",
+        "ownership_denied",
+        "permission_denied",
+        "permission_required",
+        "session_busy",
+        "session_not_found",
+        "session_paused",
+        "stale_observation",
+        "target_not_found",
+        "timeout",
+        "unsupported_capability",
+    }
+)
+_MCP_ERROR_DETAIL_VALUES = {
+    "backend": frozenset({"chromium", "firefox"}),
+    "operation": frozenset({"back", "forward", "goto", "reload"}),
+    "stage": frozenset(
+        {
+            "adapter_metadata",
+            "address_bar_copy",
+            "address_bar_navigation",
+            "clipboard_prime",
+            "metadata_validation",
+            "pilot_dispatch",
+            "window_unavailable",
+        }
+    ),
+}
 _MAX_CONTROL_SOCKET_PATH_BYTES = 100
 _MCP_EXEC_LAUNCHER = "\n".join(
     (
@@ -1614,6 +1651,7 @@ class _McpToolCaller:
         )
         if getattr(result, "isError", False):
             code = "mcp_error"
+            context: list[str] = []
             for content in getattr(result, "content", ()):
                 text_value = getattr(content, "text", None)
                 if not isinstance(text_value, str) or len(text_value) > 64 * 1024:
@@ -1625,12 +1663,22 @@ class _McpToolCaller:
                     )
                 except (json.JSONDecodeError, ValueError):
                     continue
-                if isinstance(envelope, Mapping) and isinstance(
-                    envelope.get("code"), str
-                ):
-                    code = envelope["code"][:64]
-                    break
-            raise VerificationFailure(f"{name} returned MCP error code {code}")
+                if not isinstance(envelope, Mapping):
+                    continue
+                candidate_code = envelope.get("code")
+                if candidate_code in _MCP_ERROR_CODES:
+                    code = candidate_code
+                details = envelope.get("details")
+                if isinstance(details, Mapping):
+                    for key, allowed in _MCP_ERROR_DETAIL_VALUES.items():
+                        value = details.get(key)
+                        if isinstance(value, str) and value in allowed:
+                            context.append(f"{key}={value}")
+                break
+            suffix = f" [{','.join(context)}]" if context else ""
+            raise VerificationFailure(
+                f"{name} returned MCP error code {code}{suffix}"
+            )
         structured = getattr(result, "structuredContent", None)
         return _mapping(structured, f"{name} structured result")
 

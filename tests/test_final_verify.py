@@ -1090,6 +1090,85 @@ class McpInventoryEvidenceTests(unittest.TestCase):
                     validate_tool_inventory(actual, expected, profile="interactive")
 
 
+class McpFailureEvidenceTests(unittest.IsolatedAsyncioTestCase):
+    async def test_records_only_allowlisted_bounded_error_context(self) -> None:
+        private_value = "must-not-enter-canonical-error-evidence"
+
+        class _Content:
+            text = json.dumps(
+                {
+                    "code": "backend_crashed",
+                    "message": private_value,
+                    "retryable": True,
+                    "details": {
+                        "backend": "firefox",
+                        "operation": "goto",
+                        "stage": "address_bar_copy",
+                        "private": private_value,
+                    },
+                    "diagnostics_id": private_value,
+                }
+            )
+
+        class _Result:
+            isError = True
+            content = (_Content(),)
+            structuredContent = None
+
+        class _Session:
+            async def call_tool(self, *_args: object, **_kwargs: object) -> object:
+                return _Result()
+
+        caller_type = getattr(final_verify_module, "_McpToolCaller")
+        caller = caller_type(_Session(), server_pid=os.getpid())
+
+        with self.assertRaises(VerificationFailure) as caught:
+            await caller("browser_navigate", {})
+
+        message = str(caught.exception)
+        self.assertIn("backend_crashed", message)
+        self.assertIn("backend=firefox", message)
+        self.assertIn("operation=goto", message)
+        self.assertIn("stage=address_bar_copy", message)
+        self.assertNotIn(private_value, message)
+
+    async def test_rejects_unrecognized_error_code_and_detail_values(self) -> None:
+        private_code = "secret_token_value"
+        private_detail = "secret_stage_value"
+
+        class _Content:
+            text = json.dumps(
+                {
+                    "code": private_code,
+                    "details": {
+                        "backend": "secret_backend_value",
+                        "operation": "secret_operation_value",
+                        "stage": private_detail,
+                    },
+                }
+            )
+
+        class _Result:
+            isError = True
+            content = (_Content(),)
+            structuredContent = None
+
+        class _Session:
+            async def call_tool(self, *_args: object, **_kwargs: object) -> object:
+                return _Result()
+
+        caller_type = getattr(final_verify_module, "_McpToolCaller")
+        caller = caller_type(_Session(), server_pid=os.getpid())
+
+        with self.assertRaises(VerificationFailure) as caught:
+            await caller("browser_navigate", {})
+
+        message = str(caught.exception)
+        self.assertIn("MCP error code mcp_error", message)
+        self.assertNotIn(private_code, message)
+        self.assertNotIn(private_detail, message)
+
+
 class FinalVerifyCliContractTests(unittest.TestCase):
     def test_requires_commit_wheel_hash_and_installed_entrypoints(self) -> None:
         parser = build_parser()

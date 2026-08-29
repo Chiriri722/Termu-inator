@@ -25,6 +25,27 @@ class JavascriptExecutionError(RuntimeError):
         super().__init__("Firefox JavaScript evaluation failed")
 
 
+_NATIVE_NAVIGATION_STAGES = frozenset(
+    {
+        "address_bar_copy",
+        "address_bar_navigation",
+        "clipboard_prime",
+        "metadata_validation",
+        "window_unavailable",
+    }
+)
+
+
+class NativeNavigationError(RuntimeError):
+    """Bounded Firefox navigation failure without page or clipboard data."""
+
+    def __init__(self, stage: str) -> None:
+        if stage not in _NATIVE_NAVIGATION_STAGES:
+            raise ValueError("unknown native navigation stage")
+        self.stage = stage
+        super().__init__("Firefox native navigation failed")
+
+
 class PageCommands:
     """Navigate, wait, evaluate, extract content."""
 
@@ -54,7 +75,11 @@ class PageCommands:
         if wait_until == "networkidle":
             return await self._navigate_networkidle(url, timeout)
 
-        nav_result = await self.session.send("Page.navigate", {"url": url})
+        nav_result = await self.session.send(
+            "Page.navigate",
+            {"url": url},
+            timeout=timeout,
+        )
 
         if "errorText" in nav_result:
             raise RuntimeError(
@@ -63,7 +88,7 @@ class PageCommands:
         native_navigation = nav_result.get(_NATIVE_NAVIGATION_KEY)
         if native_navigation is not None:
             if not isinstance(native_navigation, Mapping):
-                raise RuntimeError("Native navigation metadata is invalid")
+                raise NativeNavigationError("metadata_validation")
             current_url = native_navigation.get("url")
             title = native_navigation.get("title")
             current = urlparse(current_url) if isinstance(current_url, str) else None
@@ -76,7 +101,7 @@ class PageCommands:
                 or not isinstance(title, str)
                 or len(title) > 4_096
             ):
-                raise RuntimeError("Native navigation metadata is invalid")
+                raise NativeNavigationError("metadata_validation")
             return {"url": current_url, "title": title}
 
         deadline = asyncio.get_running_loop().time() + timeout
@@ -126,7 +151,9 @@ class PageCommands:
 
         try:
             nav_result = await self.session.send(
-                "Page.navigate", {"url": url}
+                "Page.navigate",
+                {"url": url},
+                timeout=timeout,
             )
             if "errorText" in nav_result:
                 raise RuntimeError(

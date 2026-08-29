@@ -19,11 +19,13 @@ import tempfile
 import threading
 import uuid
 from http.server import HTTPServer, BaseHTTPRequestHandler
+from urllib.parse import urlsplit
 
 from .commands import (
     _NATIVE_NAVIGATION_KEY,
     JavascriptExecutionError,
     JavascriptExecutionTimeout,
+    NativeNavigationError,
 )
 
 logger = logging.getLogger(__name__)
@@ -308,10 +310,27 @@ class NativeFirefoxSession:
         try:
             out, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout)
         except asyncio.TimeoutError:
-            proc.kill()
-            await proc.wait()
-            logger.warning("xdotool timed out after %ds: %s", timeout, args)
+            if proc.returncode is None:
+                try:
+                    proc.kill()
+                except ProcessLookupError:
+                    pass
+                else:
+                    await proc.wait()
+            logger.warning("xdotool command timed out after %ss", timeout)
             return ""
+        except BaseException:
+            if proc.returncode is None:
+                try:
+                    proc.kill()
+                except ProcessLookupError:
+                    pass
+                else:
+                    try:
+                        await asyncio.shield(proc.wait())
+                    except (asyncio.CancelledError, ProcessLookupError):
+                        pass
+            raise
         return out.decode().strip()
 
     async def _exec_js(self, expression, timeout=60):
@@ -483,7 +502,20 @@ class NativeFirefoxSession:
             stderr=asyncio.subprocess.DEVNULL,
             env=env,
         )
-        out, _ = await proc.communicate()
+        try:
+            out, _ = await proc.communicate()
+        except BaseException:
+            if proc.returncode is None:
+                try:
+                    proc.kill()
+                except ProcessLookupError:
+                    pass
+                else:
+                    try:
+                        await asyncio.shield(proc.wait())
+                    except (asyncio.CancelledError, ProcessLookupError):
+                        pass
+            raise
         return out.decode("utf-8", errors="replace").strip()
 
     async def _release_clipboard_owner(self, process):
@@ -521,25 +553,36 @@ class NativeFirefoxSession:
         )
         if process.stdin is None:
             await self._release_clipboard_owner(process)
-            raise RuntimeError("Firefox navigation clipboard is unavailable")
+            raise NativeNavigationError("clipboard_prime")
         try:
             process.stdin.write(marker.encode("ascii"))
             await process.stdin.drain()
             process.stdin.close()
-            await asyncio.sleep(0.1)
-            observed = await asyncio.wait_for(
-                self._clipboard_read(),
-                timeout=2,
-            )
-            if observed != marker:
-                raise RuntimeError(
-                    "Firefox navigation clipboard is unavailable"
-                )
-        except BaseException:
+            observed = ""
+            for attempt in range(3):
+                await asyncio.sleep(0.1 if attempt == 0 else 0.2)
+                try:
+                    observed = await asyncio.wait_for(
+                        self._clipboard_read(),
+                        timeout=1,
+                    )
+                except asyncio.TimeoutError:
+                    observed = ""
+                if observed == marker:
+                    break
+                if process.returncode is not None:
+                    break
+            if observed != marker or process.returncode is not None:
+                raise NativeNavigationError("clipboard_prime")
+        except asyncio.CancelledError:
             await self._release_clipboard_owner(process)
             raise
-        if process.returncode is not None:
-            raise RuntimeError("Firefox navigation clipboard is unavailable")
+        except NativeNavigationError:
+            await self._release_clipboard_owner(process)
+            raise
+        except Exception as exc:
+            await self._release_clipboard_owner(process)
+            raise NativeNavigationError("clipboard_prime") from exc
         return marker, process
 
     async def _clipboard_paste(self, text):
@@ -551,6 +594,7 @@ class NativeFirefoxSession:
         """
         env = os.environ.copy()
         env["DISPLAY"] = self._display
+        proc = None
         try:
             proc = await asyncio.create_subprocess_exec(
                 "xclip", "-selection", "clipboard",
@@ -565,52 +609,88 @@ class NativeFirefoxSession:
 
             await self._xdt(["key", "ctrl+v"])
             await asyncio.sleep(0.5)
-
-            # Kill xclip now that paste is done (release clipboard ownership)
-            try:
-                proc.terminate()
-                await asyncio.wait_for(proc.wait(), timeout=2)
-            except (asyncio.TimeoutError, ProcessLookupError):
-                try:
-                    proc.kill()
-                    await proc.wait()
-                except Exception:
-                    pass
             return True
-        except Exception as e:
-            logger.debug("Clipboard paste failed: %s", e)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.debug("Clipboard paste failed")
             return False
+        finally:
+            if proc is not None:
+                await self._release_clipboard_owner(proc)
 
     async def _navigation_metadata(self, timeout):
         """Read the post-navigation URL and title without the JS console."""
 
         marker, clipboard_owner = await self._prime_navigation_clipboard()
+        current_url = marker
         try:
-            await self._focus_main_window()
-            wid = self._main_wid
-            if not isinstance(wid, str) or not wid:
-                raise RuntimeError("Firefox main window is unavailable")
-            await self._xdt(["key", "ctrl+l"])
             try:
-                await asyncio.sleep(0.1)
-                await self._xdt(["key", "ctrl+c"])
-                await asyncio.sleep(0.1)
-                current_url = await asyncio.wait_for(
-                    self._clipboard_read(),
-                    timeout=max(0.1, min(float(timeout), 3.0)),
-                )
+                await self._focus_main_window()
+                wid = self._main_wid
+                if not isinstance(wid, str) or not wid:
+                    raise NativeNavigationError("window_unavailable")
+                read_timeout = max(0.1, min(float(timeout), 1.0))
+                for attempt in range(3):
+                    if attempt:
+                        await self._focus_main_window()
+                        wid = self._main_wid
+                        if not isinstance(wid, str) or not wid:
+                            raise NativeNavigationError("window_unavailable")
+                    await self._xdt(["key", "ctrl+l"])
+                    await asyncio.sleep(0.15)
+                    await self._xdt(["key", "ctrl+c"])
+                    await asyncio.sleep(0.15 if attempt == 0 else 0.25)
+                    try:
+                        candidate = await asyncio.wait_for(
+                            self._clipboard_read(),
+                            timeout=read_timeout,
+                        )
+                    except asyncio.TimeoutError:
+                        candidate = ""
+                    except Exception as exc:
+                        raise NativeNavigationError(
+                            "address_bar_copy"
+                        ) from exc
+                    if candidate in {"", marker}:
+                        continue
+                    try:
+                        parsed = urlsplit(candidate)
+                    except ValueError as exc:
+                        raise NativeNavigationError(
+                            "address_bar_copy"
+                        ) from exc
+                    if (
+                        len(candidate) > 8_192
+                        or parsed.scheme not in {"http", "https"}
+                        or not parsed.netloc
+                        or any(
+                            char <= " " or char == "\x7f"
+                            for char in candidate
+                        )
+                    ):
+                        raise NativeNavigationError("address_bar_copy")
+                    current_url = candidate
+                    break
+                else:
+                    raise NativeNavigationError("address_bar_copy")
+            except (NativeNavigationError, asyncio.CancelledError):
+                raise
+            except Exception as exc:
+                raise NativeNavigationError("window_unavailable") from exc
             finally:
-                await self._xdt(["key", "Escape"])
+                try:
+                    await self._xdt(["key", "Escape"])
+                except Exception:
+                    pass
         finally:
             await self._release_clipboard_owner(clipboard_owner)
-        title = await self._xdt(["getwindowname", wid])
-        if (
-            not isinstance(current_url, str)
-            or not current_url
-            or current_url == marker
-            or not isinstance(title, str)
-        ):
-            raise RuntimeError("Firefox navigation metadata is unavailable")
+        try:
+            title = await self._xdt(["getwindowname", wid])
+        except Exception as exc:
+            raise NativeNavigationError("metadata_validation") from exc
+        if not isinstance(title, str) or len(title) > 4_096:
+            raise NativeNavigationError("metadata_validation")
         return {"url": current_url, "title": title}
 
     async def _dismiss_popup(self):
@@ -971,24 +1051,34 @@ async def _navigate(session, params, timeout):
         pass
 
     # Fallback: address bar paste (for about: pages or if console isn't ready)
-    await session._close_console()
-    await session._xdt(["key", "ctrl+l"])
-    await asyncio.sleep(0.3)
-    await session._xdt(["key", "ctrl+a"])
-    await asyncio.sleep(0.1)
-    pasted = await session._clipboard_paste(url)
-    if not pasted:
-        await session._xdt(["type", "--clearmodifiers", "--delay", "0", "--", url])
-    await asyncio.sleep(0.2)
-    await session._xdt(["key", "Return"])
+    try:
+        await session._close_console()
+        await session._focus_main_window()
+        if not isinstance(session._main_wid, str) or not session._main_wid:
+            raise NativeNavigationError("window_unavailable")
+        await session._xdt(["key", "ctrl+l"])
+        await asyncio.sleep(0.3)
+        await session._xdt(["key", "ctrl+a"])
+        await asyncio.sleep(0.1)
+        pasted = await session._clipboard_paste(url)
+        if not pasted:
+            await session._xdt(
+                ["type", "--clearmodifiers", "--delay", "0", "--", url]
+            )
+        await asyncio.sleep(0.2)
+        await session._xdt(["key", "Return"])
 
-    await asyncio.sleep(3)
-    session._viewport_offset = None
-    metadata = await session._navigation_metadata(timeout)
-    return {
-        "frameId": "native",
-        _NATIVE_NAVIGATION_KEY: metadata,
-    }
+        await asyncio.sleep(3)
+        session._viewport_offset = None
+        metadata = await session._navigation_metadata(timeout)
+        return {
+            "frameId": "native",
+            _NATIVE_NAVIGATION_KEY: metadata,
+        }
+    except (NativeNavigationError, asyncio.CancelledError, TimeoutError):
+        raise
+    except Exception as exc:
+        raise NativeNavigationError("address_bar_navigation") from exc
 
 
 async def _evaluate(session, params, timeout):

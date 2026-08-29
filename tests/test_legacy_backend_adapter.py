@@ -9,6 +9,7 @@ from pathlib import Path
 import tempfile
 import unittest
 
+from src import commands
 from src.commands import JavascriptExecutionTimeout
 from src.termuinator.backends import (
     BackendAction,
@@ -536,6 +537,112 @@ class LegacyBackendLifecycleTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(snapshot.title, "Forms — Mozilla Firefox")
         self.assertNotIn("url", pilot.calls)
         self.assertNotIn("title", pilot.calls)
+
+    async def test_firefox_navigation_preserves_bounded_native_failure_stage(
+        self,
+    ) -> None:
+        navigation_error = getattr(commands, "NativeNavigationError", None)
+        self.assertIsNotNone(navigation_error)
+        assert navigation_error is not None
+
+        class _FailingNavigationPilot(_RecordingPilot):
+            async def goto(self, url: str, timeout: float) -> None:
+                self.calls.append(("goto", url, timeout))
+                raise navigation_error("address_bar_copy")
+
+        pilot = _FailingNavigationPilot()
+        adapter = LegacyPilotBackend(
+            Backend.FIREFOX,
+            pilot_factory=lambda **_: pilot,
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            profile = Path(temp_dir) / "profile"
+            profile.mkdir(mode=0o700)
+            await adapter.start(profile, Viewport(width=1000, height=700))
+
+        with self.assertRaises(TermuinatorError) as caught:
+            await adapter.navigate(
+                "goto",
+                "http://127.0.0.1:43123/forms",
+                45_000,
+            )
+
+        self.assertEqual(caught.exception.code, ErrorCode.BACKEND_CRASHED)
+        self.assertEqual(
+            caught.exception.details,
+            {
+                "backend": "firefox",
+                "operation": "goto",
+                "stage": "address_bar_copy",
+            },
+        )
+
+    async def test_navigation_bounds_unknown_pilot_failure_stage(self) -> None:
+        private_value = "must-not-cross-the-navigation-adapter"
+
+        class _FailingPilot(_RecordingPilot):
+            async def goto(self, url: str, timeout: float) -> None:
+                self.calls.append(("goto", url, timeout))
+                raise RuntimeError(private_value)
+
+        pilot = _FailingPilot()
+        adapter = LegacyPilotBackend(
+            Backend.FIREFOX,
+            pilot_factory=lambda **_: pilot,
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            profile = Path(temp_dir) / "profile"
+            profile.mkdir(mode=0o700)
+            await adapter.start(profile, Viewport(width=1000, height=700))
+
+        with self.assertRaises(TermuinatorError) as caught:
+            await adapter.navigate(
+                "goto",
+                "http://127.0.0.1:43123/forms",
+                45_000,
+            )
+
+        self.assertEqual(caught.exception.code, ErrorCode.BACKEND_CRASHED)
+        self.assertEqual(caught.exception.details["stage"], "pilot_dispatch")
+        self.assertNotIn(private_value, str(caught.exception))
+        self.assertNotIn(private_value, repr(caught.exception.details))
+
+    async def test_navigation_classifies_adapter_metadata_failure(self) -> None:
+        class _InvalidMetadataPilot(_RecordingPilot):
+            async def goto(
+                self,
+                url: str,
+                timeout: float,
+            ) -> dict[str, str]:
+                self.calls.append(("goto", url, timeout))
+                return {"url": url, "title": "Forms", "private": "value"}
+
+        pilot = _InvalidMetadataPilot()
+        adapter = LegacyPilotBackend(
+            Backend.FIREFOX,
+            pilot_factory=lambda **_: pilot,
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            profile = Path(temp_dir) / "profile"
+            profile.mkdir(mode=0o700)
+            await adapter.start(profile, Viewport(width=1000, height=700))
+
+        with self.assertRaises(TermuinatorError) as caught:
+            await adapter.navigate(
+                "goto",
+                "http://127.0.0.1:43123/forms",
+                45_000,
+            )
+
+        self.assertEqual(caught.exception.code, ErrorCode.BACKEND_CRASHED)
+        self.assertEqual(
+            caught.exception.details,
+            {
+                "backend": "firefox",
+                "operation": "goto",
+                "stage": "adapter_metadata",
+            },
+        )
 
     async def test_observe_bounds_accessibility_node_count(self) -> None:
         class UnboundedPilot(_RecordingPilot):
