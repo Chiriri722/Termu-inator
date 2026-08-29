@@ -128,6 +128,52 @@ class NativeExecutionLatencyTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(process.terminated)
         self.assertTrue(process.waited)
 
+    async def test_clipboard_paste_keeps_owner_foreground_until_cleanup(
+        self,
+    ) -> None:
+        class _Stdin:
+            def write(self, _payload: bytes) -> None:
+                return None
+
+            def close(self) -> None:
+                return None
+
+        class _PasteProcess:
+            def __init__(self) -> None:
+                self.stdin = _Stdin()
+                self.returncode: int | None = None
+                self.terminated = False
+                self.waited = False
+
+            def terminate(self) -> None:
+                self.terminated = True
+
+            async def wait(self) -> int:
+                self.waited = True
+                self.returncode = -15
+                return -15
+
+        process = _PasteProcess()
+
+        async def start_xclip(*args: str, **_kwargs: object) -> _PasteProcess:
+            process.returncode = None if "-quiet" in args else 0
+            return process
+
+        session = NativeFirefoxSession()
+        session._xdt = AsyncMock(return_value="")
+        with (
+            patch(
+                "src.native.asyncio.create_subprocess_exec",
+                new=start_xclip,
+            ),
+            patch("src.native.asyncio.sleep", new=AsyncMock()),
+        ):
+            result = await session._clipboard_paste("clipboard value")
+
+        self.assertTrue(result)
+        self.assertTrue(process.terminated)
+        self.assertTrue(process.waited)
+
     async def test_clipboard_paste_error_log_is_value_free(self) -> None:
         private_value = "must-not-cross-clipboard-log"
         session = NativeFirefoxSession()
@@ -706,6 +752,67 @@ class NativeExecutionLatencyTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(marker, "TBP_NAV_fixed")
         self.assertIs(owner, process)
         self.assertEqual(session._clipboard_read.await_count, 2)
+
+    async def test_navigation_clipboard_marker_keeps_owner_foreground(
+        self,
+    ) -> None:
+        class _FakeStdin:
+            def write(self, _payload: bytes) -> None:
+                return None
+
+            async def drain(self) -> None:
+                return None
+
+            def close(self) -> None:
+                return None
+
+        class _FakeProcess:
+            def __init__(self) -> None:
+                self.stdin = _FakeStdin()
+                self.returncode: int | None = None
+                self.terminated = False
+                self.waited = False
+
+            def terminate(self) -> None:
+                self.terminated = True
+
+            async def wait(self) -> int:
+                self.waited = True
+                self.returncode = -15
+                return -15
+
+        process = _FakeProcess()
+
+        async def start_xclip(*args: str, **_kwargs: object) -> _FakeProcess:
+            process.returncode = None if "-quiet" in args else 0
+            return process
+
+        session = NativeFirefoxSession()
+        session._clipboard_read = AsyncMock(return_value="TBP_NAV_fixed")
+        try:
+            with (
+                patch(
+                    "src.native.asyncio.create_subprocess_exec",
+                    new=start_xclip,
+                ),
+                patch(
+                    "src.native.uuid.uuid4",
+                    return_value=SimpleNamespace(hex="fixed"),
+                ),
+                patch("src.native.asyncio.sleep", new=AsyncMock()),
+            ):
+                marker, owner = await session._prime_navigation_clipboard()
+        except commands.NativeNavigationError as exc:
+            self.fail(
+                "default-forked xclip parent was rejected instead of using "
+                f"a foreground owner: {exc.stage}"
+            )
+
+        self.assertEqual(marker, "TBP_NAV_fixed")
+        self.assertIs(owner, process)
+        await session._release_clipboard_owner(owner)
+        self.assertTrue(process.terminated)
+        self.assertTrue(process.waited)
 
     async def test_page_commands_accept_verified_native_navigation_metadata(
         self,

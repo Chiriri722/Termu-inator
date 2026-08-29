@@ -44,10 +44,17 @@ Absent lock도 stable owner-private real runtime parent를 요구한다. Firefox
 생략하며, clipboard marker 소유·변경을 검증해 stale URL을 거부한다. built-in timeout은 이제
 typed `TIMEOUT`으로 유지된다. Python 3.11/3.12/3.14 warning-as-error 359-test authority, static gate,
 새 wheel의 57-source/RECORD/metadata binding, fresh Python 3.14 install과 observer→interactive stdio
-재시작이 모두 GREEN이다. 다음은 전체 patch를 새 clean commit으로 고정하고 새 wheel
-`45b7198135163f95c590fef84a5fc8c97131cac4029e6d3c4286f5412421eb05`를 사용해 S22U canonical
-gate를 재실행하는 것이다. 양 backend PASS와 `benchmark_allowed: true` 전에는 benchmark나 RC
-승인을 진행하지 않는다.
+재시작이 모두 GREEN이다. exact `1e55237e9e9672ed983f668d68ff761acb1b25e8` (`v.0.2.11`)
+S22U gate는 Chromium과 모든 설치·cleanup 권위를 통과했지만 Firefox goto가
+`stage=clipboard_prime`으로 FAIL했다. upstream xclip의 기본 silent writer가 fork 후 parent를
+종료하는 계약과, parent process가 살아 있어야 한다고 가정한 현재 marker owner 검증이
+충돌한다. foreground xclip owner 계약은 두 실제 실패형 RED로 재현했고 두 writer를
+`-quiet` foreground 모드로 전환해 marker 검증과 exact-PID cleanup을 GREEN으로 만들었다.
+관련 92개 회귀와 Python 3.11/3.12/3.14의 379-test 전체 행렬은 GREEN이다. clean tracked staging에서
+만든 275,499-byte wheel은 source/RECORD/metadata/fresh-install/stdio authority를 모두 통과했다.
+다음은 전체 patch를 새 clean commit으로 고정하고 placeholder를 exact SHA로 봉인해 S22U gate를
+재실행하는 것이다. 양 backend PASS와
+`benchmark_allowed: true` 전에는 benchmark나 RC 승인을 진행하지 않는다.
 
 ## Current Phase
 
@@ -1069,6 +1076,14 @@ Termu-inator MVP는 다음 조건을 모두 만족해야 한다.
 | Error | Attempt | Resolution |
 |---|---:|---|
 | None at plan creation | 0 | 구현 중 모든 오류를 즉시 추가한다. |
+| 첫 `uv build`가 기본 `~/.cache/uv`에 접근하지 못해 초기화 전 중단됨 | 1 | owner-private `/private/tmp` 빌드 루트의 전용 uv cache로 격리했다. |
+| 비권한 uv cache의 첫 dependency resolve가 PyPI DNS 차단으로 실패함 | 1 | 동일 격리 cache를 유지하고 승인된 네트워크 권한으로 build dependency만 받아 빌드했다. |
+| 저장소 cwd의 첫 wheel build가 ignored `build/`의 unchanged 파일을 재사용함 | 1 | 해당 wheel을 권위에서 제외하고 현재 tracked bytes만 새 staging tree로 복사해 offline clean build를 다시 수행했다. |
+| tracked-copy 검사에서 PATH에 없는 `cmp`를 호출해 모든 파일을 mismatch로 오표시함 | 1 | `/usr/bin/cmp`를 사용해 실제 bytes를 다시 검사했다. |
+| zsh 특수 배열 `path`를 loop 변수로 사용해 검사 후 `PATH`가 덮어써짐 | 1 | 변수명을 `tracked_file`로 바꾸고 후속 시스템 명령을 절대경로로 고정해 전체 검사를 통과시켰다. |
+| 샌드박스 내 전체 suite가 loopback TCP/Unix socket bind `PermissionError` 15건으로 종료됨 | 1 | 제품 회귀가 아닌 관리형 샌드박스 제한임을 확인하고 동일 Python 3.11 명령을 승인된 실제 socket 권한으로 재실행해 379 tests GREEN을 확보했다. |
+| 새 S22U 증거 보존 디렉터리를 생성 전 `workdir`로 지정해 exec가 `ENOENT`로 시작되지 못함 | 1 | 명령은 실행되지 않아 부분 변경이 없음을 확인하고 기존 부모 디렉터리에서 owner-private 경로를 만든 뒤 checksum을 재검증했다. |
+| S22U 기록을 세 파일에 합치던 patch가 `findings.md`의 끝 문맥 불일치로 적용 전 거부됨 | 1 | 저장소가 불변임을 확인하고 파일별 작은 patch로 분리했다. |
 | 필수 companion 파일 `findings.md`, `progress.md`가 존재하지 않아 최초 조회가 실패함 | 1 | 두 파일을 생성하고 초기 발견·진행 상태를 기록했다. |
 | 저장소 파생 이름으로 architecture graph를 조회했으나 전용 graph가 아직 없었음 | 1 | 현재 checkout을 fast mode로 인덱싱해 988 nodes/4,550 edges를 생성했고 architecture 재조회에 성공했다. |
 | CLI/MCP 전체 함수 graph 조회가 연결 노드까지 포함해 14만 토큰 규모로 과다 출력·절단됨 | 1 | 이후 조회는 Cypher 집계와 AST 기반 inventory로 이름·개수만 산출하도록 좁힌다. |

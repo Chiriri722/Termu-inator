@@ -537,13 +537,14 @@ class NativeFirefoxSession:
                 pass
 
     async def _prime_navigation_clipboard(self):
-        """Own the clipboard with a unique marker before copying the URL."""
+        """Own the clipboard with a foreground marker process."""
 
         marker = f"TBP_NAV_{uuid.uuid4().hex}"
         env = os.environ.copy()
         env["DISPLAY"] = self._display
         process = await asyncio.create_subprocess_exec(
             "xclip",
+            "-quiet",
             "-selection",
             "clipboard",
             stdin=asyncio.subprocess.PIPE,
@@ -588,16 +589,16 @@ class NativeFirefoxSession:
     async def _clipboard_paste(self, text):
         """Write text to clipboard and paste into focused field.
 
-        Uses xclip without -loops (stays as clipboard owner) so that
-        intermediate clipboard reads (from WM or DevTools) don't consume
-        the content before Ctrl+V can paste it. Killed after paste.
+        Uses xclip in quiet foreground mode without -loops so that the retained
+        process remains the exact clipboard owner until cleanup. Intermediate
+        reads cannot consume the content before Ctrl+V can paste it.
         """
         env = os.environ.copy()
         env["DISPLAY"] = self._display
         proc = None
         try:
             proc = await asyncio.create_subprocess_exec(
-                "xclip", "-selection", "clipboard",
+                "xclip", "-quiet", "-selection", "clipboard",
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.DEVNULL,
                 stderr=asyncio.subprocess.DEVNULL,
