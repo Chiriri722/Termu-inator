@@ -243,10 +243,11 @@ async def apply_stealth(session, width=1920, height=1080, gpu_mode="auto",
 
     Does NOT use Emulation.setDeviceMetricsOverride to avoid the
     outerWidth < innerWidth anomaly that triggers bot detection.
-    Firefox needs no stealth — its TLS fingerprint passes CF natively.
+    Firefox intentionally receives no JavaScript or CDP stealth overrides;
+    anti-bot behavior is outside the deterministic product contract.
     """
     if browser_type == "firefox":
-        return  # Firefox doesn't need stealth overrides
+        return
     info = await asyncio.to_thread(device_info)
     ua = get_user_agent(info)
     platform = get_platform_string(info)

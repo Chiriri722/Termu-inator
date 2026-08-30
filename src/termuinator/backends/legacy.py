@@ -326,15 +326,18 @@ class LegacyPilotBackend:
                 timeout=timeout_ms / 1000,
             )
         except NativeNavigationError as exc:
+            details = {
+                "backend": self.backend.value,
+                "operation": operation,
+                "stage": exc.stage,
+            }
+            if exc.reason is not None:
+                details["reason"] = exc.reason
             raise TermuinatorError(
                 ErrorCode.BACKEND_CRASHED,
                 "Inherited Firefox navigation failed",
                 retryable=True,
-                details={
-                    "backend": self.backend.value,
-                    "operation": operation,
-                    "stage": exc.stage,
-                },
+                details=details,
             ) from exc
         except (TermuinatorError, TimeoutError):
             raise

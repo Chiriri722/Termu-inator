@@ -538,7 +538,7 @@ class LegacyBackendLifecycleTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("url", pilot.calls)
         self.assertNotIn("title", pilot.calls)
 
-    async def test_firefox_navigation_preserves_bounded_native_failure_stage(
+    async def test_firefox_navigation_preserves_bounded_native_failure_context(
         self,
     ) -> None:
         navigation_error = getattr(commands, "NativeNavigationError", None)
@@ -548,7 +548,10 @@ class LegacyBackendLifecycleTests(unittest.IsolatedAsyncioTestCase):
         class _FailingNavigationPilot(_RecordingPilot):
             async def goto(self, url: str, timeout: float) -> None:
                 self.calls.append(("goto", url, timeout))
-                raise navigation_error("address_bar_copy")
+                raise navigation_error(
+                    "address_bar_copy",
+                    reason="read_failed",
+                )
 
         pilot = _FailingNavigationPilot()
         adapter = LegacyPilotBackend(
@@ -574,6 +577,7 @@ class LegacyBackendLifecycleTests(unittest.IsolatedAsyncioTestCase):
                 "backend": "firefox",
                 "operation": "goto",
                 "stage": "address_bar_copy",
+                "reason": "read_failed",
             },
         )
 

@@ -175,10 +175,22 @@ _MCP_ERROR_DETAIL_VALUES = {
             "adapter_metadata",
             "address_bar_copy",
             "address_bar_navigation",
+            "bidi_navigation",
             "clipboard_prime",
             "metadata_validation",
             "pilot_dispatch",
             "window_unavailable",
+        }
+    ),
+    "reason": frozenset(
+        {
+            "focus_unverified",
+            "invalid_url",
+            "marker_unchanged",
+            "owner_release_failed",
+            "read_failed",
+            "read_timeout",
+            "selection_empty",
         }
     ),
 }

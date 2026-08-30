@@ -1091,6 +1091,41 @@ class McpInventoryEvidenceTests(unittest.TestCase):
 
 
 class McpFailureEvidenceTests(unittest.IsolatedAsyncioTestCase):
+    async def test_records_bounded_bidi_navigation_stage(self) -> None:
+        private_value = "private BiDi response"
+
+        class _Content:
+            text = json.dumps(
+                {
+                    "code": "backend_crashed",
+                    "message": private_value,
+                    "details": {
+                        "backend": "firefox",
+                        "operation": "goto",
+                        "stage": "bidi_navigation",
+                    },
+                }
+            )
+
+        class _Result:
+            isError = True
+            content = (_Content(),)
+            structuredContent = None
+
+        class _Session:
+            async def call_tool(self, *_args: object, **_kwargs: object) -> object:
+                return _Result()
+
+        caller_type = getattr(final_verify_module, "_McpToolCaller")
+        caller = caller_type(_Session(), server_pid=os.getpid())
+
+        with self.assertRaises(VerificationFailure) as caught:
+            await caller("browser_navigate", {})
+
+        message = str(caught.exception)
+        self.assertIn("stage=bidi_navigation", message)
+        self.assertNotIn(private_value, message)
+
     async def test_records_only_allowlisted_bounded_error_context(self) -> None:
         private_value = "must-not-enter-canonical-error-evidence"
 
@@ -1104,6 +1139,7 @@ class McpFailureEvidenceTests(unittest.IsolatedAsyncioTestCase):
                         "backend": "firefox",
                         "operation": "goto",
                         "stage": "address_bar_copy",
+                        "reason": "read_failed",
                         "private": private_value,
                     },
                     "diagnostics_id": private_value,
@@ -1130,6 +1166,7 @@ class McpFailureEvidenceTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("backend=firefox", message)
         self.assertIn("operation=goto", message)
         self.assertIn("stage=address_bar_copy", message)
+        self.assertIn("reason=read_failed", message)
         self.assertNotIn(private_value, message)
 
     async def test_rejects_unrecognized_error_code_and_detail_values(self) -> None:
@@ -1144,6 +1181,7 @@ class McpFailureEvidenceTests(unittest.IsolatedAsyncioTestCase):
                         "backend": "secret_backend_value",
                         "operation": "secret_operation_value",
                         "stage": private_detail,
+                        "reason": "secret_reason_value",
                     },
                 }
             )
@@ -1167,6 +1205,7 @@ class McpFailureEvidenceTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("MCP error code mcp_error", message)
         self.assertNotIn(private_code, message)
         self.assertNotIn(private_detail, message)
+        self.assertNotIn("secret_reason_value", message)
 
 
 class FinalVerifyCliContractTests(unittest.TestCase):

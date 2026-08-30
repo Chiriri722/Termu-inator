@@ -134,7 +134,7 @@ class Pilot:
     async def _init_session(self, result):
         """Initialize session and command modules (called from start)."""
         if self._browser_type == "firefox":
-            # Native Firefox — no automation framework, passes CF
+            # Native Firefox with a browser-owned BiDi metadata channel.
             self._session = NativeFirefoxSession(
                 display=self._browser.display,
                 window_size=self._browser.window_size,
@@ -147,7 +147,7 @@ class Pilot:
             self._session = CDPSession(result)
             await self._session.connect()
 
-        # Apply stealth (skips for Firefox — not needed)
+        # Apply the compatibility hook (Firefox deliberately remains a no-op).
         try:
             parts = self._browser.window_size.split(",")
             w = int(parts[0])

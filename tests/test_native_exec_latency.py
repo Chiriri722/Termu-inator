@@ -6,7 +6,7 @@ import asyncio
 import json
 from types import SimpleNamespace
 import unittest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 from src import commands
 from src.native import NativeFirefoxSession, _navigate
@@ -14,6 +14,182 @@ from src.termuinator.backends.legacy_dom import observe_script
 
 
 class NativeExecutionLatencyTests(unittest.IsolatedAsyncioTestCase):
+    async def test_connect_owns_ephemeral_bidi_before_firefox_shutdown(
+        self,
+    ) -> None:
+        events: list[str] = []
+        endpoint_ready = asyncio.Event()
+        real_sleep = asyncio.sleep
+        real_wait_for = asyncio.wait_for
+
+        class _CallbackServer:
+            server_address = ("127.0.0.1", 43123)
+
+            def __init__(self, *_args, **_kwargs) -> None:
+                return None
+
+            def serve_forever(self) -> None:
+                return None
+
+            def shutdown(self) -> None:
+                events.append("callback_shutdown")
+
+        class _Stderr:
+            def __init__(self) -> None:
+                self._lines = iter(
+                    (
+                        b"WebDriver BiDi listening on "
+                        b"ws://127.0.0.1:46249\n",
+                        b"",
+                    )
+                )
+
+            async def readline(self) -> bytes:
+                if not endpoint_ready.is_set():
+                    await endpoint_ready.wait()
+                return next(self._lines, b"")
+
+        class _Process:
+            def __init__(self) -> None:
+                self.returncode = None
+                self.pid = 4242
+                self.stderr = _Stderr()
+
+            def terminate(self) -> None:
+                events.append("firefox_terminate")
+
+            def kill(self) -> None:
+                events.append("firefox_kill")
+
+            async def wait(self) -> int:
+                self.returncode = 0
+                return 0
+
+        class _Bidi:
+            def __init__(self, endpoint: str) -> None:
+                self.endpoint = endpoint
+
+            async def connect(self, *, timeout: float):
+                events.append("bidi_connect")
+                self.timeout = timeout
+                return self
+
+            async def close(self) -> None:
+                events.append("bidi_close")
+
+        process = _Process()
+        session = NativeFirefoxSession()
+        session._cleanup_profile_locks = Mock()
+
+        async def find_main_window() -> str:
+            endpoint_ready.set()
+            await real_sleep(0)
+            return "4242"
+
+        session._find_main_window = AsyncMock(side_effect=find_main_window)
+        initial_endpoint_wait = True
+
+        async def timeout_before_window(awaitable, timeout):
+            nonlocal initial_endpoint_wait
+            if timeout == 6 and initial_endpoint_wait:
+                initial_endpoint_wait = False
+                raise asyncio.TimeoutError
+            return await real_wait_for(awaitable, timeout=timeout)
+
+        with (
+            patch("src._utils.require_binaries"),
+            patch("src.native.HTTPServer", _CallbackServer),
+            patch(
+                "src.native.asyncio.create_subprocess_exec",
+                new=AsyncMock(return_value=process),
+            ) as launch,
+            patch("src.native.asyncio.sleep", new=AsyncMock()),
+            patch("src.native.asyncio.wait_for", new=timeout_before_window),
+            patch("src.native.FirefoxBidiClient", _Bidi, create=True),
+        ):
+            await session.connect()
+            connected_bidi = session._bidi
+            await session.close()
+
+        self.assertIsInstance(connected_bidi, _Bidi)
+        self.assertEqual(
+            connected_bidi.endpoint,
+            "ws://127.0.0.1:46249/session",
+        )
+        self.assertEqual(connected_bidi.timeout, 10)
+        launch_args = launch.await_args.args
+        self.assertIn("--remote-debugging-port", launch_args)
+        self.assertEqual(
+            launch_args[launch_args.index("--remote-debugging-port") + 1],
+            "0",
+        )
+        self.assertIs(
+            launch.await_args.kwargs["stderr"],
+            asyncio.subprocess.PIPE,
+        )
+        self.assertLess(events.index("bidi_connect"), events.index("bidi_close"))
+        self.assertLess(
+            events.index("bidi_close"),
+            events.index("firefox_terminate"),
+        )
+
+    async def test_cancelled_bidi_close_still_reaps_owned_firefox(self) -> None:
+        events: list[str] = []
+
+        class _CancelledBidi:
+            async def close(self) -> None:
+                events.append("bidi_close")
+                raise asyncio.CancelledError()
+
+        class _Process:
+            def __init__(self) -> None:
+                self.returncode = None
+
+            def terminate(self) -> None:
+                events.append("firefox_terminate")
+
+            def kill(self) -> None:
+                events.append("firefox_kill")
+
+            async def wait(self) -> int:
+                self.returncode = 0
+                events.append("firefox_wait")
+                return 0
+
+        session = NativeFirefoxSession()
+        session._bidi = _CancelledBidi()
+        session._firefox_proc = _Process()
+
+        with self.assertRaises(asyncio.CancelledError):
+            await session.close()
+
+        self.assertIn("firefox_terminate", events)
+        self.assertIn("firefox_wait", events)
+        self.assertIsNone(session._firefox_proc)
+
+    def test_native_navigation_error_accepts_only_bounded_copy_reasons(
+        self,
+    ) -> None:
+        try:
+            error = commands.NativeNavigationError(
+                "address_bar_copy",
+                reason="read_failed",
+            )
+        except TypeError:
+            self.fail("native navigation errors do not preserve a bounded reason")
+
+        self.assertEqual(error.reason, "read_failed")
+        with self.assertRaises(ValueError):
+            commands.NativeNavigationError(
+                "address_bar_copy",
+                reason="private-device-error",
+            )
+        with self.assertRaises(ValueError):
+            commands.NativeNavigationError(
+                "metadata_validation",
+                reason="read_failed",
+            )
+
     async def test_cancelled_xdt_reaps_only_its_owned_process(self) -> None:
         class _CancelledProcess:
             returncode = None
@@ -222,6 +398,24 @@ class NativeExecutionLatencyTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(process.killed)
         self.assertTrue(process.waited)
 
+    async def test_clipboard_read_rejects_nonzero_xclip_status(self) -> None:
+        class _FailedReadProcess:
+            returncode = 1
+
+            async def communicate(self) -> tuple[bytes, bytes]:
+                return b"", b""
+
+        session = NativeFirefoxSession()
+        with patch(
+            "src.native.asyncio.create_subprocess_exec",
+            new=AsyncMock(return_value=_FailedReadProcess()),
+        ):
+            with self.assertRaisesRegex(
+                RuntimeError,
+                "X11 clipboard read failed",
+            ):
+                await session._clipboard_read()
+
     async def test_multiline_dom_probe_is_preserved_inside_eval_wrapper(self) -> None:
         session = NativeFirefoxSession()
         source = observe_script("__diagnostic_registry_key")
@@ -417,6 +611,8 @@ class NativeExecutionLatencyTests(unittest.IsolatedAsyncioTestCase):
 
         async def fake_xdt(args: list[str]) -> str:
             xdt_calls.append(args)
+            if args == ["getactivewindow"]:
+                return "4242"
             if args == ["getwindowname", "4242"]:
                 return "Example Domain — Mozilla Firefox"
             return ""
@@ -452,6 +648,115 @@ class NativeExecutionLatencyTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertIn(["key", "ctrl+l"], xdt_calls)
         self.assertIn(["key", "Return"], xdt_calls)
+
+    async def test_navigation_uses_bidi_metadata_without_gui_clipboard(
+        self,
+    ) -> None:
+        session = NativeFirefoxSession()
+        expected = {
+            "url": "http://127.0.0.1:43123/forms?redirected=1",
+            "title": "Forms",
+        }
+        session._bidi = SimpleNamespace(
+            navigate=AsyncMock(return_value=expected)
+        )
+        session._exec_js = AsyncMock(
+            side_effect=AssertionError("console navigation must stay idle")
+        )
+        session._close_console = AsyncMock(
+            side_effect=AssertionError("console cleanup must stay idle")
+        )
+        session._focus_main_window = AsyncMock(
+            side_effect=AssertionError("window focus must stay idle")
+        )
+        session._xdt = AsyncMock(
+            side_effect=AssertionError("xdotool must stay idle")
+        )
+        session._clipboard_paste = AsyncMock(
+            side_effect=AssertionError("clipboard paste must stay idle")
+        )
+        session._navigation_metadata = AsyncMock(
+            side_effect=AssertionError("clipboard metadata must stay idle")
+        )
+
+        try:
+            result = await _navigate(
+                session,
+                {"url": "http://127.0.0.1:43123/forms"},
+                timeout=45,
+            )
+        except Exception as exc:
+            self.fail(f"BiDi navigation did not bypass the GUI path: {type(exc)}")
+
+        self.assertEqual(result.get("termuinatorNavigation"), expected)
+        session._bidi.navigate.assert_awaited_once_with(
+            "http://127.0.0.1:43123/forms",
+            timeout=45,
+        )
+        session._exec_js.assert_not_awaited()
+        session._close_console.assert_not_awaited()
+        session._focus_main_window.assert_not_awaited()
+        session._xdt.assert_not_awaited()
+        session._clipboard_paste.assert_not_awaited()
+        session._navigation_metadata.assert_not_awaited()
+
+    async def test_bidi_navigation_timeout_does_not_retry_through_gui(
+        self,
+    ) -> None:
+        session = NativeFirefoxSession()
+        session._bidi = SimpleNamespace(
+            navigate=AsyncMock(side_effect=TimeoutError("private timeout"))
+        )
+        session._exec_js = AsyncMock(
+            side_effect=AssertionError("console fallback is unsafe")
+        )
+        session._close_console = AsyncMock(
+            side_effect=AssertionError("GUI fallback is unsafe")
+        )
+
+        try:
+            await _navigate(
+                session,
+                {"url": "https://example.com"},
+                timeout=45,
+            )
+        except Exception as exc:
+            self.assertIsInstance(exc, TimeoutError)
+            self.assertNotIn("private timeout", str(exc))
+        else:
+            self.fail("BiDi timeout was accepted as a successful navigation")
+
+        session._bidi.navigate.assert_awaited_once()
+        session._exec_js.assert_not_awaited()
+        session._close_console.assert_not_awaited()
+
+    async def test_bidi_protocol_failure_is_bounded_without_gui_retry(
+        self,
+    ) -> None:
+        session = NativeFirefoxSession()
+        private_error = "private BiDi protocol response"
+        session._bidi = SimpleNamespace(
+            navigate=AsyncMock(side_effect=RuntimeError(private_error))
+        )
+        session._exec_js = AsyncMock(
+            side_effect=AssertionError("console fallback is unsafe")
+        )
+        session._close_console = AsyncMock(
+            side_effect=AssertionError("GUI fallback is unsafe")
+        )
+
+        with self.assertRaises(commands.NativeNavigationError) as caught:
+            await _navigate(
+                session,
+                {"url": "https://example.com"},
+                timeout=45,
+            )
+
+        self.assertEqual(caught.exception.stage, "bidi_navigation")
+        self.assertNotIn(private_error, str(caught.exception))
+        session._bidi.navigate.assert_awaited_once()
+        session._exec_js.assert_not_awaited()
+        session._close_console.assert_not_awaited()
 
     async def test_navigation_fallback_requires_a_main_window(self) -> None:
         navigation_error = getattr(commands, "NativeNavigationError", None)
@@ -501,6 +806,8 @@ class NativeExecutionLatencyTests(unittest.IsolatedAsyncioTestCase):
 
         async def fake_xdt(args: list[str]) -> str:
             xdt_calls.append(args)
+            if args == ["getactivewindow"]:
+                return "4242"
             if args == ["getwindowname", "4242"]:
                 return "Forms — Mozilla Firefox"
             return ""
@@ -548,6 +855,8 @@ class NativeExecutionLatencyTests(unittest.IsolatedAsyncioTestCase):
 
         async def fake_xdt(args: list[str]) -> str:
             xdt_calls.append(args)
+            if args == ["getactivewindow"]:
+                return "4242"
             if args == ["getwindowname", "4242"]:
                 return "Forms — Mozilla Firefox"
             return ""
@@ -598,6 +907,8 @@ class NativeExecutionLatencyTests(unittest.IsolatedAsyncioTestCase):
             return marker
 
         async def fake_xdt(args: list[str]) -> str:
+            if args == ["getactivewindow"]:
+                return "4242"
             if args == ["getwindowname", "4242"]:
                 return "Forms — Mozilla Firefox"
             return ""
@@ -639,6 +950,8 @@ class NativeExecutionLatencyTests(unittest.IsolatedAsyncioTestCase):
             return expected_url
 
         async def fake_xdt(args: list[str]) -> str:
+            if args == ["getactivewindow"]:
+                return "4242"
             if args == ["getwindowname", "4242"]:
                 return "Forms — Mozilla Firefox"
             return ""
@@ -688,6 +1001,10 @@ class NativeExecutionLatencyTests(unittest.IsolatedAsyncioTestCase):
             )
 
         self.assertEqual(raised.exception.stage, "address_bar_copy")
+        self.assertEqual(
+            getattr(raised.exception, "reason", None),
+            "owner_release_failed",
+        )
         self.assertNotIn(private_error, str(raised.exception))
 
     async def test_navigation_rejects_unchanged_primed_clipboard(self) -> None:
@@ -699,7 +1016,7 @@ class NativeExecutionLatencyTests(unittest.IsolatedAsyncioTestCase):
         marker = "termuinator-navigation-marker"
         clipboard_owner = object()
         session._focus_main_window = AsyncMock()
-        session._xdt = AsyncMock(return_value="Forms — Mozilla Firefox")
+        session._xdt = AsyncMock(return_value="4242")
         session._clipboard_read = AsyncMock(return_value=marker)
         session._prime_navigation_clipboard = AsyncMock(
             return_value=(marker, clipboard_owner)
@@ -711,6 +1028,10 @@ class NativeExecutionLatencyTests(unittest.IsolatedAsyncioTestCase):
                 await session._navigation_metadata(timeout=5)
 
         self.assertEqual(caught.exception.stage, "address_bar_copy")
+        self.assertEqual(
+            getattr(caught.exception, "reason", None),
+            "marker_unchanged",
+        )
         self.assertEqual(session._clipboard_read.await_count, 3)
         session._prime_navigation_clipboard.assert_awaited_once_with()
         session._release_clipboard_owner.assert_awaited_once_with(
@@ -726,7 +1047,7 @@ class NativeExecutionLatencyTests(unittest.IsolatedAsyncioTestCase):
         session._main_wid = "4242"
         clipboard_owner = object()
         session._focus_main_window = AsyncMock()
-        session._xdt = AsyncMock(return_value="")
+        session._xdt = AsyncMock(return_value="4242")
         session._clipboard_read = AsyncMock(
             side_effect=OSError(private_value)
         )
@@ -740,6 +1061,10 @@ class NativeExecutionLatencyTests(unittest.IsolatedAsyncioTestCase):
                 await session._navigation_metadata(timeout=5)
 
         self.assertEqual(caught.exception.stage, "address_bar_copy")
+        self.assertEqual(
+            getattr(caught.exception, "reason", None),
+            "read_failed",
+        )
         self.assertNotIn(private_value, str(caught.exception))
         session._release_clipboard_owner.assert_awaited_once_with(
             clipboard_owner
@@ -753,7 +1078,7 @@ class NativeExecutionLatencyTests(unittest.IsolatedAsyncioTestCase):
         session._main_wid = "4242"
         clipboard_owner = object()
         session._focus_main_window = AsyncMock()
-        session._xdt = AsyncMock(return_value="")
+        session._xdt = AsyncMock(return_value="4242")
         session._clipboard_read = AsyncMock(return_value="https://[")
         session._prime_navigation_clipboard = AsyncMock(
             return_value=("termuinator-navigation-marker", clipboard_owner)
@@ -765,9 +1090,84 @@ class NativeExecutionLatencyTests(unittest.IsolatedAsyncioTestCase):
                 await session._navigation_metadata(timeout=5)
 
         self.assertEqual(caught.exception.stage, "address_bar_copy")
+        self.assertEqual(
+            getattr(caught.exception, "reason", None),
+            "invalid_url",
+        )
         session._release_clipboard_owner.assert_awaited_once_with(
             clipboard_owner
         )
+
+    async def test_navigation_classifies_empty_clipboard_selection(self) -> None:
+        session = NativeFirefoxSession()
+        session._main_wid = "4242"
+        clipboard_owner = object()
+        session._focus_main_window = AsyncMock()
+        session._xdt = AsyncMock(return_value="4242")
+        session._clipboard_read = AsyncMock(return_value="")
+        session._prime_navigation_clipboard = AsyncMock(
+            return_value=("termuinator-navigation-marker", clipboard_owner)
+        )
+        session._release_clipboard_owner = AsyncMock()
+
+        with patch("src.native.asyncio.sleep", new=AsyncMock()):
+            with self.assertRaises(commands.NativeNavigationError) as caught:
+                await session._navigation_metadata(timeout=5)
+
+        self.assertEqual(caught.exception.stage, "address_bar_copy")
+        self.assertEqual(
+            getattr(caught.exception, "reason", None),
+            "selection_empty",
+        )
+
+    async def test_navigation_classifies_clipboard_read_timeout(self) -> None:
+        session = NativeFirefoxSession()
+        session._main_wid = "4242"
+        clipboard_owner = object()
+        session._focus_main_window = AsyncMock()
+        session._xdt = AsyncMock(return_value="4242")
+        session._clipboard_read = AsyncMock(
+            side_effect=asyncio.TimeoutError()
+        )
+        session._prime_navigation_clipboard = AsyncMock(
+            return_value=("termuinator-navigation-marker", clipboard_owner)
+        )
+        session._release_clipboard_owner = AsyncMock()
+
+        with patch("src.native.asyncio.sleep", new=AsyncMock()):
+            with self.assertRaises(commands.NativeNavigationError) as caught:
+                await session._navigation_metadata(timeout=5)
+
+        self.assertEqual(caught.exception.stage, "address_bar_copy")
+        self.assertEqual(
+            getattr(caught.exception, "reason", None),
+            "read_timeout",
+        )
+
+    async def test_navigation_verifies_main_window_focus_before_copy(self) -> None:
+        session = NativeFirefoxSession()
+        session._main_wid = "4242"
+        clipboard_owner = object()
+        session._focus_main_window = AsyncMock()
+        session._xdt = AsyncMock(return_value="9001")
+        session._clipboard_read = AsyncMock(
+            return_value="http://127.0.0.1:43123/forms"
+        )
+        session._prime_navigation_clipboard = AsyncMock(
+            return_value=("termuinator-navigation-marker", clipboard_owner)
+        )
+        session._release_clipboard_owner = AsyncMock()
+
+        with patch("src.native.asyncio.sleep", new=AsyncMock()):
+            with self.assertRaises(commands.NativeNavigationError) as caught:
+                await session._navigation_metadata(timeout=5)
+
+        self.assertEqual(caught.exception.stage, "address_bar_copy")
+        self.assertEqual(
+            getattr(caught.exception, "reason", None),
+            "focus_unverified",
+        )
+        session._clipboard_read.assert_not_awaited()
 
     async def test_navigation_clipboard_marker_is_verified_and_cleaned(self) -> None:
         navigation_error = getattr(commands, "NativeNavigationError", None)

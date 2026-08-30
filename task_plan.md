@@ -58,8 +58,32 @@ Chromium과 모든 설치·cleanup 권위는 PASS했고 Firefox는 marker prime 
 `stage=address_bar_copy`에서 FAIL했다. foreground marker owner의 copy 전 release, 1초보다 느린
 clipboard handoff, release-failure taxonomy를 세 실제 실패형 RED로 고정했고 최소 수정 뒤
 Python 3.11/3.12/3.14 382-test authority와 최종 wheel/install/stdio binding이 GREEN이다. 다음은
-정확한 5개 변경을 새 clean commit으로 push한 뒤 sealed S22U gate를 재실행하는 것이다. 양 backend PASS와
-`benchmark_allowed: true` 전에는 benchmark나 RC 승인을 진행하지 않는다.
+정확한 5개 변경은 `2ee0a0ab25f75fc020963e801d043ae540657348` (`v.0.2.13`)으로 clean push됐고
+sealed S22U gate는 source/wheel/preflight를 모두 통과했지만 Firefox가 다시 동일한
+`stage=address_bar_copy`로 FAIL했다. marker owner를 먼저 해제하고 per-read 상한을 3초로 늘린
+가설은 실제 기기 실패를 해결하지 못했다. coarse stage가 합친 timeout·empty·marker·read-error·
+invalid-URL·focus 결과를 7개의 고정된 비밀 없는 reason으로 분리하는 11개 실제 실패형 RED를 만든 뒤,
+xclip 종료 상태와 active-window 확인부터 canonical allowlist까지 최소 구현했다. Python
+3.11/3.12/3.14의 387-test authority, 38 focused verifier, clean tracked-only wheel build,
+fresh install/source/provenance와 interactive→observer stdio가 GREEN이다. 275,908-byte wheel과
+placeholder-gated handoff를 owner-private candidate에 보존했다. 후속 completion audit에서 Mozilla가
+Firefox release에 직접 제공하는 loopback WebDriver BiDi가 별도 driver 없이 session/context/navigation과
+최종 URL·`document.title`을 반환함을 macOS Firefox 154 격리 프로필로 실제 확인했다. Termux Firefox
+mozconfig도 WebDriver를 비활성화하지 않는다. 따라서 진단-only candidate는 보존하되 최종 후보로
+승격하지 않고, GUI 주소창/clipboard metadata를 정상 경로에서 제거하는 BiDi-first RED/GREEN을 먼저
+진행한다. 기존 native 경로는 remote agent 자체를 시작할 수 없는 빌드에서만 호환 fallback으로 남긴다.
+별도 실제 Firefox probe에서는 Remote Agent가 열린 페이지의 `navigator.webdriver=true`도 확인했다.
+이는 숨기지 않고 capability 문서에 기록하며, deterministic core에서 anti-bot 결과를 release gate로
+삼지 않는 기존 원칙을 유지한다. BiDi command와 native session 양쪽의 cancellation cleanup RED도
+owned socket/process 회수 뒤 취소를 재전달하도록 GREEN으로 닫았다.
+최종 current-source authority는 세 Python에서 399 tests, verifier 39 tests, static checks,
+58-source wheel/installed binding과 14→12 stdio restart를 통과했다. delayed-endpoint 보강 뒤 다시 만든
+pre-commit wheel은 279,258 bytes, SHA-256
+`1d4095575db095f4f71a9f90aa76367b0c1d7db121f9b4feb9d941472c6008bd`이며 placeholder로 잠긴
+owner-private grace candidate에 보존했다. 다음 권위 단계는 이 정확한 15-file 변경의 사용자 clean
+commit/push, 실제 commit에 대한 binding/handoff sealing, 그리고 S22U canonical 재검사다.
+새 clean commit S22U에서 양 backend PASS와 `benchmark_allowed: true`를 확보하기 전에는 benchmark나
+RC 승인을 진행하지 않는다.
 
 ## Current Phase
 
@@ -877,6 +901,25 @@ Termu-inator MVP는 다음 조건을 모두 만족해야 한다.
    - [ ] 새 clean commit에서 S22U canonical gate를 재실행해 양 backend PASS와
      `benchmark_allowed: true`를 확보한 뒤에만 benchmark를 시작한다.
 
+11. **반복되는 Firefox X11 clipboard metadata를 loopback WebDriver BiDi로 대체한다.**
+   - [x] Mozilla release protocol, Termux Firefox build flags와 현재 native 호출 경로를 대조한다.
+   - [x] 저장소 밖 격리 Firefox 프로필에서 session 생성, top-level context, navigation, 최종 URL과
+     `document.title` 반환을 실제 검증한다.
+   - [x] BiDi가 활성화된 세션은 주소창·clipboard를 전혀 호출하지 않고 verified metadata를 반환하는
+     동작을 RED로 고정한다.
+   - [x] endpoint는 Firefox가 할당한 임의 loopback port만 허용하고, protocol 오류·timeout·종료를
+     원문 없이 fail-closed하는 client 계약을 RED로 고정한다.
+   - [x] Firefox startup/close가 stderr를 bounded drain하고 BiDi session/socket/process를 모두
+     정리하는 lifecycle 계약을 RED로 고정한다.
+   - [x] 최소 구현 뒤 기존 native fallback, typed timeout, redirect permission과 secret-free canonical
+     error 계약을 모두 재검증한다.
+   - [x] 실제 Firefox에서 Remote Agent의 `navigator.webdriver` 신호를 측정하고, 이를 reliability
+     tradeoff로 문서화하며 anti-bot 결과를 gate로 삼지 않는 기존 경계를 유지한다.
+   - [x] service mutex 아래의 command 직렬화를 확인하고, exact response ID, duplicate connect,
+     endpoint full-line parsing을 별도 RED로 고정해 transport 소유권과 parser 경계를 닫는다.
+   - [x] 다중 Python 전체 suite, tracked-only wheel binding, fresh install/stdio를 다시 통과시킨다.
+   - [ ] 새 clean commit S22U canonical PASS 뒤에만 benchmark를 연다.
+
 **Phase 7A Exit Gate**
 
 - Chromium observation이 legacy summary 문자열에 의존하지 않고 bounded structured
@@ -1418,6 +1461,33 @@ Termu-inator MVP는 다음 조건을 모두 만족해야 한다.
 | 승인된 `uv pip install` venv가 설치·`pip check`는 통과했지만 PEP 610 `archive_info.hashes`를 기록하지 않아 canonical provenance helper에서 FAIL함 | 1 | artifact/source 결함으로 승격하지 않고 해당 venv를 보존·실격 처리한다. canonical과 동일한 pip installer로 새 격리 venv를 만들어 hash-bearing provenance를 요구한다. |
 | remote commit 확인용 첫 `git ls-remote`가 managed sandbox DNS 차단으로 GitHub를 해석하지 못함 | 1 | repository failure로 보지 않는다. 동일 read-only 명령을 승인된 network 경로에서 재실행했고 remote `main`이 여전히 `4af303d...`임을 확인했다. |
 | continuation 최종 감사에서 artifact bundle을 cwd로 둔 채 `git diff --check`를 먼저 실행해 non-repository 오류로 종료됨 | 1 | artifact는 변경되지 않았다. repository diff 검사와 bundle checksum을 각자의 명시적 cwd에서 분리 재실행한다. |
+| `v0.2.13` reason-contract 첫 RED가 기존 예외의 `reason` 부재를 6 assertion errors와 5 failures로 보고함 | 1 | production은 불변이었다. 새 속성 접근을 `getattr(..., None)` assertion으로 바꿔 동일 11개 계약 위반을 모두 정상적인 RED failures로 재확인했다. |
+| Python 3.11 전체 discovery가 managed sandbox의 TCP/Unix socket bind 제한으로 15 errors를 반환함 | 1 | 관련 100개 회귀는 이미 GREEN이었다. 동일 387-test 명령을 승인된 로컬-socket 환경에서 재실행해 8 optional skips와 함께 전부 통과했다. |
+| `uv python find 3.12`가 사용자 uv cache의 `.git` 접근 제한으로 interpreter 조회 전에 종료됨 | 1 | 제품과 환경은 불변이다. 기록된 설치 경로의 Python 3.12.13 executable을 직접 확인하고 전체 suite와 compile gate에 사용했다. |
+| fresh Python 3.14 venv의 첫 pip 설치가 managed DNS 차단으로 dependency resolution 전에 종료됨 | 1 | wheel 결함으로 보지 않고 해당 venv를 보존했다. 두 번째 untouched venv를 만들고 승인된 network 경로에서 exact wheel과 Termux constraint를 설치했다. |
+| stdio 종료 후 `pgrep`과 sandboxed `ps`가 macOS process-list 권한 제한으로 잔여 process 조회에 실패함 | 2 | control socket 제거와 두 MCP child의 정상 종료는 이미 verifier가 확인했다. 승인된 read-only `ps` 재검사는 검사 명령 자체 외에 candidate 경로 process가 없음을 확인했다. |
+| 저장소 밖 첫 Firefox BiDi 탐색 프로브가 endpoint 출력 전 1초 stderr 공백을 즉시 `TimeoutError`로 처리함 | 1 | 제품 source는 불변이다. 전체 탐색은 bounded 상태로 유지하면서 개별 1초 공백은 Firefox 생존 시 재시도하도록 임시 프로브만 수정한다. |
+| 준비된 BiDi navigation RED 3건이 GUI 우회, typed timeout, fixed protocol stage를 각각 위반해 3 failures를 반환함 | 1 | 의도한 RED다. 준비된 세션만 우선 dispatch하고 timeout은 원문 없는 `TimeoutError`, 그 밖의 protocol 실패는 `bidi_navigation`으로 닫는 최소 분기를 구현한다. |
+| loopback endpoint·protocol·timeout·metadata RED 5건이 `src.firefox_bidi` 부재로 5 assertion failures를 반환함 | 1 | 의도한 RED다. deferred dependency와 고정 오류만 가진 작은 sequential client를 구현해 외부 응답 원문 없이 계약을 충족한다. |
+| 첫 lifecycle RED가 `src.native.threading.Thread` patch로 전역 `threading.Thread`까지 바꿔 `asyncio.to_thread()` executor 종료를 정지시킴 | 1 | production은 실행되지 않았다. thread mock을 제거하고 즉시 반환하는 fake server target에 실제 thread를 사용해 올바른 RED를 다시 구한다. |
+| 수정한 lifecycle RED가 endpoint flag/client attachment 부재로 정확히 1 assertion failure를 반환함 | 1 | 의도한 RED다. browser-owned port 0, discard monitor, client 연결과 BiDi-before-process cleanup을 최소 구현한다. |
+| canonical BiDi stage RED가 allowlist 부재로 stage를 제거해 1 assertion failure를 반환함 | 1 | 의도한 RED다. `bidi_navigation`만 verifier의 독립 고정 stage 집합에 추가하며 remote message는 계속 폐기한다. |
+| source 변경 뒤 fast code-graph 재색인이 8.7초 시점에 사용자 중단으로 종료됨 | 1 | 기존 graph 기반 호출 경로와 직접 diff review는 보존됐다. 사용자 중단을 존중해 같은 색인을 즉시 반복하지 않고 최종 source가 안정된 뒤에만 필요성을 다시 판단한다. |
+| 첫 webdriver-state probe가 `/private/tmp` script의 import root 부재로 `src.firefox_bidi`를 찾지 못함 | 1 | 제품 source는 불변이다. 저장소를 명시적 `PYTHONPATH`로 준 동일 격리 probe로 재실행한다. |
+| webdriver-state와 places probe의 첫 실행이 managed sandbox의 loopback bind 제한으로 `PermissionError`를 반환함 | 2 | 제품 실패가 아니다. 동일 local-only fixture를 승인된 socket 환경에서 재실행해 실제 Firefox 결과를 얻었다. |
+| 실행 중 Firefox `places.sqlite`의 정상 read-only 연결이 exclusive lock으로 반복 실패함 | 1 | writer와의 잠금 계약을 우회하는 live-profile 경로는 제품 대안으로 채택하지 않는다. `immutable=1`은 탐색 probe에서만 URL을 읽었으며 production source에는 넣지 않았다. |
+| BiDi client와 native-session cancellation cleanup RED가 각각 취소를 삼키거나 Firefox를 회수하지 못해 1 failure씩 반환함 | 2 | 의도한 RED다. socket/session과 Firefox process를 먼저 정리한 뒤 `CancelledError`를 재전달하는 최소 cleanup 상태를 양 계층에 구현한다. |
+| pre-commit wheel binding을 실제 dirty checkout에 바로 실행하자 신규 `src/firefox_bidi.py`가 아직 `git ls-files` 권위에 없어 inventory FAIL함 | 1 | 사용자 index는 변경하지 않는다. 147개 current file의 byte identity를 확인한 private staging에만 임시 Git index를 만들고 동일 canonical helper로 58-source binding을 검증한다. clean commit 뒤 실제 checkout에서 다시 묶는다. |
+| 첫 fresh Python 3.14 pip 설치가 managed DNS 차단으로 `websockets` 후보 조회 전에 종료됨 | 1 | resolver 문구를 dependency conflict로 오인하지 않는다. 실패 venv를 보존하고 untouched venv에서 exact wheel과 constraint를 승인된 network로 설치한다. |
+| fresh-wheel installed stdio의 첫 실행이 private Unix control socket bind에서 sandbox `PermissionError`로 종료됨 | 1 | 제품 결함이 아니다. 실패 stderr와 venv를 보존하고 새 owner-private output root에서 동일 installed entrypoint를 승인된 socket 환경으로 재실행한다. |
+| stdio 후 첫 `ps` survivor probe가 macOS process-list sandbox 권한으로 거부됨 | 1 | control socket 제거와 child 정상 종료는 이미 확인됐다. 동일 read-only process query를 승인된 환경에서 다시 실행해 candidate process 0을 확인한다. |
+| delayed-endpoint lifecycle RED가 최초 6초 wait 뒤 stderr future가 정상 완료돼도 BiDi attachment 없이 1 failure를 반환함 | 1 | 의도한 RED다. main window 발견 뒤 같은 shielded future에 2초 bounded grace를 한 번 주고, 연결 command timeout은 느린 S22U를 위해 10초로 유지한다. |
+| BiDi hardening RED를 macOS 기본 `python3` 3.9.6으로 실행해 PEP 604 타입 평가 중 2 errors로 종료됨 | 1 | 제품 테스트는 실행되지 않았다. 지원 기준인 Python 3.11.15로 동일 두 테스트를 즉시 재실행해 유효한 RED를 확보한다. |
+| strict response-ID와 duplicate-connect RED가 각각 예외 부재와 connector 2회 호출로 2 failures를 반환함 | 1 | 의도한 RED다. 응답 ID의 정확한 `int` 타입·값을 요구하고 이미 연결된 client는 connector 호출 전에 고정 오류로 거부한다. |
+| endpoint exactness RED가 유효한 문장 앞 임의 접두사를 허용해 1 failure를 반환함 | 1 | 의도한 RED다. stderr 한 줄 전체를 `\A...\Z`로 일치시키고 Firefox의 선택적 줄바꿈 외 앞뒤 byte를 모두 거부한다. |
+| 최종 401-test matrix가 managed sandbox에서 세 interpreter 모두 15 socket-bind errors를 재현하고 Python 3.14는 종속 SIGTERM assertion 1건도 반환함 | 1 | 제품 회귀로 보지 않는다. 동일 세 명령을 로컬 TCP/Unix socket이 허용된 환경에서 재실행해 401/401 통과를 확인한다. |
+| 첫 hardened fresh venv가 base wheel만 설치해 MCP package가 없는 불완전한 검증 환경이 됨 | 1 | wheel 설치 실패가 아니다. 해당 venv는 보존·실격하고 두 번째 untouched venv에 exact wheel의 `[mcp]` extra와 Termux constraint를 한 번에 설치한다. |
+| hardened 기록 patch가 같은 파일을 두 번 수정하는 invalid patch로 적용 전에 거부됨 | 1 | repository bytes는 불변이다. `task_plan.md`의 두 hunk를 단일 file operation으로 합치고 나머지 문서 patch와 분리한다. |
 
 ---
 

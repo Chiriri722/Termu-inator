@@ -29,9 +29,21 @@ _NATIVE_NAVIGATION_STAGES = frozenset(
     {
         "address_bar_copy",
         "address_bar_navigation",
+        "bidi_navigation",
         "clipboard_prime",
         "metadata_validation",
         "window_unavailable",
+    }
+)
+_NATIVE_NAVIGATION_COPY_REASONS = frozenset(
+    {
+        "focus_unverified",
+        "invalid_url",
+        "marker_unchanged",
+        "owner_release_failed",
+        "read_failed",
+        "read_timeout",
+        "selection_empty",
     }
 )
 
@@ -39,10 +51,16 @@ _NATIVE_NAVIGATION_STAGES = frozenset(
 class NativeNavigationError(RuntimeError):
     """Bounded Firefox navigation failure without page or clipboard data."""
 
-    def __init__(self, stage: str) -> None:
+    def __init__(self, stage: str, *, reason: str | None = None) -> None:
         if stage not in _NATIVE_NAVIGATION_STAGES:
             raise ValueError("unknown native navigation stage")
+        if reason is not None and (
+            stage != "address_bar_copy"
+            or reason not in _NATIVE_NAVIGATION_COPY_REASONS
+        ):
+            raise ValueError("unknown native navigation reason")
         self.stage = stage
+        self.reason = reason
         super().__init__("Firefox native navigation failed")
 
 

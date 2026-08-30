@@ -1,10 +1,10 @@
-"""Native Firefox session — no automation framework.
+"""Native Firefox session with bounded loopback navigation metadata.
 
-Firefox passes Cloudflare challenges with zero stealth when started
-as a regular browser. geckodriver/Marionette sets internal flags that
-CF detects. This module controls Firefox entirely through xdotool
-(native X11 input events) and a local callback HTTP server for JS
-execution results. The same send()/on() API is exposed so command
+Firefox starts directly, without geckodriver or Marionette. This module
+retains xdotool and a local callback HTTP server for compatibility, while
+explicit WebDriver BiDi supplies verified navigation metadata when Firefox
+exposes its browser-owned loopback endpoint. Anti-bot behavior is not a
+deterministic contract. The same send()/on() API is exposed so command
 modules work unchanged.
 """
 
@@ -27,6 +27,7 @@ from .commands import (
     JavascriptExecutionTimeout,
     NativeNavigationError,
 )
+from .firefox_bidi import FirefoxBidiClient, parse_firefox_bidi_endpoint
 
 logger = logging.getLogger(__name__)
 
@@ -95,11 +96,7 @@ class _CallbackHandler(BaseHTTPRequestHandler):
 
 
 class NativeFirefoxSession:
-    """Control Firefox via xdotool + local HTTP callback.
-
-    No geckodriver, no Marionette, no WebDriver, no BiDi.
-    CF cannot detect any automation framework.
-    """
+    """Control Firefox through BiDi metadata and native compatibility I/O."""
 
     def __init__(self, display=":99", window_size="1920,1080",
                  user_data_dir=None, proxy=None):
@@ -108,6 +105,8 @@ class NativeFirefoxSession:
         self._user_data_dir = user_data_dir
         self._proxy = proxy
         self._firefox_proc = None
+        self._bidi = None
+        self._firefox_stderr_task = None
         self._callback_server = None
         self._callback_port = None
         self._callback_thread = None
@@ -273,6 +272,8 @@ class NativeFirefoxSession:
         args = [
             FIREFOX_BIN,
             "--no-remote",
+            "--remote-debugging-port",
+            "0",
             f"--width={w}",
             f"--height={h}",
             "about:blank",
@@ -284,9 +285,37 @@ class NativeFirefoxSession:
         self._firefox_proc = await asyncio.create_subprocess_exec(
             *args, env=env,
             stdout=asyncio.subprocess.DEVNULL,
-            stderr=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.PIPE,
         )
-        await asyncio.sleep(6)
+        endpoint_future = asyncio.get_running_loop().create_future()
+        if self._firefox_proc.stderr is None:
+            endpoint_future.set_result(None)
+        else:
+            self._firefox_stderr_task = asyncio.create_task(
+                self._monitor_firefox_stderr(
+                    self._firefox_proc.stderr,
+                    endpoint_future,
+                )
+            )
+
+        startup_wait = asyncio.create_task(asyncio.sleep(6))
+        try:
+            try:
+                endpoint = await asyncio.wait_for(
+                    asyncio.shield(endpoint_future),
+                    timeout=6,
+                )
+            except asyncio.TimeoutError:
+                endpoint = None
+            await startup_wait
+        except BaseException:
+            if not startup_wait.done():
+                startup_wait.cancel()
+                try:
+                    await startup_wait
+                except asyncio.CancelledError:
+                    pass
+            raise
 
         if self._firefox_proc.returncode is not None:
             raise RuntimeError("Firefox failed to start")
@@ -294,9 +323,53 @@ class NativeFirefoxSession:
         # Discover the main browser window ID for window management
         await self._find_main_window()
 
+        if endpoint is None:
+            try:
+                endpoint = await asyncio.wait_for(
+                    asyncio.shield(endpoint_future),
+                    timeout=2,
+                )
+            except asyncio.TimeoutError:
+                endpoint = None
+
+        if endpoint is not None:
+            bidi = FirefoxBidiClient(endpoint)
+            try:
+                await bidi.connect(timeout=10)
+            except asyncio.CancelledError:
+                await bidi.close()
+                raise
+            except Exception:
+                await bidi.close()
+                logger.warning(
+                    "Firefox BiDi unavailable; using native compatibility path"
+                )
+            else:
+                self._bidi = bidi
+
         logger.info("Native Firefox started (pid %d), callback port %d, main_wid=%s",
                      self._firefox_proc.pid, self._callback_port, self._main_wid)
         return self
+
+    async def _monitor_firefox_stderr(self, stream, endpoint_future) -> None:
+        """Discard browser stderr while extracting one safe loopback endpoint."""
+
+        try:
+            while True:
+                line = await stream.readline()
+                if not line:
+                    break
+                if not endpoint_future.done():
+                    endpoint = parse_firefox_bidi_endpoint(line)
+                    if endpoint is not None:
+                        endpoint_future.set_result(endpoint)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            pass
+        finally:
+            if not endpoint_future.done():
+                endpoint_future.set_result(None)
 
     async def _xdt(self, args, timeout=10):
         """Execute xdotool command with explicit DISPLAY and timeout."""
@@ -516,6 +589,8 @@ class NativeFirefoxSession:
                     except (asyncio.CancelledError, ProcessLookupError):
                         pass
             raise
+        if proc.returncode != 0:
+            raise RuntimeError("X11 clipboard read failed")
         return out.decode("utf-8", errors="replace").strip()
 
     async def _release_clipboard_owner(self, process):
@@ -631,20 +706,28 @@ class NativeFirefoxSession:
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
-                raise NativeNavigationError("address_bar_copy") from exc
+                raise NativeNavigationError(
+                    "address_bar_copy",
+                    reason="owner_release_failed",
+                ) from exc
             clipboard_owner = None
             try:
-                await self._focus_main_window()
-                wid = self._main_wid
-                if not isinstance(wid, str) or not wid:
-                    raise NativeNavigationError("window_unavailable")
                 read_timeout = max(0.1, min(float(timeout), 3.0))
+                last_reason = "selection_empty"
                 for attempt in range(3):
-                    if attempt:
-                        await self._focus_main_window()
-                        wid = self._main_wid
-                        if not isinstance(wid, str) or not wid:
-                            raise NativeNavigationError("window_unavailable")
+                    await self._focus_main_window()
+                    wid = self._main_wid
+                    if not isinstance(wid, str) or not wid:
+                        raise NativeNavigationError("window_unavailable")
+                    try:
+                        active_wid = await self._xdt(["getactivewindow"])
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception:
+                        active_wid = ""
+                    if active_wid != wid:
+                        last_reason = "focus_unverified"
+                        continue
                     await self._xdt(["key", "ctrl+l"])
                     await asyncio.sleep(0.15)
                     await self._xdt(["key", "ctrl+c"])
@@ -655,18 +738,25 @@ class NativeFirefoxSession:
                             timeout=read_timeout,
                         )
                     except asyncio.TimeoutError:
-                        candidate = ""
+                        last_reason = "read_timeout"
+                        continue
                     except Exception as exc:
                         raise NativeNavigationError(
-                            "address_bar_copy"
+                            "address_bar_copy",
+                            reason="read_failed",
                         ) from exc
-                    if candidate in {"", marker}:
+                    if candidate == "":
+                        last_reason = "selection_empty"
+                        continue
+                    if candidate == marker:
+                        last_reason = "marker_unchanged"
                         continue
                     try:
                         parsed = urlsplit(candidate)
                     except ValueError as exc:
                         raise NativeNavigationError(
-                            "address_bar_copy"
+                            "address_bar_copy",
+                            reason="invalid_url",
                         ) from exc
                     if (
                         len(candidate) > 8_192
@@ -677,11 +767,17 @@ class NativeFirefoxSession:
                             for char in candidate
                         )
                     ):
-                        raise NativeNavigationError("address_bar_copy")
+                        raise NativeNavigationError(
+                            "address_bar_copy",
+                            reason="invalid_url",
+                        )
                     current_url = candidate
                     break
                 else:
-                    raise NativeNavigationError("address_bar_copy")
+                    raise NativeNavigationError(
+                        "address_bar_copy",
+                        reason=last_reason,
+                    )
             except (NativeNavigationError, asyncio.CancelledError):
                 raise
             except Exception as exc:
@@ -1005,6 +1101,16 @@ class NativeFirefoxSession:
 
     async def close(self):
         """Close Firefox and callback server."""
+        cancelled = False
+        bidi = self._bidi
+        self._bidi = None
+        if bidi is not None:
+            try:
+                await bidi.close()
+            except asyncio.CancelledError:
+                cancelled = True
+            except Exception:
+                logger.warning("Firefox BiDi cleanup failed")
         if self._callback_server:
             await asyncio.to_thread(self._callback_server.shutdown)
             self._callback_server = None
@@ -1016,7 +1122,18 @@ class NativeFirefoxSession:
                 self._firefox_proc.kill()
                 await self._firefox_proc.wait()
         self._firefox_proc = None
+        stderr_task = self._firefox_stderr_task
+        self._firefox_stderr_task = None
+        if stderr_task is not None:
+            if not stderr_task.done():
+                stderr_task.cancel()
+            try:
+                await stderr_task
+            except asyncio.CancelledError:
+                pass
         self._disconnected = True
+        if cancelled:
+            raise asyncio.CancelledError
 
     async def delete_session(self):
         """No-op for native session (close handles everything)."""
@@ -1044,6 +1161,20 @@ async def _navigate(session, params, timeout):
     # Reset JS availability for new page
     session._js_available = True
     session._viewport_offset_cache = None
+
+    if session._bidi is not None:
+        try:
+            metadata = await session._bidi.navigate(url, timeout=timeout)
+        except asyncio.CancelledError:
+            raise
+        except TimeoutError:
+            raise TimeoutError("Firefox BiDi navigation timed out") from None
+        except Exception as exc:
+            raise NativeNavigationError("bidi_navigation") from exc
+        return {
+            "frameId": "native",
+            _NATIVE_NAVIGATION_KEY: metadata,
+        }
 
     # Primary: navigate via JS (works when console is available)
     try:

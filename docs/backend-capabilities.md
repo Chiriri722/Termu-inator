@@ -103,7 +103,7 @@ The table describes the behavior of the current public CLI/MCP/daemon paths.
 | Process launch | **Supported**: Firefox under Xvfb | **Supported**: Chromium under Xvfb with a local CDP endpoint | [`BrowserPilot.start`](../src/browser.py#L107) branches before Chromium setup; Chromium launch and CDP polling are in [`_start_chromium`](../src/browser.py#L227) and [`_wait_for_cdp`](../src/browser.py#L330). |
 | Session transport | **Emulated**: `NativeFirefoxSession` presents a CDP-shaped API | **Supported**: `CDPSession` forwards arbitrary commands to `CDPClient` | Backend selection is in [`Pilot._init_session`](../src/pilot.py#L134). Generic CDP send is implemented in [`CDPClient.send`](../src/cdp.py#L106). |
 | CDP command coverage | **Partial**: 16 translated methods plus five enable/override no-ops; other methods raise `NotImplementedError` | **Supported** for commands accepted by the connected Chromium target | Firefox dispatch is in [`NativeFirefoxSession.send`](../src/native.py#L800), and its literal method map is [`_NATIVE_HANDLERS`](../src/native.py#L1387). |
-| Navigation, URL, title, text, HTML, and JavaScript evaluation | **Emulated** through native navigation and DevTools-console/clipboard JavaScript execution | **Supported** through CDP `Page` and `Runtime` methods | Shared page commands call the CDP-shaped session interface; Firefox maps `Page.navigate` and `Runtime.evaluate` in [`native.py`](../src/native.py#L1387). |
+| Navigation, URL, title, text, HTML, and JavaScript evaluation | **Emulated** through WebDriver BiDi navigation metadata plus native/DevTools-console compatibility operations | **Supported** through CDP `Page` and `Runtime` methods | Firefox uses an explicit browser-owned loopback BiDi session for verified navigation URL/title when available, with the X11/clipboard implementation retained as a compatibility fallback. Shared page commands still call the CDP-shaped session interface. |
 | Selector-based click, type, key, scroll, hover, select, check, and drag | **Emulated** through JavaScript and translated X11/input operations | **Supported/Partial** through CDP input plus JavaScript helpers | Both use the shared input and daemon handlers. Neither backend currently provides the planned ref/revision precondition or automatic post-action verification. |
 | Raw-coordinate click | **Partial**: requires a preceding `mouse_move`/`mouse_locate` at the same coordinates | **Broken**: the arming tools call Firefox-only private X11 methods | The guard and Firefox-only click branch are in [`_handle_click`](../src/daemon.py#L375); `mouse_move` calls `_xdt` in [`_handle_mouse_move`](../src/daemon.py#L606). |
 | Accessibility observation | **Partial**: heuristic DOM walk, maximum depth 8 and roughly 200 nodes | **Supported** through the CDP accessibility tree | The Firefox approximation is [`_get_ax_tree`](../src/native.py#L1342); it is not semantically equivalent to Chromium's AX tree. |
@@ -133,6 +133,13 @@ The table describes the behavior of the current public CLI/MCP/daemon paths.
 | MCP restart | **Supported** when Firefox is intended | **Broken**: restarting a Chromium daemon silently starts Firefox | [`browser_restart`](../src/mcp_server.py#L1984) sends `shutdown`, then calls `status`; the latter auto-starts the default Firefox daemon. |
 | Backend profile isolation | **Partial** | **Partial/Broken design** | [`Daemon.run`](../src/daemon.py#L67) passes `FIREFOX_PROFILE_DIR` as `user_data_dir` regardless of backend, so profiles are not separated by engine. |
 | Capability negotiation and structured unsupported errors | **Unsupported** | **Unsupported** | [`_handle_status`](../src/daemon.py#L807) returns only process/browser/page metadata. [`Daemon._dispatch`](../src/daemon.py#L198) reduces failures to strings, and [`_result`](../src/mcp_server.py#L35) returns them as ordinary tool data. |
+
+Firefox's BiDi channel is enabled explicitly with a browser-assigned ephemeral
+loopback port and has no protocol authentication. It is closed with the owned
+Firefox process and never accepts a non-loopback endpoint. Enabling Firefox's
+Remote Agent also makes `navigator.webdriver` observable, so this path is a
+reliability mechanism rather than an anti-detection claim. Public anti-bot
+sites remain non-gating evidence only.
 
 ## Prioritized silent-success defects
 
