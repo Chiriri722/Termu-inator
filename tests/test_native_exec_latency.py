@@ -440,6 +440,62 @@ class NativeExecutionLatencyTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn(f"eval({json.dumps(source.strip())})", wrappers[0])
         self.assertNotIn("shadow_path:shadowPath; });", wrappers[0])
 
+    async def test_exec_js_uses_bidi_without_console_or_clipboard(self) -> None:
+        session = NativeFirefoxSession()
+        source = observe_script("__bidi_registry_key")
+        expected = {
+            "ready_state": "complete",
+            "dom_version": 0,
+            "elements": [],
+        }
+        session._bidi = SimpleNamespace(
+            evaluate=AsyncMock(return_value=expected)
+        )
+        session._exec_js_inner = AsyncMock(
+            side_effect=AssertionError("console fallback must stay idle")
+        )
+
+        result = await session._exec_js(source, timeout=7)
+
+        self.assertEqual(result, expected)
+        session._bidi.evaluate.assert_awaited_once_with(source, timeout=7)
+        session._exec_js_inner.assert_not_awaited()
+
+    async def test_bidi_eval_timeout_is_bounded_without_console_retry(self) -> None:
+        session = NativeFirefoxSession()
+        private_error = "private BiDi timeout detail"
+        session._bidi = SimpleNamespace(
+            evaluate=AsyncMock(side_effect=TimeoutError(private_error))
+        )
+        session._exec_js_inner = AsyncMock(
+            side_effect=AssertionError("console fallback must stay idle")
+        )
+
+        with self.assertRaises(commands.JavascriptExecutionTimeout) as caught:
+            await session._exec_js("document.readyState", timeout=7)
+
+        self.assertNotIn(private_error, str(caught.exception))
+        session._bidi.evaluate.assert_awaited_once()
+        session._exec_js_inner.assert_not_awaited()
+
+    async def test_bidi_eval_failure_is_bounded_without_console_retry(self) -> None:
+        session = NativeFirefoxSession()
+        private_error = "private BiDi protocol detail"
+        session._bidi = SimpleNamespace(
+            evaluate=AsyncMock(side_effect=RuntimeError(private_error))
+        )
+        session._exec_js_inner = AsyncMock(
+            side_effect=AssertionError("console fallback must stay idle")
+        )
+
+        with self.assertRaises(commands.JavascriptExecutionError) as caught:
+            await session._exec_js("document.readyState", timeout=7)
+
+        self.assertEqual(caught.exception.reason, "evaluation")
+        self.assertNotIn(private_error, str(caught.exception))
+        session._bidi.evaluate.assert_awaited_once()
+        session._exec_js_inner.assert_not_awaited()
+
     async def test_javascript_error_is_typed_without_echoing_expression_data(self) -> None:
         session = NativeFirefoxSession()
         secret = "do-not-echo-javascript-error-data"

@@ -434,24 +434,28 @@ class LegacyPilotBackend:
         text = ""
         text_truncated = False
         if text_limit:
-            raw_text = await pilot.text()  # type: ignore[attr-defined]
-            if not isinstance(raw_text, str):
-                raise TermuinatorError(
-                    ErrorCode.BACKEND_CRASHED,
-                    "Inherited browser returned invalid page text",
-                )
+            try:
+                raw_text = await pilot.text()  # type: ignore[attr-defined]
+                if not isinstance(raw_text, str):
+                    raise TypeError("invalid inherited page-text payload")
+            except Exception as exc:
+                self._raise_observe_failure("observe_text", exc)
             text_truncated = len(raw_text) > text_limit
             text = raw_text[:text_limit]
 
         accessibility: tuple[Mapping[str, Any], ...] = ()
         if include_accessibility:
-            raw_accessibility = await pilot.a11y_nodes()  # type: ignore[attr-defined]
-            accessibility = _normalize_accessibility_nodes(raw_accessibility)
-        screenshot = (
-            await self.screenshot("viewport")
-            if include_screenshot
-            else None
-        )
+            try:
+                raw_accessibility = await pilot.a11y_nodes()  # type: ignore[attr-defined]
+                accessibility = _normalize_accessibility_nodes(raw_accessibility)
+            except Exception as exc:
+                self._raise_observe_failure("observe_accessibility", exc)
+        screenshot = None
+        if include_screenshot:
+            try:
+                screenshot = await self.screenshot("viewport")
+            except Exception as exc:
+                self._raise_observe_failure("observe_screenshot", exc)
         return self._snapshot(
             text=text,
             text_truncated=text_truncated,
@@ -459,6 +463,24 @@ class LegacyPilotBackend:
             interactive_elements=interactive_elements,
             screenshot=screenshot,
         )
+
+    def _raise_observe_failure(self, stage: str, exc: Exception) -> NoReturn:
+        if (
+            isinstance(exc, TermuinatorError)
+            and exc.code is not ErrorCode.BACKEND_CRASHED
+        ):
+            raise exc
+        raise TermuinatorError(
+            ErrorCode.BACKEND_CRASHED,
+            "Inherited browser observation failed",
+            retryable=True,
+            details={
+                "backend": self.backend.value,
+                "capability": "observe",
+                "operation": "observe",
+                "stage": stage,
+            },
+        ) from exc
 
     def _snapshot(
         self,
@@ -492,27 +514,9 @@ class LegacyPilotBackend:
             except JavascriptExecutionTimeout as exc:
                 if self.backend is Backend.FIREFOX and attempt == 0:
                     continue
-                raise TermuinatorError(
-                    ErrorCode.BACKEND_CRASHED,
-                    "Inherited browser DOM observation failed",
-                    retryable=True,
-                    details={
-                        "backend": self.backend.value,
-                        "capability": "observe",
-                    },
-                ) from exc
-            except TermuinatorError:
-                raise
+                self._raise_observe_failure("observe_dom", exc)
             except Exception as exc:
-                raise TermuinatorError(
-                    ErrorCode.BACKEND_CRASHED,
-                    "Inherited browser DOM observation failed",
-                    retryable=True,
-                    details={
-                        "backend": self.backend.value,
-                        "capability": "observe",
-                    },
-                ) from exc
+                self._raise_observe_failure("observe_dom", exc)
         raise AssertionError("unreachable DOM observation retry state")
 
     async def _element_state(

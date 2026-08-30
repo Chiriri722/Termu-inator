@@ -171,6 +171,169 @@ class FirefoxBidiTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertTrue(socket.closed)
 
+    async def test_evaluate_returns_bounded_json_compatible_value(self) -> None:
+        bidi = _load_bidi(self)
+        socket = _Socket(
+            [
+                {
+                    "id": 1,
+                    "type": "success",
+                    "result": {"sessionId": "session-1"},
+                },
+                {
+                    "id": 2,
+                    "type": "success",
+                    "result": {
+                        "contexts": [
+                            {"context": "context-1", "url": "about:blank"}
+                        ]
+                    },
+                },
+                {
+                    "id": 3,
+                    "type": "success",
+                    "result": {
+                        "type": "success",
+                        "realm": "realm-1",
+                        "result": {
+                            "type": "object",
+                            "value": [
+                                [
+                                    "ready_state",
+                                    {"type": "string", "value": "complete"},
+                                ],
+                                [
+                                    "dom_version",
+                                    {"type": "number", "value": 2},
+                                ],
+                                [
+                                    "elements",
+                                    {
+                                        "type": "array",
+                                        "value": [
+                                            {
+                                                "type": "object",
+                                                "value": [
+                                                    [
+                                                        "backend_node_id",
+                                                        {
+                                                            "type": "string",
+                                                            "value": "node_1_deadbeef",
+                                                        },
+                                                    ],
+                                                    [
+                                                        "visible",
+                                                        {
+                                                            "type": "boolean",
+                                                            "value": True,
+                                                        },
+                                                    ],
+                                                ],
+                                            }
+                                        ],
+                                    },
+                                ],
+                            ],
+                        },
+                    },
+                },
+                {"id": 4, "type": "success", "result": {}},
+            ]
+        )
+
+        async def connector(_endpoint: str, **_kwargs):
+            return socket
+
+        client = bidi.FirefoxBidiClient(
+            "ws://127.0.0.1:46249/session",
+            connector=connector,
+        )
+        await client.connect(timeout=5)
+        result = await client.evaluate("window.__termuinatorObserve()", timeout=7)
+        await client.close()
+
+        self.assertEqual(
+            result,
+            {
+                "ready_state": "complete",
+                "dom_version": 2,
+                "elements": [
+                    {
+                        "backend_node_id": "node_1_deadbeef",
+                        "visible": True,
+                    }
+                ],
+            },
+        )
+        self.assertEqual(socket.sent[2]["method"], "script.evaluate")
+        self.assertEqual(
+            socket.sent[2]["params"],
+            {
+                "expression": "window.__termuinatorObserve()",
+                "target": {"context": "context-1"},
+                "awaitPromise": True,
+                "resultOwnership": "none",
+                "serializationOptions": {
+                    "maxDomDepth": 0,
+                    "maxObjectDepth": 16,
+                    "includeShadowTree": "none",
+                },
+            },
+        )
+
+    async def test_evaluate_rejects_remote_exception_without_value(self) -> None:
+        bidi = _load_bidi(self)
+        private_error = "private page exception detail"
+        socket = _Socket(
+            [
+                {
+                    "id": 1,
+                    "type": "success",
+                    "result": {"sessionId": "session-1"},
+                },
+                {
+                    "id": 2,
+                    "type": "success",
+                    "result": {
+                        "contexts": [
+                            {"context": "context-1", "url": "about:blank"}
+                        ]
+                    },
+                },
+                {
+                    "id": 3,
+                    "type": "success",
+                    "result": {
+                        "type": "exception",
+                        "realm": "realm-1",
+                        "exceptionDetails": {"text": private_error},
+                    },
+                },
+            ]
+        )
+
+        async def connector(_endpoint: str, **_kwargs):
+            return socket
+
+        client = bidi.FirefoxBidiClient(
+            "ws://127.0.0.1:46249/session",
+            connector=connector,
+        )
+        await client.connect(timeout=5)
+        with self.assertRaises(bidi.FirefoxBidiError) as caught:
+            await client.evaluate("window.privateValue", timeout=5)
+
+        self.assertNotIn(private_error, str(caught.exception))
+
+    async def test_evaluate_rejects_unencodable_expression_with_fixed_error(
+        self,
+    ) -> None:
+        bidi = _load_bidi(self)
+        client = bidi.FirefoxBidiClient("ws://127.0.0.1:46249/session")
+
+        with self.assertRaises(bidi.FirefoxBidiError):
+            await client.evaluate("\ud800", timeout=5)
+
     async def test_remote_error_is_bounded_and_does_not_leak(self) -> None:
         bidi = _load_bidi(self)
         private_error = "private remote response detail"

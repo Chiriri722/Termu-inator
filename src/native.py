@@ -407,9 +407,10 @@ class NativeFirefoxSession:
         return out.decode().strip()
 
     async def _exec_js(self, expression, timeout=60):
-        """Execute JavaScript via browser console and read result.
+        """Execute JavaScript through owned BiDi or the console fallback.
 
-        Uses copy() console helper (CSP-proof, no fetch needed):
+        BiDi is authoritative whenever the owned browser exposes it. The
+        compatibility fallback uses copy() console helper (CSP-proof, no fetch):
         1. Wrap expression in try/catch + copy() with unique marker
         2. Paste JS into console via clipboard (reliable for any length)
         3. Poll clipboard for marker prefix to read result
@@ -419,6 +420,21 @@ class NativeFirefoxSession:
         clipboard is global X11 state.
         """
         async with self._js_lock:
+            if self._bidi is not None:
+                try:
+                    result = await self._bidi.evaluate(expression, timeout=timeout)
+                except asyncio.CancelledError:
+                    raise
+                except TimeoutError:
+                    self._js_available = False
+                    raise JavascriptExecutionTimeout(
+                        "Firefox BiDi evaluation timed out"
+                    ) from None
+                except Exception:
+                    self._js_available = False
+                    raise JavascriptExecutionError("evaluation") from None
+                self._js_available = True
+                return result
             return await self._exec_js_inner(expression, timeout)
 
     async def _exec_js_inner(self, expression, timeout=60):

@@ -91,10 +91,13 @@ reason, limits, dependencies, and last probe time. Observations bind the exact
 capability revision. Unsupported operations return `unsupported_capability`
 and must never report a synthetic success.
 
-Chromium uses CDP where available. Firefox uses the existing native
-DevTools/clipboard/X11 path behind an adapter. Firefox status is a control-plane
-cache read with a freshness timestamp rather than two synchronous evaluations.
-The backend updates that cache after navigation and every action.
+Chromium uses CDP where available. Firefox uses a browser-owned, loopback-only
+WebDriver BiDi session for navigation and JavaScript-backed observation, with
+the existing DevTools/clipboard evaluator retained only when the Remote Agent
+is unavailable. X11 still owns native input and window capture. Firefox status
+is a control-plane cache read with a freshness timestamp rather than two
+synchronous evaluations. The backend updates that cache after navigation and
+every action.
 
 ## Observe–Act–Verify Flow
 

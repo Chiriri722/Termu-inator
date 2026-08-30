@@ -1091,6 +1091,43 @@ class McpInventoryEvidenceTests(unittest.TestCase):
 
 
 class McpFailureEvidenceTests(unittest.IsolatedAsyncioTestCase):
+    async def test_records_bounded_firefox_observe_stage(self) -> None:
+        private_value = "private Firefox observation detail"
+
+        class _Content:
+            text = json.dumps(
+                {
+                    "code": "backend_crashed",
+                    "message": private_value,
+                    "details": {
+                        "backend": "firefox",
+                        "operation": "observe",
+                        "stage": "observe_accessibility",
+                        "private": private_value,
+                    },
+                }
+            )
+
+        class _Result:
+            isError = True
+            content = (_Content(),)
+            structuredContent = None
+
+        class _Session:
+            async def call_tool(self, *_args: object, **_kwargs: object) -> object:
+                return _Result()
+
+        caller_type = getattr(final_verify_module, "_McpToolCaller")
+        caller = caller_type(_Session(), server_pid=os.getpid())
+
+        with self.assertRaises(VerificationFailure) as caught:
+            await caller("browser_observe", {})
+
+        message = str(caught.exception)
+        self.assertIn("operation=observe", message)
+        self.assertIn("stage=observe_accessibility", message)
+        self.assertNotIn(private_value, message)
+
     async def test_records_bounded_bidi_navigation_stage(self) -> None:
         private_value = "private BiDi response"
 

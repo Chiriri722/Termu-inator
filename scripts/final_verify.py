@@ -169,7 +169,7 @@ _MCP_ERROR_CODES = frozenset(
 )
 _MCP_ERROR_DETAIL_VALUES = {
     "backend": frozenset({"chromium", "firefox"}),
-    "operation": frozenset({"back", "forward", "goto", "reload"}),
+    "operation": frozenset({"back", "forward", "goto", "observe", "reload"}),
     "stage": frozenset(
         {
             "adapter_metadata",
@@ -178,6 +178,10 @@ _MCP_ERROR_DETAIL_VALUES = {
             "bidi_navigation",
             "clipboard_prime",
             "metadata_validation",
+            "observe_accessibility",
+            "observe_dom",
+            "observe_screenshot",
+            "observe_text",
             "pilot_dispatch",
             "window_unavailable",
         }

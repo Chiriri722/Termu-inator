@@ -80,14 +80,40 @@ owned socket/process 회수 뒤 취소를 재전달하도록 GREEN으로 닫았�
 58-source wheel/installed binding과 14→12 stdio restart를 통과했다. delayed-endpoint 보강 뒤 다시 만든
 pre-commit wheel은 279,258 bytes, SHA-256
 `1d4095575db095f4f71a9f90aa76367b0c1d7db121f9b4feb9d941472c6008bd`이며 placeholder로 잠긴
-owner-private grace candidate에 보존했다. 다음 권위 단계는 이 정확한 15-file 변경의 사용자 clean
-commit/push, 실제 commit에 대한 binding/handoff sealing, 그리고 S22U canonical 재검사다.
-새 clean commit S22U에서 양 backend PASS와 `benchmark_allowed: true`를 확보하기 전에는 benchmark나
-RC 승인을 진행하지 않는다.
+owner-private grace candidate에 보존했다. 이후 정확한 15-file 변경은
+`072831a3324a7169a57faec41d137920e38777e1` (`v.0.2.15`)로 clean push됐고, wheel/source/install 및
+Chromium gate는 통과했다. S22U Firefox는 navigation 뒤 `browser_observe`에서 `backend_crashed`로
+FAIL했다. 호출 경로를 추적한 결과 navigation만 BiDi이고 DOM·본문·접근성 관찰은 다시 Firefox
+DevTools 콘솔과 전역 X11 clipboard를 사용했다. 다섯 실제 실패형 RED 뒤 기존 BiDi 세션의
+`script.evaluate`를 bounded JSON-compatible decoder에 연결했고, timeout/protocol 실패도 GUI 경로로
+재시도하지 않도록 고정했다. 관찰 하위 단계 네 개도 비밀 없는 allowlist 값으로 분리해 다음 device
+failure가 다시 coarse `backend_crashed`로 끝나지 않게 했다. 실제 macOS Firefox 154에서 같은 DOM,
+본문, synthetic accessibility 경로가 loopback BiDi로 통과했지만 이는 S22U authority가 아니다.
+세 Python의 409-test 전체 행렬, 40 verifier, 77 device-focused tests, static gate,
+280,566-byte wheel의 58-source/RECORD/metadata binding, fresh install/provenance와 14→12 stdio restart까지
+GREEN이다. owner-private candidate는 placeholder로 잠겨 있다. 다음은 이 정확한 14-file 변경을
+사용자가 clean commit/push한 뒤 commit identity를 묶어 S22U canonical을 정확히 한 번 실행하는 것이다.
+양 backend PASS 및 `benchmark_allowed: true`를 확보하기 전에는 benchmark나 RC 승인을 진행하지 않는다.
 
 ## Current Phase
 
 Phase 7 — S22U RC Observer Recovery
+- The `v0.2.15` canonical manifest binds clean commit `072831a3324a7169a57faec41d137920e38777e1`
+  to the 279,287-byte wheel SHA-256 `67d2b6b97c7c116da98a50aba955429f58a0b04e0383ccbd25e6939dbff353b0`
+  and 58-source digest `880d3a6853f5bbd30d18a1019867d81258cb0850fe0509d2f3e0cf51ca144f6d`.
+- Chromium and all provenance/cleanup gates pass. Firefox reaches `browser_observe` after navigation and returns
+  only bounded `backend_crashed`; `benchmark_allowed` remains false.
+- The current native session routes `Page.navigate` through BiDi, but `Runtime.evaluate` and the synthetic
+  accessibility walk still call `_exec_js_inner()`, reopening the GUI console and global clipboard path.
+- The five REDs are GREEN after a strict, depth/node/item-bounded BiDi RemoteValue decoder and BiDi-first
+  `_exec_js()`. Timeout and protocol failures remain fixed-value and never retry through GUI/clipboard while
+  BiDi exists.
+- Four observation substages now emit only `observe_dom`, `observe_text`, `observe_accessibility`, or
+  `observe_screenshot`; the canonical verifier independently allowlists these values and discards private causes.
+- The current checkout passes 409 tests on Python 3.11/3.12/3.14, 40 verifier tests, 77 device-focused tests,
+  static gates, and a real local Firefox fixture for DOM, text, accessibility, and interactive elements.
+- The 280,566-byte wheel binds 58 packaged and freshly installed sources, exact PEP 610 provenance, four
+  entrypoints, and an interactive→observer stdio restart. The placeholder-gated bundle awaits a clean commit.
 
 ## Planning-with-Files Operating Rules
 
@@ -1488,6 +1514,10 @@ Termu-inator MVP는 다음 조건을 모두 만족해야 한다.
 | 최종 401-test matrix가 managed sandbox에서 세 interpreter 모두 15 socket-bind errors를 재현하고 Python 3.14는 종속 SIGTERM assertion 1건도 반환함 | 1 | 제품 회귀로 보지 않는다. 동일 세 명령을 로컬 TCP/Unix socket이 허용된 환경에서 재실행해 401/401 통과를 확인한다. |
 | 첫 hardened fresh venv가 base wheel만 설치해 MCP package가 없는 불완전한 검증 환경이 됨 | 1 | wheel 설치 실패가 아니다. 해당 venv는 보존·실격하고 두 번째 untouched venv에 exact wheel의 `[mcp]` extra와 Termux constraint를 한 번에 설치한다. |
 | hardened 기록 patch가 같은 파일을 두 번 수정하는 invalid patch로 적용 전에 거부됨 | 1 | repository bytes는 불변이다. `task_plan.md`의 두 hunk를 단일 file operation으로 합치고 나머지 문서 patch와 분리한다. |
+| 관찰 진단 테스트의 첫 exact 실행이 실제 class 이름 대신 `FirefoxBidiClientTests`를 지정해 product assertion 전에 loader error로 종료됨 | 1 | production은 불변이다. 실제 `FirefoxBidiTests` class를 지정해 unencodable-expression 경계가 raw `UnicodeEncodeError`를 내는 유효한 RED를 재확인했다. |
+| v0.2.15 진행 기록을 한 번에 갱신한 patch가 `task_plan.md`의 실제 줄 문맥과 달라 전체 적용 전에 거부됨 | 1 | source와 문서는 불변이었다. 현재 문맥을 다시 읽고 plan, findings, progress를 작은 독립 patch로 나눠 적용했다. |
+| 최종 409-test matrix가 managed sandbox에서 세 interpreter 모두 15 socket-bind errors를 재현하고 Python 3.14는 종속 SIGTERM assertion 1건도 반환함 | 1 | 변경된 관련 117개 테스트는 이미 GREEN이었다. 동일 전체 명령을 로컬 TCP/Unix socket 권한으로 재실행해 Python 3.11/3.12/3.14 모두 409/409 통과했다. |
+| 새 wheel의 첫 fresh pip install이 managed DNS 차단 뒤 `websockets`를 찾지 못한 상태를 dependency conflict로 표현함 | 1 | wheel/constraint 결함으로 해석하지 않고 실패 venv를 보존·실격했다. 두 번째 untouched Python 3.14 venv를 승인된 network 경로로 설치해 exact pins, `pip check`, provenance와 installed-source binding을 통과했다. |
 
 ---
 

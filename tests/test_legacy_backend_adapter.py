@@ -332,6 +332,36 @@ class _TimeoutThenObservePilot(_StructuredPilot):
         return await super().evaluate(script)
 
 
+class _FailingObserveStagePilot(_RecordingPilot):
+    def __init__(self, stage: str) -> None:
+        super().__init__()
+        self.stage = stage
+
+    async def evaluate(self, script: str) -> object:
+        if self.stage == "observe_dom" and "TERMUINATOR_OBSERVE_V1" in script:
+            raise RuntimeError("private DOM failure")
+        return await super().evaluate(script)
+
+    async def text(self) -> str:
+        if self.stage == "observe_text":
+            raise RuntimeError("private text failure")
+        return await super().text()
+
+    async def a11y_nodes(self) -> list[dict[str, object]]:
+        if self.stage == "observe_accessibility":
+            raise RuntimeError("private accessibility failure")
+        return await super().a11y_nodes()
+
+    async def screenshot(
+        self,
+        path: str | None = None,
+        full_page: bool = False,
+    ) -> bytes:
+        if self.stage == "observe_screenshot":
+            raise RuntimeError("private screenshot failure")
+        return await super().screenshot(path, full_page)
+
+
 class _SensitiveStructuredPilot(_StructuredPilot):
     def __init__(self, *, field_type: str, accessible_name: str) -> None:
         super().__init__()
@@ -912,6 +942,47 @@ class LegacyBackendLifecycleTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(pilot.observe_attempts, 2)
         self.assertEqual(len(observation.interactive_elements), 1)
+
+    async def test_observe_failures_report_only_fixed_stage_context(self) -> None:
+        cases = (
+            ("observe_dom", False, False, 0),
+            ("observe_text", False, False, 5),
+            ("observe_accessibility", False, True, 0),
+            ("observe_screenshot", True, False, 0),
+        )
+        for stage, include_screenshot, include_accessibility, text_limit in cases:
+            with self.subTest(stage=stage):
+                pilot = _FailingObserveStagePilot(stage)
+                adapter = LegacyPilotBackend(
+                    Backend.FIREFOX,
+                    pilot_factory=lambda **_: pilot,
+                )
+                with tempfile.TemporaryDirectory() as temp_dir:
+                    profile = Path(temp_dir) / "profile"
+                    profile.mkdir(mode=0o700)
+                    await adapter.start(
+                        profile,
+                        Viewport(width=1000, height=700),
+                    )
+
+                with self.assertRaises(TermuinatorError) as caught:
+                    await adapter.observe(
+                        include_screenshot=include_screenshot,
+                        include_accessibility=include_accessibility,
+                        text_limit=text_limit,
+                    )
+
+                self.assertEqual(caught.exception.code, ErrorCode.BACKEND_CRASHED)
+                self.assertEqual(
+                    caught.exception.details,
+                    {
+                        "backend": "firefox",
+                        "capability": "observe",
+                        "operation": "observe",
+                        "stage": stage,
+                    },
+                )
+                self.assertNotIn("private", str(caught.exception))
 
     async def test_click_and_type_resolve_private_handle_and_return_evidence(self) -> None:
         pilot = _StructuredPilot()

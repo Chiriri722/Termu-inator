@@ -20,6 +20,10 @@ _ENDPOINT_RE = re.compile(
 )
 _MAX_MESSAGE_BYTES = 1024 * 1024
 _MAX_UNSOLICITED_MESSAGES = 64
+_MAX_EXPRESSION_BYTES = 512 * 1024
+_MAX_REMOTE_VALUE_DEPTH = 16
+_MAX_REMOTE_VALUE_NODES = 50_000
+_MAX_REMOTE_CONTAINER_ITEMS = 8_192
 
 
 class FirefoxBidiError(RuntimeError):
@@ -82,6 +86,87 @@ def _validate_http_url(value: Any) -> str:
     ):
         raise FirefoxBidiError()
     return value
+
+
+def _decode_remote_value(value: Any) -> Any:
+    """Decode only bounded JSON-compatible WebDriver BiDi values."""
+
+    memo: dict[str, Any] = {}
+    active: set[str] = set()
+    nodes = 0
+
+    def decode(remote: Any, depth: int) -> Any:
+        nonlocal nodes
+        nodes += 1
+        if nodes > _MAX_REMOTE_VALUE_NODES or depth > _MAX_REMOTE_VALUE_DEPTH:
+            raise FirefoxBidiError()
+        if not isinstance(remote, dict):
+            raise FirefoxBidiError()
+        value_type = remote.get("type")
+        internal_id = remote.get("internalId")
+        if internal_id is not None and (
+            not isinstance(internal_id, str)
+            or not internal_id
+            or len(internal_id) > 256
+        ):
+            raise FirefoxBidiError()
+        if "value" not in remote and internal_id is not None:
+            if internal_id in active or internal_id not in memo:
+                raise FirefoxBidiError()
+            return memo[internal_id]
+
+        raw = remote.get("value")
+        if value_type in {"undefined", "null"}:
+            if value_type == "null" and raw is not None:
+                raise FirefoxBidiError()
+            return None
+        if value_type == "string":
+            if not isinstance(raw, str):
+                raise FirefoxBidiError()
+            return raw
+        if value_type == "boolean":
+            if type(raw) is not bool:
+                raise FirefoxBidiError()
+            return raw
+        if value_type == "number":
+            if isinstance(raw, bool) or not isinstance(raw, (int, float)):
+                raise FirefoxBidiError()
+            if isinstance(raw, float) and not math.isfinite(raw):
+                raise FirefoxBidiError()
+            return raw
+        if value_type not in {"array", "object"} or not isinstance(raw, list):
+            raise FirefoxBidiError()
+        if len(raw) > _MAX_REMOTE_CONTAINER_ITEMS:
+            raise FirefoxBidiError()
+        if internal_id is not None:
+            if internal_id in memo or internal_id in active:
+                raise FirefoxBidiError()
+            active.add(internal_id)
+        try:
+            if value_type == "array":
+                decoded: Any = [decode(item, depth + 1) for item in raw]
+            else:
+                mapping: dict[str, Any] = {}
+                for pair in raw:
+                    if not isinstance(pair, list) or len(pair) != 2:
+                        raise FirefoxBidiError()
+                    key, child = pair
+                    if (
+                        not isinstance(key, str)
+                        or len(key) > 4_096
+                        or key in mapping
+                    ):
+                        raise FirefoxBidiError()
+                    mapping[key] = decode(child, depth + 1)
+                decoded = mapping
+        finally:
+            if internal_id is not None:
+                active.discard(internal_id)
+        if internal_id is not None:
+            memo[internal_id] = decoded
+        return decoded
+
+    return decode(value, 0)
 
 
 class FirefoxBidiClient:
@@ -253,6 +338,40 @@ class FirefoxBidiClient:
         ):
             raise FirefoxBidiError()
         return {"url": final_url, "title": title}
+
+    async def evaluate(self, expression: str, *, timeout: float) -> Any:
+        """Evaluate one script and return a bounded JSON-compatible value."""
+
+        timeout = _validate_timeout(timeout)
+        if not isinstance(expression, str) or not expression:
+            raise FirefoxBidiError()
+        try:
+            encoded_expression = expression.encode("utf-8")
+        except UnicodeEncodeError:
+            raise FirefoxBidiError() from None
+        if len(encoded_expression) > _MAX_EXPRESSION_BYTES:
+            raise FirefoxBidiError()
+        context_id = self._context_id
+        if context_id is None:
+            raise FirefoxBidiError()
+        evaluation = await self._command(
+            "script.evaluate",
+            {
+                "expression": expression,
+                "target": {"context": context_id},
+                "awaitPromise": True,
+                "resultOwnership": "none",
+                "serializationOptions": {
+                    "maxDomDepth": 0,
+                    "maxObjectDepth": _MAX_REMOTE_VALUE_DEPTH,
+                    "includeShadowTree": "none",
+                },
+            },
+            timeout=timeout,
+        )
+        if evaluation.get("type") != "success":
+            raise FirefoxBidiError()
+        return _decode_remote_value(evaluation.get("result"))
 
     async def close(self) -> None:
         socket = self._socket

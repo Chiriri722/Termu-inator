@@ -21,7 +21,7 @@ CDP stealth. Both use real device hardware info.
 
 - **Persistent daemon** — browser stays running, sub-second commands
 - **Passes Cloudflare** — Firefox: instant TLS-based pass; Chromium: Turnstile handler
-- **No automation framework** — Firefox controlled via xdotool + clipboard JS execution
+- **No geckodriver service** — Firefox uses an owned loopback BiDi session plus X11 input
 - **AI-friendly** — `--json` flag on all commands for structured output
 - **Real device fingerprint** — auto-detects screen, GPU, CPU, arch, model
 - **Human-like input** — Bezier curve mouse, realistic typing, clipboard paste
@@ -754,10 +754,14 @@ Chain commands into reusable JSON scripts (max 100 steps).
 
 ## Design Philosophy
 
-**Be real, not fake.** Firefox runs as a normal browser — no geckodriver,
-no Marionette, no WebDriver flags. Controlled via xdotool (X11 native
-input) and clipboard-based JS execution through the Web Console.
-Chromium uses real device hardware info with only `webdriver=false` hidden.
+**Be real, not fake.** Firefox runs as the owned browser process without a
+geckodriver or Marionette service. A browser-assigned loopback WebDriver BiDi
+session provides navigation and JavaScript-backed observation; xdotool remains
+responsible for X11-native input and ImageMagick captures the window. The
+DevTools-console/clipboard evaluator is retained only when the Remote Agent is
+unavailable. Enabling the Remote Agent makes `navigator.webdriver` observable,
+so this is a reliability design rather than an anti-detection claim. Chromium
+uses real device hardware info with only `webdriver=false` hidden.
 
 ## Architecture
 
@@ -765,7 +769,7 @@ Chromium uses real device hardware info with only `webdriver=false` hidden.
 CLI (cli.py) ──Unix socket──→ Daemon (daemon.py)
                                 ├── Pilot (unified API)
                                 │    ├── BrowserPilot        Xvfb + openbox WM + browser lifecycle
-                                │    ├── NativeFirefoxSession xdotool + clipboard JS (persistent profile)
+                                │    ├── NativeFirefoxSession loopback BiDi + X11 input (persistent profile)
                                 │    ├── CDPSession          WebSocket CDP (Chromium)
                                 │    ├── PageCommands        navigate, eval, text/html/links
                                 │    ├── InputCommands       click, type, scroll, Bezier mouse
@@ -808,7 +812,7 @@ All 5 test sites pass with Firefox (default):
 | Cloudflare | Instant (TLS) | Turnstile handler |
 | audiogames.net | PASS | FAIL |
 | Network tracking | Not available | Full CDP tracking |
-| JS execution | Console + clipboard | CDP Runtime.evaluate |
+| JS execution | Loopback BiDi; console fallback | CDP Runtime.evaluate |
 | Stealth needed | None | UA + WebGL + canvas |
 
 ## File Structure
@@ -822,7 +826,8 @@ termux-browser-pilot/
 │   ├── pilot.py           # Main unified API + session persistence
 │   ├── daemon.py          # Persistent browser daemon (Unix socket)
 │   ├── client.py          # Daemon client (send commands)
-│   ├── native.py          # Firefox: xdotool + clipboard JS execution
+│   ├── native.py          # Firefox: loopback BiDi evaluation + X11 compatibility
+│   ├── firefox_bidi.py    # Bounded browser-owned WebDriver BiDi client
 │   ├── browser.py         # Xvfb + browser lifecycle
 │   ├── cdp.py             # CDP WebSocket client (Chromium)
 │   ├── commands.py        # Page commands (navigate, eval, text, html)
