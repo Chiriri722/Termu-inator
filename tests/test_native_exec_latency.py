@@ -577,6 +577,119 @@ class NativeExecutionLatencyTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(session._focus_main_window.await_count, 2)
         self.assertEqual(session._clipboard_read.await_count, 2)
 
+    async def test_navigation_releases_marker_owner_before_browser_copy(
+        self,
+    ) -> None:
+        session = NativeFirefoxSession()
+        session._main_wid = "4242"
+        marker = "termuinator-navigation-marker"
+        expected_url = "http://127.0.0.1:43123/forms"
+        clipboard_owner = object()
+        owner_released = False
+
+        async def release_owner(process: object) -> None:
+            nonlocal owner_released
+            self.assertIs(process, clipboard_owner)
+            owner_released = True
+
+        async def read_browser_clipboard() -> str:
+            if owner_released:
+                return expected_url
+            return marker
+
+        async def fake_xdt(args: list[str]) -> str:
+            if args == ["getwindowname", "4242"]:
+                return "Forms — Mozilla Firefox"
+            return ""
+
+        session._focus_main_window = AsyncMock()
+        session._xdt = fake_xdt
+        session._clipboard_read = read_browser_clipboard
+        session._prime_navigation_clipboard = AsyncMock(
+            return_value=(marker, clipboard_owner)
+        )
+        session._release_clipboard_owner = AsyncMock(
+            side_effect=release_owner
+        )
+
+        try:
+            with patch("src.native.asyncio.sleep", new=AsyncMock()):
+                result = await session._navigation_metadata(timeout=5)
+        except commands.NativeNavigationError as exc:
+            self.fail(
+                "marker owner remained live during the browser copy: "
+                f"{exc.stage}"
+            )
+
+        self.assertEqual(result["url"], expected_url)
+        session._release_clipboard_owner.assert_awaited_once_with(
+            clipboard_owner
+        )
+
+    async def test_navigation_accepts_slow_firefox_clipboard_delivery(
+        self,
+    ) -> None:
+        session = NativeFirefoxSession()
+        session._main_wid = "4242"
+        expected_url = "http://127.0.0.1:43123/forms"
+        clipboard_owner = object()
+
+        async def read_browser_clipboard() -> str:
+            await asyncio.sleep(1.2)
+            return expected_url
+
+        async def fake_xdt(args: list[str]) -> str:
+            if args == ["getwindowname", "4242"]:
+                return "Forms — Mozilla Firefox"
+            return ""
+
+        session._focus_main_window = AsyncMock()
+        session._xdt = fake_xdt
+        session._clipboard_read = read_browser_clipboard
+        session._prime_navigation_clipboard = AsyncMock(
+            return_value=("termuinator-navigation-marker", clipboard_owner)
+        )
+        session._release_clipboard_owner = AsyncMock()
+
+        try:
+            result = await session._navigation_metadata(timeout=5)
+        except commands.NativeNavigationError as exc:
+            self.fail(
+                "valid Firefox clipboard delivery exceeded the fixed read "
+                f"window: {exc.stage}"
+            )
+
+        self.assertEqual(result["url"], expected_url)
+        session._release_clipboard_owner.assert_awaited_once_with(
+            clipboard_owner
+        )
+
+    async def test_navigation_bounds_marker_release_failure_stage(
+        self,
+    ) -> None:
+        session = NativeFirefoxSession()
+        clipboard_owner = object()
+        private_error = "private-xclip-release-detail"
+
+        session._prime_navigation_clipboard = AsyncMock(
+            return_value=("termuinator-navigation-marker", clipboard_owner)
+        )
+        session._release_clipboard_owner = AsyncMock(
+            side_effect=OSError(private_error)
+        )
+
+        try:
+            with self.assertRaises(commands.NativeNavigationError) as raised:
+                await session._navigation_metadata(timeout=5)
+        except OSError as exc:
+            self.fail(
+                "clipboard cleanup replaced the bounded navigation error: "
+                f"{exc}"
+            )
+
+        self.assertEqual(raised.exception.stage, "address_bar_copy")
+        self.assertNotIn(private_error, str(raised.exception))
+
     async def test_navigation_rejects_unchanged_primed_clipboard(self) -> None:
         navigation_error = getattr(commands, "NativeNavigationError", None)
         self.assertIsNotNone(navigation_error)

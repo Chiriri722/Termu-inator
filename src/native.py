@@ -627,11 +627,18 @@ class NativeFirefoxSession:
         current_url = marker
         try:
             try:
+                await self._release_clipboard_owner(clipboard_owner)
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                raise NativeNavigationError("address_bar_copy") from exc
+            clipboard_owner = None
+            try:
                 await self._focus_main_window()
                 wid = self._main_wid
                 if not isinstance(wid, str) or not wid:
                     raise NativeNavigationError("window_unavailable")
-                read_timeout = max(0.1, min(float(timeout), 1.0))
+                read_timeout = max(0.1, min(float(timeout), 3.0))
                 for attempt in range(3):
                     if attempt:
                         await self._focus_main_window()
@@ -685,7 +692,13 @@ class NativeFirefoxSession:
                 except Exception:
                     pass
         finally:
-            await self._release_clipboard_owner(clipboard_owner)
+            if clipboard_owner is not None:
+                try:
+                    await self._release_clipboard_owner(clipboard_owner)
+                except Exception:
+                    # Preserve the already-bounded navigation failure (or
+                    # cancellation) if the best-effort release retry fails.
+                    pass
         try:
             title = await self._xdt(["getwindowname", wid])
         except Exception as exc:

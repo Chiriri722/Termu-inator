@@ -52,8 +52,13 @@ S22U gate는 Chromium과 모든 설치·cleanup 권위를 통과했지만 Firefo
 `-quiet` foreground 모드로 전환해 marker 검증과 exact-PID cleanup을 GREEN으로 만들었다.
 관련 92개 회귀와 Python 3.11/3.12/3.14의 379-test 전체 행렬은 GREEN이다. clean tracked staging에서
 만든 275,499-byte wheel은 source/RECORD/metadata/fresh-install/stdio authority를 모두 통과했다.
-다음은 전체 patch를 새 clean commit으로 고정하고 placeholder를 exact SHA로 봉인해 S22U gate를
-재실행하는 것이다. 양 backend PASS와
+exact `4af303d90780c67bc73ca8d62b93b65d98d24761` (`v.0.2.12`)은 clean commit,
+wheel/source binding, xclip `-quiet`, 두 foreground-owner preflight를 통과했다. S22U canonical에서
+Chromium과 모든 설치·cleanup 권위는 PASS했고 Firefox는 marker prime 다음 단계인
+`stage=address_bar_copy`에서 FAIL했다. foreground marker owner의 copy 전 release, 1초보다 느린
+clipboard handoff, release-failure taxonomy를 세 실제 실패형 RED로 고정했고 최소 수정 뒤
+Python 3.11/3.12/3.14 382-test authority와 최종 wheel/install/stdio binding이 GREEN이다. 다음은
+정확한 5개 변경을 새 clean commit으로 push한 뒤 sealed S22U gate를 재실행하는 것이다. 양 backend PASS와
 `benchmark_allowed: true` 전에는 benchmark나 RC 승인을 진행하지 않는다.
 
 ## Current Phase
@@ -1398,6 +1403,21 @@ Termu-inator MVP는 다음 조건을 모두 만족해야 한다.
 | fresh-cache `uv build`가 managed network의 PyPI DNS 차단으로 `setuptools>=68.0` 조회 전에 종료됨 | 1 | source 결함으로 보지 않고 동일 exact build를 승인된 network 환경에서 재실행한다. |
 | 첫 fresh wheel venv를 Termux constraint 없이 설치해 `websockets 17.1`이 선택됨 | 1 | 설치 성공을 canonical authority로 사용하지 않고 새 venv에 `requirements-termux.txt` constraint를 적용해 17.0.1을 고정한다. |
 | App Store Tailscale GUI binary에 `status` 인자를 준 read-only probe가 출력 없이 rc 134로 종료됨 | 1 | CLI 설치나 앱 설정을 변경하지 않고 기존 MagicDNS 이름의 bounded TCP 8022 probe만 사용해 transport 여부를 구분한다. |
+| `v0.2.12` evidence 보존 뒤 checksum/stat suffix를 Downloads cwd에서 실행해 새 사본 대신 기존 동명 파일을 검사함 | 1 | 원본·사본은 덮어쓰지 않았다. 새 owner-private evidence directory를 명시적 cwd로 사용해 normalized manifest checksum, raw hash, 0700/0600 권한을 다시 확인했다. |
+| 첫 두 `address_bar_copy` RED가 기대한 제품 예외를 assertion으로 변환하지 않아 unittest에서 2 ERROR로 집계됨 | 1 | production은 불변이다. 기대하지 않은 `NativeNavigationError`를 설명적인 `self.fail()`로 변환해 동일 동작을 2 assertion failures로 재확인했다. |
+| RED 보정 patch의 반복 문맥이 바로 앞 기존 delayed-copy 테스트에 먼저 적용됨 | 1 | 기존 테스트를 즉시 원상 복구하고 새 marker-owner 테스트의 고유 문맥에만 보정을 적용한 뒤 focused RED를 재실행했다. |
+| 최종 owner-handoff/slow-delivery RED가 각각 `address_bar_copy` assertion failure를 반환함 | 1 | 의도한 RED다. 검증 완료 marker owner를 첫 browser copy 전에 exact-PID release하고, caller timeout 범위 안에서 Firefox clipboard read에 1초보다 긴 bounded window를 허용한다. |
+| 첫 clean-stage build 명령이 상대 `mkdir`로 저장소 안에 세 임시 디렉터리를 만들고 임시 source 부재로 build 전에 종료됨 | 1 | 생성된 세 디렉터리를 정확히 확인해 삭제하지 않고 task 임시 루트로 이동했다. 저장소에는 의도한 5개 변경만 남겼고 이후 모든 staging 경로는 절대 경로로 고정했다. |
+| 절대 staging 재시도의 `mkdir`가 첫 uv 실패가 남긴 기존 task-local `uv-cache`에서 종료됨 | 1 | source/dist가 비어 있고 cache가 uv 전용임을 확인해 0700으로 고정한 뒤 생성과 build를 분리했다. |
+| offline no-isolation build가 uv 기본 Python 3.14의 `setuptools` 부재로 backend import 전에 종료됨 | 1 | project build dependency 선언은 정상이다. setuptools 82.0.1이 있는 명시적 Python 3.11 interpreter를 `uv build --python`에 지정하고 새 empty output에서 성공했다. |
+| 첫 installed provenance probe가 repository cwd의 ignored `.egg-info`를 installed distribution보다 먼저 선택해 `direct_url.json` 부재로 실패함 | 1 | wheel install은 정상이다. neutral task cwd에서 verifier를 path-load해 venv의 `.dist-info`만 발견하도록 재실행했고 provenance, installed-source, entrypoint binding이 모두 통과했다. |
+| marker release failure RED가 outer cleanup retry의 동일 `OSError`에 의해 fixed-stage 오류 대신 실패함 | 1 | 의도한 RED다. initial release 실패가 이미 `address_bar_copy`로 경계 지어진 경우 cleanup retry의 일반 예외가 이를 덮어쓰지 않도록 한다. |
+| release-failure 기록 patch가 task-plan 표의 한글 행 문맥 불일치로 원자적으로 거부됨 | 1 | source와 문서는 변경되지 않았다. 정확한 현재 행을 다시 찾고 기록을 작은 patch로 분리해 적용했다. |
+| 세 interpreter 재검증에서 `unittest discover -s tests -t .`가 package marker 없는 `tests/`를 importable top-level로 요구해 실행 전 동일 `ImportError`로 종료됨 | 1 | 제품 테스트는 실행되지 않았다. 기존 authority와 같이 explicit top-level을 제거한 `discover -s tests`로 바로잡아 세 환경을 재실행한다. |
+| 최종 fresh-install의 첫 `uv pip install`이 사용자 uv cache 내부 `.git` sandbox 접근 거부로 dependency resolution 전에 종료됨 | 1 | wheel이나 dependency 결함이 아니다. 동일 exact wheel과 constraint 설치를 승인된 cache 접근으로 재실행한다. |
+| 승인된 `uv pip install` venv가 설치·`pip check`는 통과했지만 PEP 610 `archive_info.hashes`를 기록하지 않아 canonical provenance helper에서 FAIL함 | 1 | artifact/source 결함으로 승격하지 않고 해당 venv를 보존·실격 처리한다. canonical과 동일한 pip installer로 새 격리 venv를 만들어 hash-bearing provenance를 요구한다. |
+| remote commit 확인용 첫 `git ls-remote`가 managed sandbox DNS 차단으로 GitHub를 해석하지 못함 | 1 | repository failure로 보지 않는다. 동일 read-only 명령을 승인된 network 경로에서 재실행했고 remote `main`이 여전히 `4af303d...`임을 확인했다. |
+| continuation 최종 감사에서 artifact bundle을 cwd로 둔 채 `git diff --check`를 먼저 실행해 non-repository 오류로 종료됨 | 1 | artifact는 변경되지 않았다. repository diff 검사와 bundle checksum을 각자의 명시적 cwd에서 분리 재실행한다. |
 
 ---
 
