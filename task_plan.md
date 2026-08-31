@@ -91,29 +91,39 @@ failure가 다시 coarse `backend_crashed`로 끝나지 않게 했다. 실제 ma
 본문, synthetic accessibility 경로가 loopback BiDi로 통과했지만 이는 S22U authority가 아니다.
 세 Python의 409-test 전체 행렬, 40 verifier, 77 device-focused tests, static gate,
 280,566-byte wheel의 58-source/RECORD/metadata binding, fresh install/provenance와 14→12 stdio restart까지
-GREEN이다. owner-private candidate는 placeholder로 잠겨 있다. 다음은 이 정확한 14-file 변경을
-사용자가 clean commit/push한 뒤 commit identity를 묶어 S22U canonical을 정확히 한 번 실행하는 것이다.
-양 backend PASS 및 `benchmark_allowed: true`를 확보하기 전에는 benchmark나 RC 승인을 진행하지 않는다.
+GREEN이다. 정확한 14-file 변경은 `30eaa4a78ef5aa33b0f842ebdb88e6cc4c911173`
+(`v.0.2.16`)으로 clean push됐다. S22U canonical에서 Chromium과 Firefox, 양 PNG artifact, provenance,
+cleanup은 모두 PASS했다. 유일한 차단은 interactive stdio의 `stderr_bytes=38`이며 observer restart는
+0이다. 원문 stderr는 읽거나 공개하지 않았고 benchmark는 올바르게 닫혔다. 정적 길이 분석과 실제
+실패형 RED는 BiDi가 연결된 뒤에도 main Firefox X11 WID 부재가 38-byte WARNING으로 남는 경로를
+확인했다. 창 검색 helper의 조기 경고를 제거하고 BiDi attachment 뒤 severity를 결정해, owned BiDi가
+있으면 informational, X11과 BiDi가 모두 없을 때만 기존 warning을 유지했다. 새 회귀 2건, 79개
+device-focused tests, 40 verifier, 세 Python의 411-test 전체 행렬, static gate, 280,608-byte wheel의
+58-source/installed/provenance binding과 14→12 zero-stderr stdio가 GREEN이다. 다음은 사용자가 정확한
+5개 파일을 clean commit/push하고 SHA를 제공하면 remote HEAD/tree/scope를 다시 묶어 executable Hermes
+handoff를 seal하는 것이다. 새 clean commit의 양 backend PASS 및 `benchmark_allowed: true` 전에는
+benchmark나 RC 승인을 진행하지 않는다.
 
 ## Current Phase
 
-Phase 7 — S22U RC Observer Recovery
-- The `v0.2.15` canonical manifest binds clean commit `072831a3324a7169a57faec41d137920e38777e1`
-  to the 279,287-byte wheel SHA-256 `67d2b6b97c7c116da98a50aba955429f58a0b04e0383ccbd25e6939dbff353b0`
-  and 58-source digest `880d3a6853f5bbd30d18a1019867d81258cb0850fe0509d2f3e0cf51ca144f6d`.
-- Chromium and all provenance/cleanup gates pass. Firefox reaches `browser_observe` after navigation and returns
-  only bounded `backend_crashed`; `benchmark_allowed` remains false.
-- The current native session routes `Page.navigate` through BiDi, but `Runtime.evaluate` and the synthetic
-  accessibility walk still call `_exec_js_inner()`, reopening the GUI console and global clipboard path.
-- The five REDs are GREEN after a strict, depth/node/item-bounded BiDi RemoteValue decoder and BiDi-first
-  `_exec_js()`. Timeout and protocol failures remain fixed-value and never retry through GUI/clipboard while
-  BiDi exists.
-- Four observation substages now emit only `observe_dom`, `observe_text`, `observe_accessibility`, or
-  `observe_screenshot`; the canonical verifier independently allowlists these values and discards private causes.
-- The current checkout passes 409 tests on Python 3.11/3.12/3.14, 40 verifier tests, 77 device-focused tests,
-  static gates, and a real local Firefox fixture for DOM, text, accessibility, and interactive elements.
-- The 280,566-byte wheel binds 58 packaged and freshly installed sources, exact PEP 610 provenance, four
-  entrypoints, and an interactive→observer stdio restart. The placeholder-gated bundle awaits a clean commit.
+Phase 7 — S22U RC Stdio Purity Recovery
+- The checksum-valid `v0.2.16` manifest binds clean commit
+  `30eaa4a78ef5aa33b0f842ebdb88e6cc4c911173` to the 280,566-byte wheel SHA-256
+  `9aeee2c8ffc3a8c4d678527b1de8d1957a2a99a47c0b8f38f7f0cb7c1cc61d3b` and the exact 58-source digest.
+- Chromium and Firefox both PASS. Firefox completes BiDi navigation, DOM/text/accessibility observation,
+  interactive refs, and two independently hashed PNG artifacts on the S22U.
+- Provenance and final process/socket/display/session-lock cleanup all PASS. No Firefox repair remains open from
+  this manifest.
+- Canonical status is FAIL only because interactive stdio records 38 stderr bytes; observer restart records zero.
+  The contents remain private and were not inspected. Static length analysis identified the only exact warning
+  candidate, and a connect-level RED reproduced its BiDi-owned semantics without reading device stderr.
+- The minimal source repair and paired fallback-preservation test are complete. All 411 tests across three Python
+  versions, 40 verifier tests, 79 device-focused tests, static checks, fresh wheel/install binding, and local
+  interactive→observer zero-stderr checks pass.
+- The pre-commit wheel remains deliberately unsealed. Await an exact five-file clean commit and push, then bind
+  commit/tree/remote/scope and generate a runnable one-shot Hermes handoff.
+- Benchmark stays closed until a new clean-commit S22U manifest has both backends PASS, zero stdio stderr,
+  `status=PASS`, and `benchmark_allowed=true`.
 
 ## Planning-with-Files Operating Rules
 
@@ -1518,6 +1528,13 @@ Termu-inator MVP는 다음 조건을 모두 만족해야 한다.
 | v0.2.15 진행 기록을 한 번에 갱신한 patch가 `task_plan.md`의 실제 줄 문맥과 달라 전체 적용 전에 거부됨 | 1 | source와 문서는 불변이었다. 현재 문맥을 다시 읽고 plan, findings, progress를 작은 독립 patch로 나눠 적용했다. |
 | 최종 409-test matrix가 managed sandbox에서 세 interpreter 모두 15 socket-bind errors를 재현하고 Python 3.14는 종속 SIGTERM assertion 1건도 반환함 | 1 | 변경된 관련 117개 테스트는 이미 GREEN이었다. 동일 전체 명령을 로컬 TCP/Unix socket 권한으로 재실행해 Python 3.11/3.12/3.14 모두 409/409 통과했다. |
 | 새 wheel의 첫 fresh pip install이 managed DNS 차단 뒤 `websockets`를 찾지 못한 상태를 dependency conflict로 표현함 | 1 | wheel/constraint 결함으로 해석하지 않고 실패 venv를 보존·실격했다. 두 번째 untouched Python 3.14 venv를 승인된 network 경로로 설치해 exact pins, `pip check`, provenance와 installed-source binding을 통과했다. |
+| v0.2.16 stdio 진단의 첫 graph 조회가 다시 짧은 project 이름 `Termu-inator`를 사용해 `project not found`를 반환함 | 1 | 기존 기록의 canonical graph project 이름을 즉시 재사용했고, 이후 함수 탐색과 inbound trace는 모두 `Users-chiriri722-Documents-GitHub-Termu-inator`에서 수행했다. |
+| 수정 후 411-test Python 3.14 discovery가 managed sandbox의 TCP/Unix socket bind 제한으로 15 errors를 반환함 | 1 | 관련 119개 테스트는 이미 GREEN이었다. 동일 명령을 정상 로컬 socket 권한으로 재실행해 8 optional skips와 함께 411/411 통과했다. |
+| macOS Python 3.14의 `build` package와 `setuptools`를 가정한 wheel probe가 두 import 오류로 종료됨 | 2 | repository 환경은 변경하지 않았다. 검증된 `uv build` 격리 경로를 사용하고 staging-only build dependency를 해소한다. |
+| 첫 staging `uv build --offline`이 사용자 uv cache의 `.git` 접근 제한으로 초기화 전에 종료됨 | 1 | staging과 source는 불변이었다. 같은 staging의 전용 uv cache에 build dependency만 받아 wheel을 생성했다. |
+| fresh-wheel stdio one-liner가 세미콜론 뒤 `async def`를 다시 선언해 product 실행 전 `SyntaxError`로 종료됨 | 1 | wheel과 격리 root는 불변이다. 이전 오류 기록대로 compound statement를 실제 개행의 독립 suite로 넘겨 같은 root에서 재실행한다. |
+| installed stdio 후 첫 `ps` survivor 조회가 macOS process-list sandbox 권한으로 거부됨 | 1 | 두 child의 정상 종료, zero-byte stderr, socket 제거는 이미 확인됐다. 승인된 동일 read-only 조회로 fresh-wheel 관련 survivor가 0임을 확인했다. |
+| unsealed handoff의 첫 multi-file patch가 README 한 줄의 `+` marker 누락으로 적용 전 거부됨 | 1 | candidate에는 wheel만 남아 있음을 확인했다. checksum, README, non-executable Hermes placeholder를 독립 patch로 나눠 생성한다. |
 
 ---
 

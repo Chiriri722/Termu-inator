@@ -14,6 +14,155 @@ from src.termuinator.backends.legacy_dom import observe_script
 
 
 class NativeExecutionLatencyTests(unittest.IsolatedAsyncioTestCase):
+    async def test_connect_keeps_missing_window_off_stderr_when_bidi_is_owned(
+        self,
+    ) -> None:
+        events: list[str] = []
+
+        class _CallbackServer:
+            server_address = ("127.0.0.1", 43123)
+
+            def __init__(self, *_args, **_kwargs) -> None:
+                return None
+
+            def serve_forever(self) -> None:
+                return None
+
+            def shutdown(self) -> None:
+                events.append("callback_shutdown")
+
+        class _Stderr:
+            def __init__(self) -> None:
+                self._lines = iter(
+                    (
+                        b"WebDriver BiDi listening on "
+                        b"ws://127.0.0.1:46249\n",
+                        b"",
+                    )
+                )
+
+            async def readline(self) -> bytes:
+                return next(self._lines, b"")
+
+        class _FirefoxProcess:
+            def __init__(self) -> None:
+                self.returncode = None
+                self.pid = 4242
+                self.stderr = _Stderr()
+
+            def terminate(self) -> None:
+                events.append("firefox_terminate")
+
+            def kill(self) -> None:
+                events.append("firefox_kill")
+
+            async def wait(self) -> int:
+                self.returncode = 0
+                return 0
+
+        class _WindowSearchProcess:
+            async def communicate(self) -> tuple[bytes, bytes]:
+                return b"", b""
+
+        class _Bidi:
+            def __init__(self, endpoint: str) -> None:
+                self.endpoint = endpoint
+
+            async def connect(self, *, timeout: float):
+                events.append("bidi_connect")
+                return self
+
+            async def close(self) -> None:
+                events.append("bidi_close")
+
+        firefox_process = _FirefoxProcess()
+        launch_results = iter(
+            (
+                firefox_process,
+                _WindowSearchProcess(),
+                _WindowSearchProcess(),
+            )
+        )
+        session = NativeFirefoxSession()
+        session._cleanup_profile_locks = Mock()
+
+        with (
+            patch("src._utils.require_binaries"),
+            patch("src.native.HTTPServer", _CallbackServer),
+            patch(
+                "src.native.asyncio.create_subprocess_exec",
+                new=AsyncMock(side_effect=lambda *_args, **_kwargs: next(launch_results)),
+            ),
+            patch("src.native.asyncio.sleep", new=AsyncMock()),
+            patch("src.native.FirefoxBidiClient", _Bidi, create=True),
+            patch("src.native.logger.warning") as warning,
+        ):
+            await session.connect()
+            self.assertIsInstance(session._bidi, _Bidi)
+            warning.assert_not_called()
+            await session.close()
+
+    async def test_connect_warns_when_window_and_bidi_are_both_unavailable(
+        self,
+    ) -> None:
+        class _CallbackServer:
+            server_address = ("127.0.0.1", 43123)
+
+            def __init__(self, *_args, **_kwargs) -> None:
+                return None
+
+            def serve_forever(self) -> None:
+                return None
+
+            def shutdown(self) -> None:
+                return None
+
+        class _FirefoxProcess:
+            def __init__(self) -> None:
+                self.returncode = None
+                self.pid = 4242
+                self.stderr = None
+
+            def terminate(self) -> None:
+                return None
+
+            def kill(self) -> None:
+                return None
+
+            async def wait(self) -> int:
+                self.returncode = 0
+                return 0
+
+        class _WindowSearchProcess:
+            async def communicate(self) -> tuple[bytes, bytes]:
+                return b"", b""
+
+        launch_results = iter(
+            (
+                _FirefoxProcess(),
+                _WindowSearchProcess(),
+                _WindowSearchProcess(),
+            )
+        )
+        session = NativeFirefoxSession()
+        session._cleanup_profile_locks = Mock()
+
+        with (
+            patch("src._utils.require_binaries"),
+            patch("src.native.HTTPServer", _CallbackServer),
+            patch(
+                "src.native.asyncio.create_subprocess_exec",
+                new=AsyncMock(side_effect=lambda *_args, **_kwargs: next(launch_results)),
+            ),
+            patch("src.native.asyncio.sleep", new=AsyncMock()),
+            patch("src.native.logger.warning") as warning,
+        ):
+            await session.connect()
+            warning.assert_called_once_with(
+                "Could not find main Firefox window ID"
+            )
+            await session.close()
+
     async def test_connect_owns_ephemeral_bidi_before_firefox_shutdown(
         self,
     ) -> None:

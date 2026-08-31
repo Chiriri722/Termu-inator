@@ -320,7 +320,7 @@ class NativeFirefoxSession:
         if self._firefox_proc.returncode is not None:
             raise RuntimeError("Firefox failed to start")
 
-        # Discover the main browser window ID for window management
+        # Discover the optional X11 window used by native compatibility I/O.
         await self._find_main_window()
 
         if endpoint is None:
@@ -346,6 +346,14 @@ class NativeFirefoxSession:
                 )
             else:
                 self._bidi = bidi
+
+        if self._main_wid is None:
+            if self._bidi is None:
+                logger.warning("Could not find main Firefox window ID")
+            else:
+                logger.info(
+                    "Firefox X11 window ID unavailable; using owned BiDi session"
+                )
 
         logger.info("Native Firefox started (pid %d), callback port %d, main_wid=%s",
                      self._firefox_proc.pid, self._callback_port, self._main_wid)
@@ -906,7 +914,6 @@ class NativeFirefoxSession:
                     return wid
         except Exception:
             pass
-        logger.warning("Could not find main Firefox window ID")
         return None
 
     async def _find_devtools_window(self):
