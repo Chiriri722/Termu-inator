@@ -153,6 +153,13 @@ class InstallationDocumentationTests(unittest.TestCase):
             benchmark,
         )
         self.assertIn('--tbp "$RC_VENV/bin/tbp"', benchmark)
+        self.assertIn('--wheel "$RC_WHEEL"', benchmark)
+        self.assertIn(
+            '--canonical-manifest "$RC_MANIFEST"',
+            benchmark,
+        )
+        self.assertIn("current environment", benchmark)
+        self.assertIn("newly sealed output identity", benchmark)
         self.assertNotIn("~/.venvs/termuinator-mcp-v1/bin/python", benchmark)
 
     def test_lifecycle_and_troubleshooting_guide_is_explicit_and_safe(self) -> None:

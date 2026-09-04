@@ -5,6 +5,9 @@ browser-smoke and performance-measurement portions of Phase 1. Raw benchmark
 reports and process listings remain outside the repository because they contain
 device-local paths, process arguments, and Hermes runtime details.
 
+The compact release-candidate comparison is recorded in
+[`device-benchmark-s22u-v0217-2026-08-31.md`](device-benchmark-s22u-v0217-2026-08-31.md).
+
 ## Evidence Level
 
 - Device: Samsung Galaxy S22 Ultra, Android 16, aarch64
@@ -96,4 +99,3 @@ Do not copy the raw JSON or process captures into the public repository. A
 future portable benchmark must parameterize checkout, executable, output,
 socket, and profile paths and emit a sanitized summary separately from raw
 diagnostics.
-

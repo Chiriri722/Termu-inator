@@ -24,7 +24,9 @@ observed origin locally with `tbp-control developer-mode ... enable`.
 
 ## Android and Tailscale prerequisite
 
-On the S22U configuration that produced the device baseline, Tailscale used
+On the S22U configuration that produced the
+[initial device baseline](device-baseline-s22u-2026-08-16.md) and the
+[v0.2.17 compact benchmark](device-benchmark-s22u-v0217-2026-08-31.md), Tailscale used
 split-tunneling in **Excluding** mode. In that app list, keep **Termux: OFF**.
 Turning Termux ON in the exclusion list broke Android/Termux DNS while direct IP
 connectivity remained available. This wording refers to the app toggle inside
@@ -147,4 +149,10 @@ Exit code 0 plus manifest `status: PASS` and `benchmark_allowed: true` is the
 only result that opens the compact benchmark gate. A FAIL manifest remains
 useful diagnostic evidence but must not be renamed or summarized as a partial
 pass. Verify `final-verify-manifest.sha256` from inside its output directory.
+The benchmark harness independently rechecks that checksum and the current
+commit, wheel, installed source, Python/Android identity, and recorded package
+versions before creating a new non-reusable output identity, then repeats that
+check before publishing its reports. A native Termux package update after
+canonical PASS therefore requires a newly sealed canonical run rather than a
+delayed benchmark against the old manifest.
 Keep public-site navigation and DNS results as non-gating smoke evidence.

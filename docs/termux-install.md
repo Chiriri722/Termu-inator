@@ -273,15 +273,29 @@ packages; preserve the report and diagnose the recorded stage first.
 ## Re-running the Device Benchmark
 
 Only after the release-candidate device manifest permits it, use the repository
-harness with explicit environment and network evidence:
+harness with the exact wheel, checksum-valid manifest, environment, and network
+evidence:
 
 ```bash
 RC_VENV="$HOME/.venvs/termuinator-mcp-COMMIT12"
+RC_WHEEL="$HOME/.cache/termuinator/wheels/COMMIT12/termux_browser_pilot-0.1.0a1-py3-none-any.whl"
+RC_MANIFEST="$HOME/.cache/tfv/COMMIT12/final-verify-manifest.json"
 "$RC_VENV/bin/python" scripts/benchmark_device.py \
   --tbp "$RC_VENV/bin/tbp" \
+  --wheel "$RC_WHEEL" \
+  --canonical-manifest "$RC_MANIFEST" \
+  --output "$HOME/.cache/termuinator/benchmark/COMMIT12" \
   --tailscale-termux-state "Excluding mode; Termux OFF" \
   --network-kind "current Tailscale path"
 ```
+
+The benchmark revalidates the adjacent manifest checksum, clean Git commit,
+wheel and installed source digests, package versions, and Termux-native
+cryptography before creating its output directory. It repeats the same
+authority check after measurement and writes reports only when the closing
+identity is unchanged. If the current environment differs from the canonical
+manifest, preserve both environments and run a new canonical gate under a
+newly sealed output identity; do not reuse or overwrite the old output.
 
 Raw process diagnostics and the sanitized summary are written separately below
 `~/.cache/termuinator/benchmark/`, with directory mode 0700 and file mode 0600.

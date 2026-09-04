@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
-"""Portable Firefox/Chromium benchmark for an existing Termu-inator install.
+"""Canonical-bound Firefox/Chromium benchmark for a Termu-inator install.
 
-The harness changes no package or repository configuration. It starts and
-stops the browser daemon, writes private raw diagnostics to the selected output
-directory, and emits a separate sanitized summary suitable for review.
+The harness first requires a checksum-valid PASS manifest whose recorded
+runtime still matches the current clean install. It changes no package or
+repository configuration, starts and stops the browser daemon, writes private
+raw diagnostics to one new output identity, and emits a separate sanitized
+summary suitable for review.
 """
 
 from __future__ import annotations
@@ -12,6 +14,9 @@ import argparse
 import asyncio
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import hashlib
+from importlib import metadata as importlib_metadata
+from importlib import util as importlib_util
 import json
 import os
 from pathlib import Path
@@ -19,9 +24,11 @@ import platform
 import re
 import shutil
 import socket
+import stat
 import statistics
 import subprocess
 import sys
+import sysconfig
 import time
 from typing import Any, Sequence
 
@@ -30,6 +37,8 @@ from typing import Any, Sequence
 class BenchmarkConfig:
     project_root: Path
     tbp: Path
+    wheel: Path
+    canonical_manifest: Path
     output: Path
     socket_path: Path
     pidfile: Path
@@ -42,6 +51,325 @@ class BenchmarkConfig:
     settle_seconds: float
     network_kind: str
     tailscale_termux_state: str
+
+
+class BenchmarkAuthorityError(RuntimeError):
+    """A bounded failure that keeps a stale canonical benchmark closed."""
+
+
+_BENCHMARK_IDENTITY_FIELDS = (
+    "python",
+    "kernel_release",
+    "python_sys_platform",
+    "platform_system",
+    "native_cryptography",
+    "mcp",
+    "websockets",
+    "termux_browser_pilot",
+    "wheel_sha256",
+    "source_tree_sha256",
+    "installed_source_tree_sha256",
+)
+
+
+def _string_mapping(value: object, label: str) -> dict[str, Any]:
+    if not isinstance(value, dict) or any(
+        not isinstance(key, str) for key in value
+    ):
+        raise BenchmarkAuthorityError(f"{label} is not a string-keyed object")
+    return value
+
+
+def load_canonical_manifest(path: Path) -> tuple[dict[str, Any], str]:
+    """Load a private canonical manifest only when its sidecar still matches."""
+
+    if path.name != "final-verify-manifest.json":
+        raise BenchmarkAuthorityError("canonical manifest name is invalid")
+    try:
+        parent_info = path.parent.lstat()
+    except OSError as exc:
+        raise BenchmarkAuthorityError(
+            "canonical manifest parent is missing or unsafe"
+        ) from exc
+    if (
+        not stat.S_ISDIR(parent_info.st_mode)
+        or path.parent.is_symlink()
+        or parent_info.st_uid != os.getuid()
+        or parent_info.st_mode & 0o077
+    ):
+        raise BenchmarkAuthorityError(
+            "canonical manifest parent is not owner-private"
+        )
+    checksum_path = path.with_name("final-verify-manifest.sha256")
+    for candidate, label in (
+        (path, "canonical manifest"),
+        (checksum_path, "canonical manifest checksum"),
+    ):
+        try:
+            info = candidate.lstat()
+        except OSError as exc:
+            raise BenchmarkAuthorityError(f"{label} is missing or unsafe") from exc
+        if candidate.is_symlink() or not candidate.is_file():
+            raise BenchmarkAuthorityError(f"{label} is missing or unsafe")
+        if info.st_uid != os.getuid() or info.st_mode & 0o777 != 0o600:
+            raise BenchmarkAuthorityError(f"{label} is not owner-private")
+    data = path.read_bytes()
+    if len(data) > 1_000_000:
+        raise BenchmarkAuthorityError("canonical manifest is unbounded")
+    observed = hashlib.sha256(data).hexdigest()
+    expected_line = f"{observed}  final-verify-manifest.json\n"
+    try:
+        checksum = checksum_path.read_text(encoding="ascii")
+    except (OSError, UnicodeError) as exc:
+        raise BenchmarkAuthorityError(
+            "canonical manifest checksum is invalid"
+        ) from exc
+    if checksum != expected_line:
+        raise BenchmarkAuthorityError("canonical manifest checksum differs")
+    try:
+        manifest = json.loads(data)
+    except (UnicodeError, json.JSONDecodeError) as exc:
+        raise BenchmarkAuthorityError("canonical manifest is invalid JSON") from exc
+    return _string_mapping(manifest, "canonical manifest"), observed
+
+
+def validate_benchmark_authority(
+    manifest: object,
+    *,
+    current_identity: dict[str, str],
+    current_commit: str,
+    clean_worktree: bool,
+) -> dict[str, Any]:
+    """Fail closed unless the benchmark runtime matches its canonical PASS."""
+
+    root = _string_mapping(manifest, "canonical manifest")
+    device = _string_mapping(root.get("device"), "canonical device summary")
+    if (
+        root.get("status") != "PASS"
+        or root.get("benchmark_allowed") is not True
+        or device.get("status") != "PASS"
+        or device.get("benchmark_allowed") is not True
+    ):
+        raise BenchmarkAuthorityError("canonical manifest does not authorize benchmark")
+    backend_items = device.get("backends")
+    if not isinstance(backend_items, list):
+        raise BenchmarkAuthorityError(
+            "canonical backend status does not authorize benchmark"
+        )
+    backends: dict[str, object] = {}
+    for item in backend_items:
+        entry = _string_mapping(item, "canonical backend summary")
+        name = entry.get("backend")
+        if not isinstance(name, str) or name in backends:
+            raise BenchmarkAuthorityError(
+                "canonical backend status does not authorize benchmark"
+            )
+        backends[name] = entry.get("status")
+    if backends != {"chromium": "PASS", "firefox": "PASS"}:
+        raise BenchmarkAuthorityError(
+            "canonical backend status does not authorize benchmark"
+        )
+    stdio = _string_mapping(device.get("stdio"), "canonical stdio summary")
+    for profile in ("interactive", "observer_restart"):
+        profile_summary = _string_mapping(
+            stdio.get(profile), f"canonical {profile} stdio summary"
+        )
+        if profile_summary.get("stderr_bytes") != 0:
+            raise BenchmarkAuthorityError("canonical stdio is not clean")
+    source = _string_mapping(root.get("source"), "canonical source summary")
+    if (
+        source.get("commit") != current_commit
+        or source.get("clean_worktree") is not True
+        or not clean_worktree
+    ):
+        raise BenchmarkAuthorityError("current source differs from canonical manifest")
+    environment_summary = _string_mapping(
+        root.get("environment"), "canonical environment summary"
+    )
+    for field in _BENCHMARK_IDENTITY_FIELDS:
+        expected = environment_summary.get(field)
+        observed = current_identity.get(field)
+        if not isinstance(expected, str) or observed != expected:
+            raise BenchmarkAuthorityError(
+                f"{field} differs from canonical manifest"
+            )
+    return {
+        "commit": current_commit,
+        **{field: current_identity[field] for field in _BENCHMARK_IDENTITY_FIELDS},
+        "environment_match_verified": True,
+    }
+
+
+def _git_value(project_root: Path, *arguments: str) -> str:
+    completed = subprocess.run(
+        ["git", "-C", os.fspath(project_root), *arguments],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+    if completed.returncode != 0 or completed.stderr:
+        raise BenchmarkAuthorityError("current source identity cannot be verified")
+    return completed.stdout.strip()
+
+
+def _current_benchmark_identity(config: BenchmarkConfig) -> dict[str, str]:
+    try:
+        from scripts.final_verify import (
+            VerificationFailure,
+            _runtime_distribution,
+            validate_android_termux_identity,
+            validate_installed_source_binding,
+            validate_wheel_provenance,
+            validate_wheel_source_binding,
+        )
+
+        distribution = _runtime_distribution("termux-browser-pilot")
+        versions = {
+            "native_cryptography": importlib_metadata.version("cryptography"),
+            "mcp": _runtime_distribution("mcp").version,
+            "websockets": _runtime_distribution("websockets").version,
+            "termux_browser_pilot": distribution.version,
+        }
+        wheel_digest = hashlib.sha256(config.wheel.read_bytes()).hexdigest()
+        direct_url = distribution.read_text("direct_url.json")
+        validate_wheel_provenance(
+            direct_url,
+            expected_sha256=wheel_digest,
+            wheel_path=config.wheel,
+        )
+        wheel_binding = validate_wheel_source_binding(
+            config.wheel,
+            config.project_root,
+        )
+        console_entries = [
+            entry
+            for entry in distribution.entry_points
+            if entry.group == "console_scripts"
+        ]
+        entrypoints = {entry.name: entry.value for entry in console_entries}
+        if len(entrypoints) != len(console_entries):
+            raise BenchmarkAuthorityError(
+                "installed console entrypoints are ambiguous"
+            )
+        installed_roots = tuple(
+            Path(value)
+            for value in {
+                sysconfig.get_path("purelib"),
+                sysconfig.get_path("platlib"),
+            }
+            if value
+        )
+        installed_binding = validate_installed_source_binding(
+            config.project_root,
+            installed_roots=installed_roots,
+            entrypoints=entrypoints,
+        )
+        crypto_spec = importlib_util.find_spec("cryptography")
+        prefix_value = os.environ.get("PREFIX")
+        if crypto_spec is None or crypto_spec.origin is None or not prefix_value:
+            raise BenchmarkAuthorityError(
+                "Termux native cryptography identity cannot be verified"
+            )
+        crypto_origin = Path(crypto_spec.origin).resolve(strict=True)
+        prefix = Path(prefix_value).resolve(strict=True)
+        prefix_lib = (prefix / "lib").resolve(strict=True)
+        if prefix_lib != crypto_origin and prefix_lib not in crypto_origin.parents:
+            raise BenchmarkAuthorityError(
+                "Termux native cryptography identity cannot be verified"
+            )
+        validate_android_termux_identity(
+            python_platform=sys.platform,
+            system_name=platform.system(),
+            android_root=os.environ.get("ANDROID_ROOT"),
+        )
+        expected_bin = (Path(sys.prefix) / "bin").resolve(strict=True)
+        if config.tbp.parent.resolve(strict=True) != expected_bin:
+            raise BenchmarkAuthorityError(
+                "benchmark executable differs from verifier environment"
+            )
+    except BenchmarkAuthorityError:
+        raise
+    except (
+        OSError,
+        importlib_metadata.PackageNotFoundError,
+        VerificationFailure,
+    ) as exc:
+        raise BenchmarkAuthorityError(
+            "current benchmark environment cannot be verified"
+        ) from exc
+    return {
+        "python": platform.python_version(),
+        "kernel_release": platform.release(),
+        "python_sys_platform": sys.platform,
+        "platform_system": platform.system(),
+        **versions,
+        "wheel_sha256": wheel_digest,
+        "source_tree_sha256": str(wheel_binding["source_tree_sha256"]),
+        "installed_source_tree_sha256": str(
+            installed_binding["installed_source_tree_sha256"]
+        ),
+    }
+
+
+def authorize_benchmark(config: BenchmarkConfig) -> dict[str, Any]:
+    """Bind a benchmark run to the still-current canonical environment."""
+
+    manifest, manifest_sha256 = load_canonical_manifest(
+        config.canonical_manifest
+    )
+    current_commit = _git_value(config.project_root, "rev-parse", "HEAD")
+    clean_worktree = not _git_value(
+        config.project_root,
+        "status",
+        "--porcelain=v1",
+        "--untracked-files=all",
+    )
+    identity = _current_benchmark_identity(config)
+    summary = validate_benchmark_authority(
+        manifest,
+        current_identity=identity,
+        current_commit=current_commit,
+        clean_worktree=clean_worktree,
+    )
+    summary["manifest_sha256"] = manifest_sha256
+    return summary
+
+
+def prepare_benchmark_output(path: Path) -> None:
+    """Create one new owner-private output identity without reuse."""
+
+    if not path.is_absolute() or ".." in path.parts:
+        raise BenchmarkAuthorityError("benchmark output path is invalid")
+    if path.exists() or path.is_symlink():
+        raise BenchmarkAuthorityError("benchmark output identity already exists")
+    parent = path.parent
+    try:
+        parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        parent_info = parent.lstat()
+    except OSError as exc:
+        raise BenchmarkAuthorityError("benchmark output parent is unsafe") from exc
+    if (
+        not stat.S_ISDIR(parent_info.st_mode)
+        or parent.is_symlink()
+        or parent_info.st_uid != os.getuid()
+        or parent_info.st_mode & 0o077
+    ):
+        raise BenchmarkAuthorityError("benchmark output parent is unsafe")
+    try:
+        path.mkdir(mode=0o700)
+        output_info = path.lstat()
+    except OSError as exc:
+        raise BenchmarkAuthorityError(
+            "benchmark output identity could not be created"
+        ) from exc
+    if (
+        not stat.S_ISDIR(output_info.st_mode)
+        or path.is_symlink()
+        or output_info.st_uid != os.getuid()
+        or output_info.st_mode & 0o777 != 0o700
+    ):
+        raise BenchmarkAuthorityError("benchmark output identity is unsafe")
 
 
 def run_capture(argv: Sequence[str | os.PathLike[str]], timeout: float = 90) -> dict[str, Any]:
@@ -421,6 +749,18 @@ def sanitize_report(report: dict[str, Any]) -> dict[str, Any]:
         for name, value in raw_environment.get("browser_versions", {}).items()
         if isinstance(value, dict)
     }
+    raw_authority = raw_environment.get("canonical_authority", {})
+    authority_keys = {
+        "commit",
+        "manifest_sha256",
+        *_BENCHMARK_IDENTITY_FIELDS,
+        "environment_match_verified",
+    }
+    canonical_authority = {
+        key: value
+        for key, value in raw_authority.items()
+        if key in authority_keys
+    } if isinstance(raw_authority, dict) else {}
     environment_summary = {
         "measured_at_utc": raw_environment.get("measured_at_utc"),
         "device": {
@@ -436,6 +776,7 @@ def sanitize_report(report: dict[str, Any]) -> dict[str, Any]:
         "tailscale_termux_split_tunneling": raw_environment.get(
             "tailscale_termux_split_tunneling"
         ),
+        "canonical_authority": canonical_authority,
     }
 
     backend_summaries: list[dict[str, Any]] = []
@@ -509,6 +850,8 @@ def parse_args(argv: Sequence[str] | None = None) -> BenchmarkConfig:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--project-root", type=Path, default=repository)
     parser.add_argument("--tbp", type=Path, default=None)
+    parser.add_argument("--wheel", type=Path, required=True)
+    parser.add_argument("--canonical-manifest", type=Path, required=True)
     parser.add_argument(
         "--output", type=Path, default=Path.home() / ".cache" / "termuinator" / "benchmark"
     )
@@ -529,11 +872,19 @@ def parse_args(argv: Sequence[str] | None = None) -> BenchmarkConfig:
     if not tbp_value:
         parser.error("--tbp or TERMUINATOR_TBP must identify the installed tbp executable")
     tbp = Path(tbp_value).expanduser().resolve()
+    wheel = Path(os.path.abspath(os.fspath(args.wheel.expanduser())))
+    canonical_manifest = Path(
+        os.path.abspath(os.fspath(args.canonical_manifest.expanduser()))
+    )
     project_root = args.project_root.expanduser().resolve()
     if not (project_root / "src" / "client.py").is_file():
         parser.error(f"project root does not contain src/client.py: {project_root}")
     if not tbp.is_file() or not os.access(tbp, os.X_OK):
         parser.error(f"tbp is not executable: {tbp}")
+    if not wheel.is_file():
+        parser.error(f"wheel is not a file: {wheel}")
+    if not canonical_manifest.is_file():
+        parser.error(f"canonical manifest is not a file: {canonical_manifest}")
     counts = (
         args.cold_samples,
         args.status_samples,
@@ -545,7 +896,9 @@ def parse_args(argv: Sequence[str] | None = None) -> BenchmarkConfig:
     return BenchmarkConfig(
         project_root=project_root,
         tbp=tbp,
-        output=args.output.expanduser().resolve(),
+        wheel=wheel,
+        canonical_manifest=canonical_manifest,
+        output=Path(os.path.abspath(os.fspath(args.output.expanduser()))),
         socket_path=args.socket_path.expanduser().resolve(),
         pidfile=args.pidfile.expanduser().resolve(),
         url=args.url,
@@ -561,14 +914,25 @@ def parse_args(argv: Sequence[str] | None = None) -> BenchmarkConfig:
 
 
 async def run_benchmark(config: BenchmarkConfig) -> tuple[Path, Path, dict[str, Any]]:
-    config.output.mkdir(parents=True, exist_ok=True, mode=0o700)
-    config.output.chmod(0o700)
-    report: dict[str, Any] = {"environment": environment(config), "backends": []}
+    authority = authorize_benchmark(config)
+    prepare_benchmark_output(config.output)
+    report: dict[str, Any] = {
+        "environment": {
+            **environment(config),
+            "canonical_authority": authority,
+        },
+        "backends": [],
+    }
     try:
         for backend in config.backends:
             report["backends"].append(await benchmark_backend(config, backend))
     finally:
         stop_daemon(config)
+    closing_authority = authorize_benchmark(config)
+    if closing_authority != authority:
+        raise BenchmarkAuthorityError(
+            "benchmark environment changed during measurement"
+        )
     raw_path = config.output / "baseline-report.json"
     summary_path = config.output / "baseline-summary.json"
     summary = sanitize_report(report)
@@ -581,7 +945,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     config = parse_args(argv)
     sys.path.insert(0, os.fspath(config.project_root))
     os.chdir(config.project_root)
-    raw_path, summary_path, summary = asyncio.run(run_benchmark(config))
+    try:
+        raw_path, summary_path, summary = asyncio.run(run_benchmark(config))
+    except BenchmarkAuthorityError as exc:
+        print(f"benchmark_authority_error={exc}", file=sys.stderr)
+        return 2
     print(f"raw_report={raw_path}")
     print(f"sanitized_summary={summary_path}")
     print(json.dumps(summary, ensure_ascii=False, indent=2))

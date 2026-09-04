@@ -19,6 +19,19 @@ Termux/Android에서 실제 Firefox·Chromium을 제어하되, 기존의 방대�
 
 ## Next Step
 
+The checksum-valid `v0.2.17` S22U manifest and its immediately following
+benchmark are now preserved together. Both browsers met every established
+operation-latency target, and the public summary is an exact derivation of the
+private raw report. The old harness did not record the manifest/wheel/native-
+cryptography authority in the benchmark report, so these measurements remain
+valid historical evidence but cannot be replayed or extended after the system
+advanced from cryptography `50.0.0` to `50.0.1`. Commit and push the exact ten
+benchmark-authority paths as the next version. After receiving its SHA, bind the
+remote HEAD, tree, scope, clean checkout, and rebuilt wheel before sealing the
+one-shot Hermes instruction. A new benchmark may run only immediately after a
+new canonical PASS whose exact runtime is independently revalidated by the
+hardened harness.
+
 `b5362f9`의 Chromium accessibility 반환형, Firefox DOM probe 구문 손상, generic stdio의
 Chromium `TMPDIR` 누락을 실제 실패형 RED 뒤에 복구했다. 검증 중 발견한 compact MCP의
 `SIGTERM` stale control socket도 종료 후 identity-safe cleanup과 동일 data-root 재시작
@@ -106,24 +119,26 @@ benchmark나 RC 승인을 진행하지 않는다.
 
 ## Current Phase
 
-Phase 7 — S22U RC Stdio Purity Recovery
-- The checksum-valid `v0.2.16` manifest binds clean commit
-  `30eaa4a78ef5aa33b0f842ebdb88e6cc4c911173` to the 280,566-byte wheel SHA-256
-  `9aeee2c8ffc3a8c4d678527b1de8d1957a2a99a47c0b8f38f7f0cb7c1cc61d3b` and the exact 58-source digest.
-- Chromium and Firefox both PASS. Firefox completes BiDi navigation, DOM/text/accessibility observation,
-  interactive refs, and two independently hashed PNG artifacts on the S22U.
-- Provenance and final process/socket/display/session-lock cleanup all PASS. No Firefox repair remains open from
-  this manifest.
-- Canonical status is FAIL only because interactive stdio records 38 stderr bytes; observer restart records zero.
-  The contents remain private and were not inspected. Static length analysis identified the only exact warning
-  candidate, and a connect-level RED reproduced its BiDi-owned semantics without reading device stderr.
-- The minimal source repair and paired fallback-preservation test are complete. All 411 tests across three Python
-  versions, 40 verifier tests, 79 device-focused tests, static checks, fresh wheel/install binding, and local
-  interactive→observer zero-stderr checks pass.
-- The pre-commit wheel remains deliberately unsealed. Await an exact five-file clean commit and push, then bind
-  commit/tree/remote/scope and generate a runnable one-shot Hermes handoff.
-- Benchmark stays closed until a new clean-commit S22U manifest has both backends PASS, zero stdio stderr,
-  `status=PASS`, and `benchmark_allowed=true`.
+Phase 7 — S22U RC Benchmark Environment Binding
+- The checksum-valid `v0.2.17` manifest binds clean commit
+  `c4f580217c7f65b14ac635f17fcebc07870ea039`, the exact 280,608-byte wheel SHA-256
+  `420b6702e519a4e6e0705540e3e7421904eda415fa632d51cb4f8a4e6824d328`, and all 58 source/install bytes.
+- Chromium and Firefox both PASS, both MCP profiles emit zero stderr, all cleanup gates PASS, and
+  `benchmark_allowed=true`. The Firefox runtime repair is complete on the S22U.
+- The canonical run recorded Termux-native cryptography `50.0.0`; the current system and inherited venv now import
+  `50.0.1`. Therefore the preserved PASS is valid evidence but not current benchmark authority.
+- The downloaded historical benchmark started about 98 seconds after canonical completion from the same
+  commit-suffixed checkout and venv. Its sanitized summary exactly derives from the private raw report, and both
+  Firefox and Chromium meet the status, text, and screenshot targets. Because the old raw report omits the
+  canonical manifest/wheel/cryptography identity, it is measurement evidence rather than replay authority.
+- New RED/GREEN coverage closes delayed benchmark execution when the manifest checksum, PASS/backend/stdio gates,
+  Git identity, Python/Android identity, native cryptography, MCP/websockets/package versions, wheel/source/install
+  digests, or output identity differ.
+- The current warning-as-error suite passes 424/424 on Python 3.11, 3.12, and 3.14 outside the socket-restricted
+  sandbox. The 280,608-byte pre-commit wheel, canonical source/RECORD metadata, fresh constrained Python 3.14
+  install, PEP 610/installed-source binding, `pip check`, and 14/12 zero-stderr stdio runs all pass.
+- The owner-private candidate is intentionally placeholder-locked. Next authority is the user-owned exact
+  ten-path commit/push, followed by clean-commit wheel rebinding and a newly sealed canonical output identity.
 
 ## Planning-with-Files Operating Rules
 
@@ -768,13 +783,13 @@ Termu-inator MVP는 다음 조건을 모두 만족해야 한다.
 
 **Objective:** 실제 Termux 장치에서 신뢰성·보안·호환성을 검증하고 문서화된 alpha를 배포한다.
 
-- [ ] unit·contract·fixture E2E 전체 실행
+- [x] unit·contract·fixture E2E 전체 실행
   - [x] local unit·contract·HTTP fixture authority suite (304 tests)
-  - [ ] 실제 Firefox·Chromium fixture browser E2E
+  - [x] 실제 Firefox·Chromium fixture browser E2E
     - [x] `b5362f9` 양쪽 backend의 session start, navigation, screenshot, artifact EOF/hash, clean stop
     - [x] Chromium `include_accessibility=false` text observation
-    - [ ] Chromium 기본 accessibility 포함 observation
-    - [ ] Firefox DOM observation
+    - [x] Chromium 기본 accessibility 포함 observation
+    - [x] Firefox DOM observation
 - [ ] Firefox·Chromium backend별 capability test 실행
   - [x] shared typed legacy adapter/fake capability contract
   - [ ] 실제 장치 backend별 capability probe (`b5362f9`는 launcher만 통과하고 observe capability는 양쪽 실패)
@@ -787,12 +802,12 @@ Termu-inator MVP는 다음 조건을 모두 만족해야 한다.
 - [x] permission bypass·token replay·path traversal·artifact traversal test 실행
 - [x] prompt-injection fixture에서 policy boundary test 실행
 - [x] secret redaction test 실행
-- [ ] performance budget 측정 및 baseline 비교
+- [x] performance budget 측정 및 baseline 비교
   - [x] 2026-08-15 S22U Firefox/Chromium baseline·budget 판정
-  - [ ] compact release candidate 재측정·비교
-- [ ] 최소 1대의 실제 Android/Termux 장치에서 release candidate 검증
+  - [x] compact release candidate 재측정·비교
+- [x] 최소 1대의 실제 Android/Termux 장치에서 release candidate 검증
   - [x] `b5362f9` side-by-side 설치, native cryptography, pinned MCP, 304 tests, observer stdio/discovery
-  - [ ] 양쪽 backend의 full observer와 실제 `final_verify.py` 실행
+  - [x] 양쪽 backend의 full observer와 실제 `final_verify.py` 실행
 - [ ] 선택적으로 2번째 장치 또는 Android VM에서 호환성 검사
 - [x] 외부 사이트 smoke test는 non-gating 보고서로 분리
 - [ ] README, architecture, security, migration, troubleshooting 최종 검토
@@ -860,7 +875,7 @@ Termu-inator MVP는 다음 조건을 모두 만족해야 한다.
      함께 남긴다.
    - [x] ad-hoc 장치 파일이 아니라 checkout의 canonical verifier와 private manifest,
      checksum 형식을 구현하고 local fail-closed/installed-wheel stdio를 검증했다.
-   - [ ] 새 commit-suffixed Termux venv에서 canonical verifier를 실제 실행해 양 backend
+   - [x] 새 commit-suffixed Termux venv에서 canonical verifier를 실제 실행해 양 backend
      PASS, `benchmark_allowed: true`, checksum OK를 확보한다.
 
 6. **`d40f4d3` Android identity preflight 결함을 TDD로 복구한다.**
@@ -934,7 +949,7 @@ Termu-inator MVP는 다음 조건을 모두 만족해야 한다.
      `address_bar_copy`로 분류해 stage taxonomy를 닫는다.
    - [x] fallback navigation이 첫 `Ctrl+L`·URL 입력 전에 Firefox main window를 활성화하고
      유효한 WID가 없으면 `window_unavailable`로 fail-closed하도록 RED부터 검증한다.
-   - [ ] 새 clean commit에서 S22U canonical gate를 재실행해 양 backend PASS와
+   - [x] 새 clean commit에서 S22U canonical gate를 재실행해 양 backend PASS와
      `benchmark_allowed: true`를 확보한 뒤에만 benchmark를 시작한다.
 
 11. **반복되는 Firefox X11 clipboard metadata를 loopback WebDriver BiDi로 대체한다.**
@@ -954,7 +969,7 @@ Termu-inator MVP는 다음 조건을 모두 만족해야 한다.
    - [x] service mutex 아래의 command 직렬화를 확인하고, exact response ID, duplicate connect,
      endpoint full-line parsing을 별도 RED로 고정해 transport 소유권과 parser 경계를 닫는다.
    - [x] 다중 Python 전체 suite, tracked-only wheel binding, fresh install/stdio를 다시 통과시킨다.
-   - [ ] 새 clean commit S22U canonical PASS 뒤에만 benchmark를 연다.
+   - [x] 새 clean commit S22U canonical PASS 뒤에만 benchmark를 연다.
 
 **Phase 7A Exit Gate**
 
@@ -1134,6 +1149,7 @@ Termu-inator MVP는 다음 조건을 모두 만족해야 한다.
 | Raw device process output은 저장소 밖에 두고 sanitized aggregate와 hash만 추적한다. | device path, process argument, Hermes runtime detail의 공개를 막으면서 결과 무결성을 검증한다. |
 | RC verifier의 MCP child는 전용 HOME/XDG/TMP와 고정 owner scope를 사용하고 진단 override를 상속하지 않는다. | 기존 `~/.tbp`, config, `TBP_SINGLE_PROCESS`가 release candidate를 오염하거나 사용자 상태를 변경하지 못하게 한다. |
 | optional VirGL은 manager가 직접 시작한 process만 종료하며 외부 server를 선행 종료하지 않는다. | 동시 Termux 세션과 다른 앱의 GPU helper를 보호하고, 충돌·실행 실패는 안전한 SwiftShader fallback으로 처리한다. |
+| Device benchmark는 checksum-valid canonical manifest와 현재 runtime identity가 정확히 일치할 때만 시작한다. | `--system-site-packages`의 native package가 canonical 이후 갱신될 수 있으므로 과거 PASS를 변경된 환경의 성능 승인으로 재사용하지 않는다. |
 
 ---
 
@@ -1160,6 +1176,10 @@ Termu-inator MVP는 다음 조건을 모두 만족해야 한다.
 | Error | Attempt | Resolution |
 |---|---:|---|
 | None at plan creation | 0 | 구현 중 모든 오류를 즉시 추가한다. |
+| 재개 후 첫 검증이 macOS 기본 Python 3.9를 사용해 지원 문법 import 전에 중단됨 | 1 | 지원되는 Python 3.11/3.12/3.14 절대 경로로 모든 검증을 재실행했다. |
+| 기본 Python compileall이 보호된 macOS cache 경로에 `PermissionError`를 냄 | 1 | 후속 compile gate는 저장소 밖의 명시적 pycache prefix를 사용한다. |
+| 새 packaging 계약 단일 테스트의 class 이름을 잘못 지정해 loader error가 발생함 | 1 | 실제 class 이름 `InstallationDocumentationTests`로 동일 RED를 재실행했다. |
+| 세 Python의 sandbox 전체 suite가 동일한 local TCP/Unix bind 오류 15건으로 종료됨 | 1 | 동일 명령을 승인된 socket 권한으로 재실행해 당시 각 420/420 GREEN을 확보했다. |
 | 첫 `uv build`가 기본 `~/.cache/uv`에 접근하지 못해 초기화 전 중단됨 | 1 | owner-private `/private/tmp` 빌드 루트의 전용 uv cache로 격리했다. |
 | 비권한 uv cache의 첫 dependency resolve가 PyPI DNS 차단으로 실패함 | 1 | 동일 격리 cache를 유지하고 승인된 네트워크 권한으로 build dependency만 받아 빌드했다. |
 | 저장소 cwd의 첫 wheel build가 ignored `build/`의 unchanged 파일을 재사용함 | 1 | 해당 wheel을 권위에서 제외하고 현재 tracked bytes만 새 staging tree로 복사해 offline clean build를 다시 수행했다. |
@@ -1535,6 +1555,17 @@ Termu-inator MVP는 다음 조건을 모두 만족해야 한다.
 | fresh-wheel stdio one-liner가 세미콜론 뒤 `async def`를 다시 선언해 product 실행 전 `SyntaxError`로 종료됨 | 1 | wheel과 격리 root는 불변이다. 이전 오류 기록대로 compound statement를 실제 개행의 독립 suite로 넘겨 같은 root에서 재실행한다. |
 | installed stdio 후 첫 `ps` survivor 조회가 macOS process-list sandbox 권한으로 거부됨 | 1 | 두 child의 정상 종료, zero-byte stderr, socket 제거는 이미 확인됐다. 승인된 동일 read-only 조회로 fresh-wheel 관련 survivor가 0임을 확인했다. |
 | unsealed handoff의 첫 multi-file patch가 README 한 줄의 `+` marker 누락으로 적용 전 거부됨 | 1 | candidate에는 wheel만 남아 있음을 확인했다. checksum, README, non-executable Hermes placeholder를 독립 patch로 나눠 생성한다. |
+| benchmark-authority wheel의 첫 source-binding probe가 존재하지 않는 `/usr/local/bin/python3.11`을 사용함 | 1 | wheel은 불변이었다. 설치된 명시적 `/opt/homebrew/bin/python3.14`로 전환해 같은 canonical helper를 실행했다. |
+| benchmark-authority 첫 wheel build가 repository workdir와 empty offline cache를 사용해 setuptools 조회 전에 종료됨 | 1 | source와 output은 불변이었다. byte-identical private staging을 명시적 workdir로 사용하고 build dependency 접근을 별도로 허용했다. |
+| staging 재시도가 사용자 기본 uv cache의 sandbox 접근 거부로 build 전에 종료됨 | 1 | project 결함으로 보지 않았다. staging 아래 전용 uv cache를 지정하고 승인된 dependency 경로에서 wheel을 생성했다. |
+| 다음 source-binding probe가 `validate_wheel_source_binding()` 인자 순서를 뒤집어 project-root safety에서 종료됨 | 1 | 실제 signature를 확인하고 wheel, project-root 순서로 재실행해 58-source/RECORD/metadata binding을 통과했다. |
+| fresh wheel의 첫 pip install이 managed DNS 차단으로 `websockets` 후보를 찾지 못함 | 1 | dependency conflict로 해석하지 않았다. 같은 untouched venv에서 승인된 network 경로로 exact wheel extra를 설치하고 Termux constraint로 websockets 17.0.1을 고정했다. |
+| 첫 installed-provenance probe가 repository cwd의 `.egg-info`를 venv `.dist-info`보다 먼저 선택함 | 1 | wheel 설치는 정상이다. 현재 venv prefix 아래의 유일한 dist-info만 선택해 PEP 610 hash와 58 installed-source bytes를 검증했다. |
+| benchmark intake 기록의 첫 multi-file patch가 `task_plan.md`를 두 operation으로 지정해 적용 전에 거부됨 | 1 | repository와 artifact bytes는 불변이었다. 같은 파일의 hunks를 한 operation으로 합치고 findings/progress를 별도 patch로 분리했다. |
+| venv-scoped distribution RED가 checkout `.egg-info`를 고르는 일반 metadata lookup에서 1 failure를 반환함 | 1 | 의도한 RED다. final verifier와 같은 site-packages 한정 lookup을 재사용해 installed distribution만 선택한다. |
+| mid-run drift RED의 첫 mock environment가 빈 Python 문자열을 반환해 sanitizer `IndexError`로 먼저 종료됨 | 1 | production은 불변이었다. 실제 환경 계약처럼 Python 버전을 제공해 intended no-exception failure를 재확인했다. |
+| 보정한 mid-run drift RED가 closing authority 재검사 부재로 1 failure를 반환함 | 1 | 의도한 RED다. daemon 정리 뒤 같은 authority를 다시 계산하고 시작값과 다르면 보고서를 쓰지 않는다. |
+| 성능 보고서·scope 갱신 patch가 artifact README의 빈 update hunk로 적용 전에 거부됨 | 1 | repository와 bundle은 불변이었다. repository 보고서/체크리스트와 artifact metadata를 유효한 독립 patch로 분리했다. |
 
 ---
 
