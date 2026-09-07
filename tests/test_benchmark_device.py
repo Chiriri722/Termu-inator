@@ -11,14 +11,18 @@ import json
 import os
 from pathlib import Path
 import sys
+import struct
 import tempfile
 from types import SimpleNamespace
 import unittest
 from unittest.mock import AsyncMock, patch
+import zlib
 
 from scripts.benchmark_device import (
     BenchmarkAuthorityError,
     BenchmarkConfig,
+    benchmark_backend,
+    file_check,
     _current_benchmark_identity,
     load_canonical_manifest,
     main,
@@ -468,6 +472,7 @@ class CanonicalAuthorityTests(unittest.TestCase):
                     return_value={"backend": "firefox"},
                 ),
                 patch("scripts.benchmark_device.stop_daemon"),
+                patch.dict(os.environ, {"HOME": str(root)}),
             ):
                 with self.assertRaisesRegex(
                     BenchmarkAuthorityError,
@@ -529,6 +534,7 @@ class SanitizedReportTests(unittest.TestCase):
                             "path": "/data/data/com.termux/files/home/private.png",
                             "bytes": 123,
                             "png_signature": True,
+                            "valid_png": True,
                         }
                     ],
                 }
@@ -553,6 +559,235 @@ class SanitizedReportTests(unittest.TestCase):
         source = (ROOT / "scripts" / "benchmark_device.py").read_text(encoding="utf-8")
         self.assertNotIn("/data/data/com.termux", source)
         self.assertNotIn('HOME / "src" / "Termu-inator"', source)
+
+
+class BenchmarkQualityTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name).resolve()
+        self.home = self.root / "h"
+        self.home.mkdir(mode=0o700)
+        self.env = patch.dict(os.environ, {"HOME": str(self.home)})
+        self.env.start()
+        self.addCleanup(self.env.stop)
+        self.config = BenchmarkConfig(
+            project_root=ROOT, tbp=Path(sys.executable), wheel=self.root / "wheel",
+            canonical_manifest=self.root / "manifest", output=self.home / "results",
+            socket_path=self.home / "daemon.sock", pidfile=self.home / "daemon.pid",
+            url="http://127.0.0.1/forms", backends=("firefox",), cold_samples=1,
+            status_samples=1, text_samples=1, screenshot_samples=1, settle_seconds=0,
+            network_kind="fixture", tailscale_termux_state="unchanged",
+        )
+
+    @staticmethod
+    def png() -> bytes:
+        def chunk(kind: bytes, data: bytes) -> bytes:
+            return (struct.pack(">I", len(data)) + kind + data
+                    + struct.pack(">I", zlib.crc32(kind + data)))
+        return (b"\x89PNG\r\n\x1a\n"
+                + chunk(b"IHDR", struct.pack(">IIBBBBB", 1, 1, 8, 2, 0, 0, 0))
+                + chunk(b"IDAT", zlib.compress(b"\x00\xff\xff\xff"))
+                + chunk(b"IEND", b""))
+
+    def backend_result(self) -> dict:
+        return {
+            "backend": "firefox", "cold_start_stats": stats([10.0], 0),
+            "warm_start": {"returncode": 0, "socket_ready_verified": True},
+            "page_load": {"response": {"success": True, "data": {}}, "error": None},
+            "operations": {name: stats([10.0], 0)
+                           for name in ("status", "text", "screenshot")},
+            "screenshots": [{"valid_png": True, "png_signature": True, "bytes": 69}],
+            "operation_errors": {name: [] for name in ("status", "text", "screenshot")},
+        }
+
+    def run_report(self, backend: dict, *, clean: bool = True):
+        with (
+            patch("scripts.benchmark_device.authorize_benchmark", return_value={"commit": "a"}),
+            patch("scripts.benchmark_device.environment", return_value={"python": "3.14"}),
+            patch("scripts.benchmark_device.benchmark_backend", new_callable=AsyncMock,
+                  return_value=backend),
+            patch("scripts.benchmark_device.stop_daemon", return_value={
+                "socket_absent_after_stop": clean, "pidfile_absent_after_stop": clean}),
+        ):
+            return asyncio.run(run_benchmark(self.config))
+
+    def test_output_outside_isolated_home_is_rejected_before_creation(self) -> None:
+        outside = self.root / "old-output"
+        with self.assertRaisesRegex(BenchmarkAuthorityError, "outside benchmark HOME"):
+            prepare_benchmark_output(outside)
+        self.assertFalse(outside.exists())
+
+    def test_output_symlink_escape_is_rejected(self) -> None:
+        (self.home / "escape").symlink_to(self.root, target_is_directory=True)
+        outside = self.home / "escape" / "old-output"
+        with self.assertRaises(BenchmarkAuthorityError):
+            prepare_benchmark_output(outside)
+        self.assertFalse(outside.exists())
+
+    def test_complete_samples_and_targets_publish_pass(self) -> None:
+        raw, summary_path, summary = self.run_report(self.backend_result())
+        self.assertEqual(summary.get("quality", {}).get("status"), "PASS")
+        self.assertEqual(json.loads(raw.read_text())["quality"], summary["quality"])
+        self.assertEqual(summary_path.stat().st_mode & 0o777, 0o600)
+
+    def test_operation_failure_publishes_failed_quality_not_success(self) -> None:
+        backend = self.backend_result()
+        backend["operations"]["screenshot"] = stats([], 1)
+        backend["screenshots"] = []
+        _, _, summary = self.run_report(backend)
+        self.assertEqual(summary.get("quality", {}).get("status"), "FAIL")
+
+    def test_missing_success_samples_fail_even_with_zero_errors(self) -> None:
+        backend = self.backend_result()
+        backend["operations"]["text"] = stats([], 0)
+        _, _, summary = self.run_report(backend)
+        self.assertEqual(summary.get("quality", {}).get("status"), "FAIL")
+
+    def test_latency_budget_failure_is_not_pass(self) -> None:
+        backend = self.backend_result()
+        backend["operations"]["status"] = stats([301.0], 0)
+        _, _, summary = self.run_report(backend)
+        self.assertEqual(summary.get("quality", {}).get("status"), "FAIL")
+
+    def test_nan_latency_is_not_pass(self) -> None:
+        backend = self.backend_result()
+        backend["operations"]["status"]["median_ms"] = float("nan")
+        _, _, summary = self.run_report(backend)
+        self.assertEqual(summary.get("quality", {}).get("status"), "FAIL")
+
+    def test_cleanup_failure_is_not_pass(self) -> None:
+        _, _, summary = self.run_report(self.backend_result(), clean=False)
+        self.assertEqual(summary.get("quality", {}).get("status"), "FAIL")
+
+    def test_cli_quality_failure_exits_one_and_keeps_summary(self) -> None:
+        with (
+            patch("scripts.benchmark_device.parse_args", return_value=self.config),
+            patch("scripts.benchmark_device.run_benchmark", new_callable=AsyncMock,
+                  return_value=(self.home / "raw", self.home / "summary",
+                                {"quality": {"status": "FAIL"}})),
+            redirect_stdout(io.StringIO()) as output,
+        ):
+            self.assertEqual(main([]), 1)
+        self.assertIn('"FAIL"', output.getvalue())
+
+    def test_missing_or_malformed_png_is_not_valid(self) -> None:
+        path = self.home / "shot.png"
+        for data in (None, b"\x89PNG\r\n\x1a\n", self.png()[:-1], self.png() + b"junk"):
+            with self.subTest(data=data):
+                if data is not None:
+                    path.write_bytes(data)
+                    path.chmod(0o600)
+                self.assertIs(file_check(path).get("valid_png"), False)
+
+    def test_private_complete_png_has_dimensions_and_hash(self) -> None:
+        path = self.home / "shot.png"
+        path.write_bytes(self.png())
+        path.chmod(0o600)
+        result = file_check(path)
+        self.assertIs(result.get("valid_png"), True)
+        self.assertEqual((result.get("width"), result.get("height")), (1, 1))
+        self.assertEqual(result.get("sha256"), hashlib.sha256(self.png()).hexdigest())
+
+    def test_symlink_png_is_rejected_without_reading_target(self) -> None:
+        target = self.home / "target.png"
+        target.write_bytes(self.png())
+        target.chmod(0o600)
+        path = self.home / "shot.png"
+        path.symlink_to(target)
+        self.assertIs(file_check(path).get("valid_png"), False)
+
+    def test_read_access_time_change_does_not_invalidate_png(self) -> None:
+        path = self.home / "shot.png"
+        path.write_bytes(self.png())
+        path.chmod(0o600)
+        original = os.fstat
+
+        def changed_atime(fd):
+            value = original(fd)
+            fields = {name: getattr(value, name) for name in dir(value)
+                      if name.startswith("st_")}
+            fields["st_atime"] += 1
+            return SimpleNamespace(**fields)
+
+        with patch("scripts.benchmark_device.os.fstat", side_effect=changed_atime):
+            self.assertIs(file_check(path).get("valid_png"), True)
+
+    def test_corrupt_crc_and_public_mode_are_rejected(self) -> None:
+        path = self.home / "shot.png"
+        damaged = bytearray(self.png())
+        damaged[-1] ^= 1
+        for data, mode in ((damaged, 0o600), (self.png(), 0o644)):
+            with self.subTest(mode=mode):
+                path.write_bytes(data)
+                path.chmod(mode)
+                self.assertIs(file_check(path).get("valid_png"), False)
+
+    def test_valid_crc_does_not_hide_invalid_compressed_image(self) -> None:
+        data = bytearray(self.png())
+        size = struct.unpack_from(">I", data, 33)[0]
+        data[41] = 0  # Break the zlib header, then repair the enclosing PNG CRC.
+        struct.pack_into(">I", data, 41 + size, zlib.crc32(data[37:41 + size]))
+        path = self.home / "shot.png"
+        path.write_bytes(data)
+        path.chmod(0o600)
+        self.assertIs(file_check(path).get("valid_png"), False)
+
+    def test_daemon_screenshot_handler_accepts_correct_isolated_layout(self) -> None:
+        from src.daemon import _handle_screenshot
+        from src._utils import validate_path
+        output = self.home / "results"
+        prepare_benchmark_output(output)
+        screenshot = output / "shot.png"
+
+        async def capture(path, **_kwargs):
+            Path(path).write_bytes(self.png())
+            Path(path).chmod(0o600)
+
+        daemon = SimpleNamespace(
+            pilot=SimpleNamespace(screenshot=capture,
+                                  _session=SimpleNamespace(_dismiss_popup=AsyncMock())),
+            _cursor_pos=None,
+        )
+        response = asyncio.run(_handle_screenshot(daemon, {"path": str(screenshot)}))
+        self.assertEqual(response["path"], validate_path(str(screenshot)))
+        self.assertIs(file_check(screenshot).get("valid_png"), True)
+
+    def test_page_and_artifact_failures_close_quality(self) -> None:
+        for defect in ("page", "artifact", "warm", "cold"):
+            with self.subTest(defect=defect):
+                backend = self.backend_result()
+                if defect == "page":
+                    backend["page_load"]["error"] = "private /path?secret=token"
+                elif defect == "artifact":
+                    backend["screenshots"][0]["valid_png"] = False
+                elif defect == "warm":
+                    backend["warm_start"]["returncode"] = 1
+                else:
+                    backend["cold_start_stats"] = stats([], 1)
+                # Each report keeps its own non-reusable output identity.
+                from dataclasses import replace
+                self.config = replace(self.config, output=self.home / defect)
+                _, _, summary = self.run_report(backend)
+                self.assertEqual(summary["quality"]["status"], "FAIL")
+                self.assertNotIn("secret", json.dumps(summary))
+
+    def test_success_response_without_png_counts_as_error(self) -> None:
+        ps = {"requested_command": ["ps"], "requested_returncode": 0,
+              "requested_stdout": "", "requested_stderr": "", "effective_command": ["ps"],
+              "effective_returncode": 0, "effective_stdout": "", "effective_stderr": ""}
+        with (
+            patch("scripts.benchmark_device.start_daemon", return_value={
+                "returncode": 0, "socket_ready_verified": True,
+                "start_to_socket_ready_ms": 1.0}),
+            patch("scripts.benchmark_device.stop_daemon"),
+            patch("scripts.benchmark_device.ps_snapshot", return_value=ps),
+            patch("scripts.benchmark_device.measured_command", new_callable=AsyncMock,
+                  return_value=(1.0, {"success": True}, None)),
+        ):
+            result = asyncio.run(benchmark_backend(self.config, "firefox"))
+        self.assertEqual(result["operations"]["screenshot"]["success_count"], 0)
+        self.assertEqual(result["operations"]["screenshot"]["error_count"], 1)
 
 
 if __name__ == "__main__":

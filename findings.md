@@ -1,5 +1,15 @@
 # Findings: Termu-inator Modernization
 
+## 2026-09-07 — v0.2.18 benchmark quality follow-up
+
+- Implemented preflight by reusing the daemon's actual `validate_path()` contract. A regression passes a generated PNG through the real daemon screenshot handler in the corrected isolated layout; the browser capture boundary alone is substituted.
+- Screenshot success now requires a stable real owner-private file, bounded bytes, PNG signature/chunk CRC/dimensions/IEND at EOF, and a complete bounded zlib stream. Validation is outside the measured RPC interval so historical operation timing semantics are retained. Failed validation counts as an operation error rather than a successful latency sample.
+- Version 2 summary/raw quality checks require all configured backends and samples, startup/navigation, operation budgets, artifact validation, and final socket/pidfile cleanup. Exit 0 means quality PASS, exit 1 preserves quality FAIL, exit 2 rejects authority/output. Device process/display/session-lock checks remain separately required; this patch does not claim a device benchmark PASS.
+- Downloads manifest (9) hashes to `9af8cc2e61bab26b38f08f33cfa78c53087b5912800c13514d1ad785ad9cf3fe`, matching its sidecar and the public report. Canonical PASS is preserved; both benchmark screenshot operations have zero successes and five errors.
+- The sealed handoff sets HOME to the short isolated runtime `/h` but sends screenshots to an output directory outside that HOME. The daemon's existing `validate_path()` rejects that layout before browser capture. Device-private raw errors have not been received; distinguish this source-reproducible defect from a verified reading of those errors.
+- The harness counts a successful response before checking whether a PNG actually exists and always returns CLI exit 0 after report publication. Repair harness contracts without weakening the daemon's HOME boundary or retrying the consumed identity.
+- Camofox/Lightpanda are deferred; no new engine, network, package, Hermes registration, or production change is in scope.
+
 ## S22U Device Evidence — 2026-08-16
 
 - The three Tailscale-transferred raw benchmark artifacts have matching device and Mac SHA-256 values. They are managed in the private sibling directory `../Termu-inator-device-artifacts/s22u-2026-08-16/` and must not be copied into the public repository.

@@ -1,5 +1,16 @@
 # Progress: Termu-inator Modernization
 
+## 2026-09-07 — Benchmark hardening resumed
+
+- Completed nine-file harness/test/documentation patch; no `src/`, dependency, canonical verifier, sealed bundle, or device changes.
+- Test-first RED: 13 new tests produced 15 expected assertion failures for output escape, absent quality status, exit 0 on failure, missing PNG counted as success, and PNG metadata/validity. A later atime regression failed as intended, then the comparison was restricted to identity/content fields; a repaired-CRC/invalid-zlib case also failed before bounded decompression was added.
+- GREEN: focused benchmark/packaging 56 tests. Final full matrix: 443 tests on Python 3.11.15/3.12.13 (eight established optional-MCP skips) and pinned-MCP Python 3.14.7 (no skips). AST/compileall, diff-check, and shell syntax checks pass.
+- The sandboxed full suite hit the established 15 local socket PermissionErrors and dependent MCP startup assertion. Approved same-suite runs outside that sandbox pass; no product skip or workaround was introduced. The available docs guidance was followed, but yarn/Prettier is not installed; no formatter package was installed for this patch.
+- Added `docs/benchmark-quality-handoff.md` as a non-executable sealing checklist. It corrects output to the child `h/benchmark`, distinguishes exits 0/1/2, preserves FAIL evidence, and requires a new user-owned commit/output identity. No S22U rerun, new wheel claim, commit, or push.
+- Rechecked clean base `379b0e97431ac2c25fb6a5d1b0a9d287caa70fa4` and checksum-valid downloaded canonical PASS plus sanitized benchmark FAIL.
+- Plan: failing regressions for isolated output, artifact validity, report quality and CLI status; minimal harness fix; updated instructions; focused/full verification. No device rerun or commit/push.
+- Tooling notes: an initial broad read was truncated and relevant code was reread in bounded sections; one lookup used the workspace parent and was corrected. One combined patch failed its findings heading match and was reapplied with exact headings. The docs skill's referenced shared style file is missing; use its available guidance and existing repository style.
+
 ## 2026-08-24
 
 ### Shared View RED → GREEN Cycle 1

@@ -19,6 +19,17 @@ Termux/Android에서 실제 Firefox·Chromium을 제어하되, 기존의 방대�
 
 ## Next Step
 
+Current follow-up (2026-09-07): v0.2.18 canonical PASS is checksum-verified,
+but benchmark screenshots failed 0/5 on both backends. Resume benchmark
+hardening, not browser replacement. Camofox and Lightpanda remain deferred.
+The isolated-HOME preflight, private PNG validation, quality-status/exit contract,
+and corrected handoff are implemented and locally verified. Next: obtain the
+user-owned clean commit SHA, bind its exact scope/wheel, then seal a new one-shot
+canonical and conditional benchmark instruction. Do not reuse the consumed
+v0.2.18 output identity or commit/push automatically.
+
+Historical next-step record (superseded by the follow-up above):
+
 The checksum-valid `v0.2.17` S22U manifest and its immediately following
 benchmark are now preserved together. Both browsers met every established
 operation-latency target, and the public summary is an exact derivation of the
@@ -118,6 +129,16 @@ handoff를 seal하는 것이다. 새 clean commit의 양 backend PASS 및 `bench
 benchmark나 RC 승인을 진행하지 않는다.
 
 ## Current Phase
+
+Active follow-up — Benchmark artifact and quality contract (local implementation complete)
+
+- [x] Verify downloaded v0.2.18 manifest checksum and sanitized failure summary.
+- [x] Reproduce output-boundary and false-success defects with failing tests.
+- [x] Implement bounded fixes without weakening runtime path restrictions.
+- [x] Verify focused/full suites and prepare next-device-run guidance.
+- [ ] User-owned clean commit and new sealed S22U canonical/benchmark run.
+
+Historical phase record follows:
 
 Phase 7 — S22U RC Benchmark Environment Binding
 - The checksum-valid `v0.2.17` manifest binds clean commit

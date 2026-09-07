@@ -18,6 +18,7 @@ import hashlib
 from importlib import metadata as importlib_metadata
 from importlib import util as importlib_util
 import json
+import math
 import os
 from pathlib import Path
 import platform
@@ -26,11 +27,13 @@ import shutil
 import socket
 import stat
 import statistics
+import struct
 import subprocess
 import sys
 import sysconfig
 import time
 from typing import Any, Sequence
+import zlib
 
 
 @dataclass(frozen=True)
@@ -343,6 +346,14 @@ def prepare_benchmark_output(path: Path) -> None:
         raise BenchmarkAuthorityError("benchmark output path is invalid")
     if path.exists() or path.is_symlink():
         raise BenchmarkAuthorityError("benchmark output identity already exists")
+    # Match the daemon's existing screenshot boundary; do not relax it for a
+    # handoff that accidentally places output outside its isolated HOME.
+    from src._utils import validate_path
+
+    try:
+        validate_path(os.fspath(path))
+    except (ValueError, OSError) as exc:
+        raise BenchmarkAuthorityError("output is outside benchmark HOME") from exc
     parent = path.parent
     try:
         parent.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -569,16 +580,89 @@ def parse_ps(raw: str, backend: str, daemon_pid: str | None) -> dict[str, Any]:
 
 
 def file_check(path: Path) -> dict[str, Any]:
-    data = path.read_bytes() if path.exists() else b""
-    signature = bytes.fromhex("89504e470d0a1a0a")
-    file_result = run_capture(["file", path], timeout=15)
-    return {
+    """Check a bounded private PNG container, not just a successful RPC."""
+    result: dict[str, Any] = {
         "path": os.fspath(path),
-        "bytes": len(data),
-        "png_signature": data[:8] == signature,
-        "file_stdout": file_result["stdout"],
-        "file_stderr": file_result["stderr"],
+        "bytes": 0,
+        "png_signature": False,
+        "valid_png": False,
     }
+    try:
+        before = path.lstat()
+        if (
+            not stat.S_ISREG(before.st_mode)
+            or before.st_uid != os.getuid()
+            or stat.S_IMODE(before.st_mode) != 0o600
+            or not 0 < before.st_size <= 64 * 1024 * 1024
+        ):
+            return result
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        with os.fdopen(fd, "rb") as stream:
+            opened = os.fstat(stream.fileno())
+            if (opened.st_dev, opened.st_ino) != (before.st_dev, before.st_ino):
+                return result
+            data = stream.read(64 * 1024 * 1024 + 1)
+            after = os.fstat(stream.fileno())
+        # Reading may legitimately update atime on Android/Linux. Compare only
+        # identity, permissions and content-mutation indicators.
+        stable_fields = (
+            "st_dev", "st_ino", "st_uid", "st_mode", "st_size", "st_mtime_ns", "st_ctime_ns",
+        )
+        current = path.lstat()
+        if (
+            any(getattr(value, key) != getattr(before, key)
+                for value in (opened, after, current) for key in stable_fields)
+            or len(data) != before.st_size
+        ):
+            return result
+        result.update(
+            bytes=len(data),
+            mode="0600",
+            sha256=hashlib.sha256(data).hexdigest(),
+            png_signature=data.startswith(b"\x89PNG\r\n\x1a\n"),
+        )
+        if not result["png_signature"]:
+            return result
+        offset = 8
+        seen_header = seen_data = False
+        compressed = bytearray()
+        while offset + 12 <= len(data):
+            size = struct.unpack_from(">I", data, offset)[0]
+            end = offset + 12 + size
+            if end > len(data):
+                return result
+            kind = data[offset + 4:offset + 8]
+            payload = data[offset + 8:end - 4]
+            crc = struct.unpack_from(">I", data, end - 4)[0]
+            if zlib.crc32(kind + payload) != crc:
+                return result
+            if not seen_header:
+                if kind != b"IHDR" or size != 13:
+                    return result
+                width, height = struct.unpack_from(">II", payload)
+                if not width or not height:
+                    return result
+                result.update(width=width, height=height)
+                seen_header = True
+            elif kind == b"IHDR":
+                return result
+            if kind == b"IDAT" and size:
+                seen_data = True
+                compressed.extend(payload)
+            if kind == b"IEND":
+                if size != 0 or not seen_data or end != len(data):
+                    return result
+                decoder = zlib.decompressobj()
+                pixels = decoder.decompress(compressed, 64 * 1024 * 1024 + 1)
+                result["valid_png"] = (
+                    0 < len(pixels) <= 64 * 1024 * 1024 and decoder.eof
+                    and not decoder.unused_data and not decoder.unconsumed_tail
+                )
+                return result
+            offset = end
+    except (OSError, ValueError, struct.error, zlib.error):
+        pass
+    return result
 
 
 def environment(config: BenchmarkConfig) -> dict[str, Any]:
@@ -681,16 +765,16 @@ async def benchmark_backend(config: BenchmarkConfig, backend: str) -> dict[str, 
             elapsed, response, error = await measured_command(
                 name, params, backend, timeout=timeout
             )
+            if error is None and name == "screenshot":
+                details = file_check(Path(params["path"]))
+                if details["valid_png"]:
+                    screenshot_details.append({
+                        "sample": sample + 1, "latency_ms": round(elapsed, 3), **details,
+                    })
+                else:
+                    error = "screenshot_artifact_invalid"
             if error is None:
                 operation_samples[name].append(elapsed)
-                if name == "screenshot":
-                    screenshot_details.append(
-                        {
-                            "sample": sample + 1,
-                            "latency_ms": round(elapsed, 3),
-                            **file_check(Path(params["path"])),
-                        }
-                    )
             else:
                 operation_errors[name].append(
                     {"ms": elapsed, "error": error, "response": response}
@@ -700,6 +784,7 @@ async def benchmark_backend(config: BenchmarkConfig, backend: str) -> dict[str, 
         item["start_to_socket_ready_ms"]
         for item in cold
         if item.get("socket_ready_verified")
+        and item.get("returncode") == 0
         and item.get("start_to_socket_ready_ms") is not None
     ]
     return {
@@ -737,6 +822,67 @@ def _rss_sum(rows: object) -> int:
         for row in rows
         if isinstance(row, dict) and isinstance(row.get("rss_kb", 0), int)
     )
+
+
+def evaluate_quality(report: dict[str, Any], config: BenchmarkConfig) -> dict[str, Any]:
+    """Require every requested sample, valid artifacts, budgets, and cleanup."""
+    counts = {
+        "status": config.status_samples,
+        "text": config.text_samples,
+        "screenshot": config.screenshot_samples,
+    }
+    budgets = {"status": 300.0, "text": 2000.0, "screenshot": 4000.0}
+    checks: dict[str, bool] = {}
+    backends = report["backends"]
+    checks["requested_backends"] = (
+        len(backends) == len(config.backends) == len(set(config.backends))
+        and {item.get("backend") for item in backends} == set(config.backends)
+    )
+    for name in config.backends:
+        matches = [item for item in backends if item.get("backend") == name]
+        if len(matches) != 1:
+            continue
+        backend = matches[0]
+        cold = backend.get("cold_start_stats", {})
+        checks[f"{name}.cold_samples"] = (
+            cold.get("success_count") == config.cold_samples and cold.get("error_count") == 0
+        )
+        warm = backend.get("warm_start", {})
+        checks[f"{name}.warm_start"] = (
+            warm.get("returncode") == 0 and warm.get("socket_ready_verified") is True
+        )
+        page = backend.get("page_load", {})
+        checks[f"{name}.page_load"] = (
+            is_success(page.get("response")) and page.get("error") is None
+        )
+        for operation, count in counts.items():
+            values = backend.get("operations", {}).get(operation, {})
+            checks[f"{name}.{operation}.samples"] = (
+                values.get("success_count") == count and values.get("error_count") == 0
+                and not backend.get("operation_errors", {}).get(operation)
+            )
+            median = values.get("median_ms")
+            checks[f"{name}.{operation}.latency"] = (
+                type(median) in (float, int) and math.isfinite(median)
+                and 0 <= median <= budgets[operation]
+            )
+        screenshots = backend.get("screenshots", [])
+        checks[f"{name}.artifacts"] = (
+            len(screenshots) == config.screenshot_samples
+            and all(isinstance(item, dict) and item.get("valid_png") is True
+                    for item in screenshots)
+        )
+    cleanup = report.get("cleanup", {})
+    checks["daemon_cleanup"] = (
+        cleanup.get("socket_absent_after_stop") is True
+        and cleanup.get("pidfile_absent_after_stop") is True
+    )
+    return {
+        "status": "PASS" if all(checks.values()) else "FAIL",
+        "checks": checks,
+        "latency_budgets_ms": budgets,
+        "expected_samples": {"cold": config.cold_samples, **counts},
+    }
 
 
 def sanitize_report(report: dict[str, Any]) -> dict[str, Any]:
@@ -799,7 +945,9 @@ def sanitize_report(report: dict[str, Any]) -> dict[str, Any]:
                     "success": is_success(response),
                     "url": response_data.get("url"),
                     "title": response_data.get("title"),
-                    "error": backend.get("page_load", {}).get("error"),
+                    "error": (
+                        "page_load_failed" if backend.get("page_load", {}).get("error") else None
+                    ),
                 },
                 "rss_kb": {
                     "daemon": _rss_sum(rss.get("daemon_python")),
@@ -819,15 +967,15 @@ def sanitize_report(report: dict[str, Any]) -> dict[str, Any]:
                     ),
                     "all_valid_png": bool(screenshots)
                     and all(
-                        item.get("png_signature") is True
+                        isinstance(item, dict) and item.get("valid_png") is True
                         for item in screenshots
-                        if isinstance(item, dict)
                     ),
                 },
             }
         )
     return {
-        "schema_version": 1,
+        "schema_version": 2,
+        "quality": report.get("quality", {"status": "NOT_EVALUATED"}),
         "environment": environment_summary,
         "backends": backend_summaries,
         "privacy": {
@@ -855,7 +1003,9 @@ def parse_args(argv: Sequence[str] | None = None) -> BenchmarkConfig:
     parser.add_argument(
         "--output", type=Path, default=Path.home() / ".cache" / "termuinator" / "benchmark"
     )
-    parser.add_argument("--socket", dest="socket_path", type=Path, default=Path.home() / ".tbp" / "daemon.sock")
+    parser.add_argument(
+        "--socket", dest="socket_path", type=Path, default=Path.home() / ".tbp" / "daemon.sock"
+    )
     parser.add_argument("--pidfile", type=Path, default=Path.home() / ".tbp" / "daemon.pid")
     parser.add_argument("--url", default="https://example.com")
     parser.add_argument("--backend", action="append", choices=("firefox", "chromium"))
@@ -927,7 +1077,7 @@ async def run_benchmark(config: BenchmarkConfig) -> tuple[Path, Path, dict[str, 
         for backend in config.backends:
             report["backends"].append(await benchmark_backend(config, backend))
     finally:
-        stop_daemon(config)
+        report["cleanup"] = stop_daemon(config)
     closing_authority = authorize_benchmark(config)
     if closing_authority != authority:
         raise BenchmarkAuthorityError(
@@ -935,6 +1085,7 @@ async def run_benchmark(config: BenchmarkConfig) -> tuple[Path, Path, dict[str, 
         )
     raw_path = config.output / "baseline-report.json"
     summary_path = config.output / "baseline-summary.json"
+    report["quality"] = evaluate_quality(report, config)
     summary = sanitize_report(report)
     write_private_json(raw_path, report)
     write_private_json(summary_path, summary)
@@ -953,7 +1104,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     print(f"raw_report={raw_path}")
     print(f"sanitized_summary={summary_path}")
     print(json.dumps(summary, ensure_ascii=False, indent=2))
-    return 0
+    return 0 if summary.get("quality", {}).get("status") == "PASS" else 1
 
 
 if __name__ == "__main__":

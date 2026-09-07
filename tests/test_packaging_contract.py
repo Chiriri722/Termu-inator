@@ -162,6 +162,14 @@ class InstallationDocumentationTests(unittest.TestCase):
         self.assertIn("newly sealed output identity", benchmark)
         self.assertNotIn("~/.venvs/termuinator-mcp-v1/bin/python", benchmark)
 
+    def test_benchmark_handoff_keeps_output_in_child_home_and_requires_quality(self) -> None:
+        guide = (ROOT / "docs" / "benchmark-quality-handoff.md").read_text(encoding="utf-8")
+        self.assertIn('TFV_BENCHMARK="$TFV_BENCH_RUNTIME/h/benchmark"', guide)
+        self.assertIn("assert output == paths['home'] / 'benchmark'", guide)
+        self.assertIn("`quality.status`", guide)
+        self.assertIn("not an authorization to rerun v0.2.18", guide)
+        self.assertIn("quality PASS or quality FAIL", guide)
+
     def test_lifecycle_and_troubleshooting_guide_is_explicit_and_safe(self) -> None:
         guide = (ROOT / "docs" / "troubleshooting.md").read_text(
             encoding="utf-8"

@@ -155,4 +155,9 @@ versions before creating a new non-reusable output identity, then repeats that
 check before publishing its reports. A native Termux package update after
 canonical PASS therefore requires a newly sealed canonical run rather than a
 delayed benchmark against the old manifest.
+For an isolated run, the benchmark output must be below the child HOME.
+Benchmark approval also requires exit 0 and the version 2 summary's
+`quality.status: PASS`; report publication alone is not success. Exit 1 means
+quality FAIL with preserved evidence, while exit 2 means authority or output
+preflight rejection. See the [benchmark handoff](benchmark-quality-handoff.md).
 Keep public-site navigation and DNS results as non-gating smoke evidence.

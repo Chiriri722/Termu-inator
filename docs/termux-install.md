@@ -277,6 +277,7 @@ harness with the exact wheel, checksum-valid manifest, environment, and network
 evidence:
 
 ```bash
+umask 077
 RC_VENV="$HOME/.venvs/termuinator-mcp-COMMIT12"
 RC_WHEEL="$HOME/.cache/termuinator/wheels/COMMIT12/termux_browser_pilot-0.1.0a1-py3-none-any.whl"
 RC_MANIFEST="$HOME/.cache/tfv/COMMIT12/final-verify-manifest.json"
@@ -300,6 +301,20 @@ newly sealed output identity; do not reuse or overwrite the old output.
 Raw process diagnostics and the sanitized summary are written separately below
 `~/.cache/termuinator/benchmark/`, with directory mode 0700 and file mode 0600.
 Only the sanitized summary is suitable for repository documentation.
+
+When using an isolated HOME, put `--output` inside that **child HOME**, not
+inside the operator's original HOME. The harness rejects an outside path
+before creating output or starting a daemon. Do not widen the runtime's
+allowed directory to make an old handoff work. See the
+[benchmark quality handoff](benchmark-quality-handoff.md) for the corrected layout.
+
+The version 2 summary includes `quality.status` and fixed boolean checks.
+Exit 0 requires `quality.status: PASS`: every requested sample must succeed,
+screenshots must pass private PNG validation, all operation medians must meet
+the existing budgets, and the final daemon socket and pidfile must be absent.
+Exit 1 preserves a quality-FAIL report; exit 2 rejects invalid authority or
+output preflight. An authority change during measurement still prevents report
+publication. Canonical PASS alone does not imply benchmark quality PASS.
 
 ## Existing Environments
 
