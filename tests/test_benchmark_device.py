@@ -18,6 +18,8 @@ import unittest
 from unittest.mock import AsyncMock, patch
 import zlib
 
+from src import client
+
 from scripts.benchmark_device import (
     BenchmarkAuthorityError,
     BenchmarkConfig,
@@ -444,8 +446,8 @@ class CanonicalAuthorityTests(unittest.TestCase):
                 wheel=root / "candidate.whl",
                 canonical_manifest=root / "final-verify-manifest.json",
                 output=root / "benchmark",
-                socket_path=root / "daemon.sock",
-                pidfile=root / "daemon.pid",
+                socket_path=root / ".tbp/daemon.sock",
+                pidfile=root / ".tbp/daemon.pid",
                 url="https://example.com",
                 backends=("firefox",),
                 cold_samples=1,
@@ -473,6 +475,8 @@ class CanonicalAuthorityTests(unittest.TestCase):
                 ),
                 patch("scripts.benchmark_device.stop_daemon"),
                 patch.dict(os.environ, {"HOME": str(root)}),
+                patch.object(client, "SOCKET_PATH", str(config.socket_path)),
+                patch.object(client, "PID_PATH", str(config.pidfile)),
             ):
                 with self.assertRaisesRegex(
                     BenchmarkAuthorityError,
@@ -574,11 +578,17 @@ class BenchmarkQualityTests(unittest.TestCase):
         self.config = BenchmarkConfig(
             project_root=ROOT, tbp=Path(sys.executable), wheel=self.root / "wheel",
             canonical_manifest=self.root / "manifest", output=self.home / "results",
-            socket_path=self.home / "daemon.sock", pidfile=self.home / "daemon.pid",
+            socket_path=self.home / ".tbp/daemon.sock", pidfile=self.home / ".tbp/daemon.pid",
             url="http://127.0.0.1/forms", backends=("firefox",), cold_samples=1,
             status_samples=1, text_samples=1, screenshot_samples=1, settle_seconds=0,
             network_kind="fixture", tailscale_termux_state="unchanged",
         )
+        for manager in (
+            patch.object(client, "SOCKET_PATH", str(self.config.socket_path)),
+            patch.object(client, "PID_PATH", str(self.config.pidfile)),
+        ):
+            manager.start()
+            self.addCleanup(manager.stop)
 
     @staticmethod
     def png() -> bytes:
@@ -780,7 +790,8 @@ class BenchmarkQualityTests(unittest.TestCase):
             patch("scripts.benchmark_device.start_daemon", return_value={
                 "returncode": 0, "socket_ready_verified": True,
                 "start_to_socket_ready_ms": 1.0}),
-            patch("scripts.benchmark_device.stop_daemon"),
+            patch("scripts.benchmark_device.stop_daemon", return_value={
+                "socket_absent_after_stop": True, "pidfile_absent_after_stop": True}),
             patch("scripts.benchmark_device.ps_snapshot", return_value=ps),
             patch("scripts.benchmark_device.measured_command", new_callable=AsyncMock,
                   return_value=(1.0, {"success": True}, None)),

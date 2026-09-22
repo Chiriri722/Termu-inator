@@ -285,7 +285,7 @@ RC_MANIFEST="$HOME/.cache/tfv/COMMIT12/final-verify-manifest.json"
   --tbp "$RC_VENV/bin/tbp" \
   --wheel "$RC_WHEEL" \
   --canonical-manifest "$RC_MANIFEST" \
-  --output "$HOME/.cache/termuinator/benchmark/COMMIT12" \
+  --isolated-runtime "$HOME/.cache/tfb/COMMIT12" \
   --tailscale-termux-state "Excluding mode; Termux OFF" \
   --network-kind "current Tailscale path"
 ```
@@ -299,7 +299,7 @@ manifest, preserve both environments and run a new canonical gate under a
 newly sealed output identity; do not reuse or overwrite the old output.
 
 Raw process diagnostics and the sanitized summary are written separately below
-`~/.cache/termuinator/benchmark/`, with directory mode 0700 and file mode 0600.
+`~/.cache/tfb/COMMIT12/h/benchmark/`, with directory mode 0700 and file mode 0600.
 Only the sanitized summary is suitable for repository documentation.
 
 When using an isolated HOME, put `--output` inside that **child HOME**, not
@@ -307,6 +307,12 @@ inside the operator's original HOME. The harness rejects an outside path
 before creating output or starting a daemon. Do not widen the runtime's
 allowed directory to make an old handoff work. See the
 [benchmark quality handoff](benchmark-quality-handoff.md) for the corrected layout.
+
+The recommended `--isolated-runtime` option derives these paths automatically.
+It launches one child without changing the operator's HOME and refuses an
+existing runtime identity. Do not add `--output`, `--socket`, or `--pidfile` to
+that invocation. The child also rejects pre-existing `.tbp` state before sending
+any stop command. A fresh benchmark must not stop or reuse a production daemon.
 
 The version 2 summary includes `quality.status` and fixed boolean checks.
 Exit 0 requires `quality.status: PASS`: every requested sample must succeed,

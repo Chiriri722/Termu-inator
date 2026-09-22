@@ -154,6 +154,7 @@ class InstallationDocumentationTests(unittest.TestCase):
         )
         self.assertIn('--tbp "$RC_VENV/bin/tbp"', benchmark)
         self.assertIn('--wheel "$RC_WHEEL"', benchmark)
+        self.assertIn('--isolated-runtime "$HOME/.cache/tfb/COMMIT12"', benchmark)
         self.assertIn(
             '--canonical-manifest "$RC_MANIFEST"',
             benchmark,
@@ -169,6 +170,9 @@ class InstallationDocumentationTests(unittest.TestCase):
         self.assertIn("`quality.status`", guide)
         self.assertIn("not an authorization to rerun v0.2.18", guide)
         self.assertIn("quality PASS or quality FAIL", guide)
+        self.assertIn('--isolated-runtime "$HOME/.cache/tfb/$TFV_SHORT"', guide)
+        self.assertIn("execution_failure.reason", guide)
+        self.assertIn("implicit daemon startup", guide)
 
     def test_lifecycle_and_troubleshooting_guide_is_explicit_and_safe(self) -> None:
         guide = (ROOT / "docs" / "troubleshooting.md").read_text(

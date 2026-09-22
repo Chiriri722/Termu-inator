@@ -54,10 +54,19 @@ class BenchmarkConfig:
     settle_seconds: float
     network_kind: str
     tailscale_termux_state: str
+    isolated_runtime: Path | None = None
 
 
 class BenchmarkAuthorityError(RuntimeError):
     """A bounded failure that keeps a stale canonical benchmark closed."""
+
+
+class BenchmarkExecutionError(RuntimeError):
+    """A fixed lifecycle failure that stops measurement but preserves a FAIL report."""
+
+    def __init__(self, reason: str, evidence: dict[str, Any]):
+        super().__init__(reason)
+        self.evidence = evidence
 
 
 _BENCHMARK_IDENTITY_FIELDS = (
@@ -440,12 +449,19 @@ def stop_daemon(config: BenchmarkConfig) -> dict[str, Any]:
     result = run_capture([config.tbp, "stop", "--json"], timeout=45)
     deadline = time.monotonic() + 15
     while time.monotonic() < deadline:
-        if not config.socket_path.exists() and not config.pidfile.exists():
+        if not os.path.lexists(config.socket_path) and not os.path.lexists(config.pidfile):
             break
         time.sleep(0.1)
-    result["socket_absent_after_stop"] = not config.socket_path.exists()
-    result["pidfile_absent_after_stop"] = not config.pidfile.exists()
+    result["socket_absent_after_stop"] = not os.path.lexists(config.socket_path)
+    result["pidfile_absent_after_stop"] = not os.path.lexists(config.pidfile)
     return result
+
+
+def require_stopped(config: BenchmarkConfig) -> None:
+    result = stop_daemon(config)
+    if (result.get("socket_absent_after_stop") is not True
+            or result.get("pidfile_absent_after_stop") is not True):
+        raise BenchmarkExecutionError("unsafe_cleanup_state", {"cleanup": result})
 
 
 def start_daemon(config: BenchmarkConfig, backend: str) -> dict[str, Any]:
@@ -500,7 +516,9 @@ async def measured_command(
 
     started = time.perf_counter()
     try:
-        response = await send_command(action, params, timeout=timeout, browser=backend)
+        response = await send_command(
+            action, params, timeout=timeout, browser=backend, autostart=False
+        )
         elapsed = (time.perf_counter() - started) * 1000
         error = None if is_success(response) else json.dumps(response, ensure_ascii=False)
         return elapsed, response, error
@@ -717,14 +735,20 @@ async def benchmark_backend(config: BenchmarkConfig, backend: str) -> dict[str, 
     backend_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
     cold: list[dict[str, Any]] = []
     for sample in range(config.cold_samples):
-        stop_daemon(config)
+        require_stopped(config)
         result = start_daemon(config, backend)
         result["sample"] = sample + 1
         cold.append(result)
-        stop_daemon(config)
+        require_stopped(config)
+        if result.get("returncode") != 0 or result.get("socket_ready_verified") is not True:
+            raise BenchmarkExecutionError("cold_start_failed", {"cold_start_samples": cold})
 
-    stop_daemon(config)
+    require_stopped(config)
     warm_start = start_daemon(config, backend)
+    if warm_start.get("returncode") != 0 or warm_start.get("socket_ready_verified") is not True:
+        raise BenchmarkExecutionError(
+            "warm_start_failed", {"cold_start_samples": cold, "warm_start": warm_start}
+        )
     load_ms, load_response, load_error = await measured_command(
         "goto", {"url": config.url, "timeout": 45}, backend, timeout=60
     )
@@ -833,6 +857,7 @@ def evaluate_quality(report: dict[str, Any], config: BenchmarkConfig) -> dict[st
     }
     budgets = {"status": 300.0, "text": 2000.0, "screenshot": 4000.0}
     checks: dict[str, bool] = {}
+    checks["execution_completed"] = report.get("execution_failure") is None
     backends = report["backends"]
     checks["requested_backends"] = (
         len(backends) == len(config.backends) == len(set(config.backends))
@@ -888,6 +913,17 @@ def evaluate_quality(report: dict[str, Any], config: BenchmarkConfig) -> dict[st
 def sanitize_report(report: dict[str, Any]) -> dict[str, Any]:
     """Remove local paths, PIDs, process arguments, and raw command output."""
 
+    failure = report.get("execution_failure")
+    public_failure = None
+    if isinstance(failure, dict):
+        reason = failure.get("reason")
+        backend = failure.get("backend")
+        public_failure = {
+            "backend": backend if backend in ("firefox", "chromium") else None,
+            "reason": reason if reason in (
+                "unsafe_cleanup_state", "cold_start_failed", "warm_start_failed"
+            ) else "execution_failed",
+        }
     raw_environment = report.get("environment", {})
     device = raw_environment.get("device", {})
     browsers = {
@@ -928,6 +964,16 @@ def sanitize_report(report: dict[str, Any]) -> dict[str, Any]:
     backend_summaries: list[dict[str, Any]] = []
     for backend in report.get("backends", []):
         operations = backend.get("operations", {})
+        error_counts = {}
+        for name in ("status", "text", "screenshot"):
+            counts = {"artifact_invalid": 0, "command_failed": 0}
+            for item in backend.get("operation_errors", {}).get(name, []):
+                category = (
+                    "artifact_invalid" if isinstance(item, dict)
+                    and item.get("error") == "screenshot_artifact_invalid" else "command_failed"
+                )
+                counts[category] += 1
+            error_counts[name] = counts
         rss = backend.get("rss", {})
         screenshots = backend.get("screenshots", [])
         response = backend.get("page_load", {}).get("response")
@@ -940,6 +986,7 @@ def sanitize_report(report: dict[str, Any]) -> dict[str, Any]:
                     name: _summary_stats(operations.get(name, {}))
                     for name in ("status", "text", "screenshot")
                 },
+                "operation_error_counts": error_counts,
                 "page_load": {
                     "latency_ms": backend.get("page_load", {}).get("latency_ms"),
                     "success": is_success(response),
@@ -976,6 +1023,7 @@ def sanitize_report(report: dict[str, Any]) -> dict[str, Any]:
     return {
         "schema_version": 2,
         "quality": report.get("quality", {"status": "NOT_EVALUATED"}),
+        "execution_failure": public_failure,
         "environment": environment_summary,
         "backends": backend_summaries,
         "privacy": {
@@ -1000,13 +1048,10 @@ def parse_args(argv: Sequence[str] | None = None) -> BenchmarkConfig:
     parser.add_argument("--tbp", type=Path, default=None)
     parser.add_argument("--wheel", type=Path, required=True)
     parser.add_argument("--canonical-manifest", type=Path, required=True)
-    parser.add_argument(
-        "--output", type=Path, default=Path.home() / ".cache" / "termuinator" / "benchmark"
-    )
-    parser.add_argument(
-        "--socket", dest="socket_path", type=Path, default=Path.home() / ".tbp" / "daemon.sock"
-    )
-    parser.add_argument("--pidfile", type=Path, default=Path.home() / ".tbp" / "daemon.pid")
+    parser.add_argument("--isolated-runtime", type=Path)
+    parser.add_argument("--output", type=Path)
+    parser.add_argument("--socket", dest="socket_path", type=Path)
+    parser.add_argument("--pidfile", type=Path)
     parser.add_argument("--url", default="https://example.com")
     parser.add_argument("--backend", action="append", choices=("firefox", "chromium"))
     parser.add_argument("--cold-samples", type=int, default=3)
@@ -1017,6 +1062,8 @@ def parse_args(argv: Sequence[str] | None = None) -> BenchmarkConfig:
     parser.add_argument("--network-kind", default="unspecified")
     parser.add_argument("--tailscale-termux-state", default="unspecified")
     args = parser.parse_args(argv)
+    if args.backend and len(args.backend) != len(set(args.backend)):
+        parser.error("each backend may be measured only once per output identity")
 
     tbp_value = args.tbp or os.environ.get("TERMUINATOR_TBP") or shutil.which("tbp")
     if not tbp_value:
@@ -1043,14 +1090,30 @@ def parse_args(argv: Sequence[str] | None = None) -> BenchmarkConfig:
     )
     if any(value < 1 for value in counts) or args.settle_seconds < 0:
         parser.error("sample counts must be positive and settle seconds must be non-negative")
+    runtime = (
+        Path(os.path.abspath(os.fspath(args.isolated_runtime.expanduser())))
+        if args.isolated_runtime is not None else None
+    )
+    if runtime is not None and any(
+        item is not None for item in (args.output, args.socket_path, args.pidfile)
+    ):
+        parser.error("--isolated-runtime derives --output, --socket and --pidfile")
+    home = runtime / "h" if runtime is not None else Path.home()
+    output = args.output or (
+        home / "benchmark" if runtime is not None else home / ".cache/termuinator/benchmark"
+    )
     return BenchmarkConfig(
         project_root=project_root,
         tbp=tbp,
         wheel=wheel,
         canonical_manifest=canonical_manifest,
-        output=Path(os.path.abspath(os.fspath(args.output.expanduser()))),
-        socket_path=args.socket_path.expanduser().resolve(),
-        pidfile=args.pidfile.expanduser().resolve(),
+        output=Path(os.path.abspath(os.fspath(output.expanduser()))),
+        socket_path=Path(os.path.abspath(os.fspath(
+            (args.socket_path or home / ".tbp/daemon.sock").expanduser()
+        ))),
+        pidfile=Path(os.path.abspath(os.fspath(
+            (args.pidfile or home / ".tbp/daemon.pid").expanduser()
+        ))),
         url=args.url,
         backends=tuple(args.backend or ("firefox", "chromium")),
         cold_samples=args.cold_samples,
@@ -1060,11 +1123,66 @@ def parse_args(argv: Sequence[str] | None = None) -> BenchmarkConfig:
         settle_seconds=args.settle_seconds,
         network_kind=args.network_kind,
         tailscale_termux_state=args.tailscale_termux_state,
+        isolated_runtime=runtime,
     )
+
+
+def validate_daemon_paths(config: BenchmarkConfig) -> None:
+    """CLI, cached client constants and probes must select the same daemon."""
+    from src import client
+
+    runtime = Path.home() / ".tbp"
+    expected = (runtime / "daemon.sock", runtime / "daemon.pid")
+    if (
+        (config.socket_path, config.pidfile) != expected
+        or (Path(client.SOCKET_PATH), Path(client.PID_PATH)) != expected
+        or runtime.is_symlink()
+        or any(path.is_symlink() for path in expected)
+    ):
+        raise BenchmarkAuthorityError("benchmark daemon paths differ from current HOME")
+    if os.path.lexists(runtime):
+        raise BenchmarkAuthorityError("benchmark runtime already exists; use a fresh isolated HOME")
+
+
+def run_isolated_benchmark(config: BenchmarkConfig) -> int:
+    """Prepare a fresh child HOME and launch once; never mutate the parent's HOME."""
+    from scripts.final_verify import VerificationFailure, _child_environment
+
+    authorize_benchmark(config)
+    if config.isolated_runtime is None:
+        raise BenchmarkAuthorityError("isolated runtime is required")
+    prepare_benchmark_output(config.isolated_runtime)
+    try:
+        environ, paths = _child_environment(config.isolated_runtime, owner_scope="benchmark")
+    except VerificationFailure as exc:
+        raise BenchmarkAuthorityError("isolated runtime could not be prepared") from exc
+    output = paths["home"] / "benchmark"
+    argv = [
+        sys.executable, os.fspath(config.project_root / "scripts/benchmark_device.py"),
+        "--project-root", os.fspath(config.project_root), "--tbp", os.fspath(config.tbp),
+        "--wheel", os.fspath(config.wheel),
+        "--canonical-manifest", os.fspath(config.canonical_manifest),
+        "--output", os.fspath(output),
+        "--url", config.url, "--network-kind", config.network_kind,
+        "--tailscale-termux-state", config.tailscale_termux_state,
+        "--cold-samples", str(config.cold_samples), "--status-samples", str(config.status_samples),
+        "--text-samples", str(config.text_samples),
+        "--screenshot-samples", str(config.screenshot_samples),
+        "--settle-seconds", str(config.settle_seconds),
+    ]
+    for backend in config.backends:
+        argv.extend(["--backend", backend])
+    try:
+        return subprocess.run(
+            argv, cwd=config.project_root, env=environ, umask=0o077, check=False,
+        ).returncode
+    except OSError as exc:
+        raise BenchmarkAuthorityError("isolated benchmark could not be launched") from exc
 
 
 async def run_benchmark(config: BenchmarkConfig) -> tuple[Path, Path, dict[str, Any]]:
     authority = authorize_benchmark(config)
+    validate_daemon_paths(config)
     prepare_benchmark_output(config.output)
     report: dict[str, Any] = {
         "environment": {
@@ -1076,6 +1194,10 @@ async def run_benchmark(config: BenchmarkConfig) -> tuple[Path, Path, dict[str, 
     try:
         for backend in config.backends:
             report["backends"].append(await benchmark_backend(config, backend))
+    except BenchmarkExecutionError as exc:
+        report["execution_failure"] = {
+            "backend": backend, "reason": str(exc), "evidence": exc.evidence,
+        }
     finally:
         report["cleanup"] = stop_daemon(config)
     closing_authority = authorize_benchmark(config)
@@ -1097,6 +1219,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     sys.path.insert(0, os.fspath(config.project_root))
     os.chdir(config.project_root)
     try:
+        if config.isolated_runtime is not None:
+            return run_isolated_benchmark(config)
         raw_path, summary_path, summary = asyncio.run(run_benchmark(config))
     except BenchmarkAuthorityError as exc:
         print(f"benchmark_authority_error={exc}", file=sys.stderr)

@@ -156,6 +156,9 @@ check before publishing its reports. A native Termux package update after
 canonical PASS therefore requires a newly sealed canonical run rather than a
 delayed benchmark against the old manifest.
 For an isolated run, the benchmark output must be below the child HOME.
+Use `--isolated-runtime` to derive the environment/output together and preserve
+the operator's running daemon. The measurement client never implicitly restarts
+a failed daemon, and failed transition cleanup closes the remaining run.
 Benchmark approval also requires exit 0 and the version 2 summary's
 `quality.status: PASS`; report publication alone is not success. Exit 1 means
 quality FAIL with preserved evidence, while exit 2 means authority or output

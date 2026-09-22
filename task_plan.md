@@ -19,7 +19,19 @@ Termux/Android에서 실제 Firefox·Chromium을 제어하되, 기존의 방대�
 
 ## Next Step
 
-Current follow-up (2026-09-07): v0.2.18 canonical PASS is checksum-verified,
+2026-09-22 follow-up: clean base is now `0a295fe4cdf94bc185e7f75f932043b017beac78`
+(`v.0.2.19`), containing the previous nine-file fix. The twelve-path follow-up
+is locally complete: lifecycle/isolation guards, safe failure evidence, 457-test
+matrix, and fresh wheel/install binding. Next: obtain the user-owned clean commit,
+bind its exact wheel and scope, and seal new one-shot S22U instructions. See
+`docs/device-review-v0218-followup-2026-09-22.md`. Do not rerun consumed device
+identities, install remote access, or commit/push automatically.
+The later 2026-09-22 handoff check confirmed local and remote HEAD are still
+that base SHA, with all twelve follow-up paths uncommitted. The handoff now
+includes an explicit hold message; do not substitute the base SHA for the
+missing new candidate SHA.
+
+Previous follow-up (2026-09-07): v0.2.18 canonical PASS is checksum-verified,
 but benchmark screenshots failed 0/5 on both backends. Resume benchmark
 hardening, not browser replacement. Camofox and Lightpanda remain deferred.
 The isolated-HOME preflight, private PNG validation, quality-status/exit contract,
@@ -129,6 +141,16 @@ handoff를 seal하는 것이다. 새 clean commit의 양 backend PASS 및 `bench
 benchmark나 RC 승인을 진행하지 않는다.
 
 ## Current Phase
+
+Active 2026-09-22 — Benchmark execution safety (local implementation complete)
+
+- [x] Classify four attachments and confirm clean v0.2.19 base.
+- [x] Reproduce remaining lifecycle/isolation/reporting gaps with failing tests.
+- [x] Implement bounded fixes and executable isolated-run support.
+- [x] Run focused/full tests and update the device handoff.
+- [ ] New clean user commit, sealed wheel/output identity, and S22U verification.
+
+Previous follow-up:
 
 Active follow-up — Benchmark artifact and quality contract (local implementation complete)
 

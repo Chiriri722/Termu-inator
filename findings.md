@@ -1,5 +1,15 @@
 # Findings: Termu-inator Modernization
 
+## 2026-09-22 — Evidence scope and execution follow-up
+
+- Clean HEAD is `0a295fe4cdf94bc185e7f75f932043b017beac78` (`v.0.2.19`); its nine paths match the previous local repair. The supplied S22U v0.2.18 report is historical canonical PASS / benchmark screenshot FAIL, not a new v0.2.19 device result.
+- `results.json` concerns the separate study_checker plugin. `S22U-STEPS1-4-REPORT.ko.md` concerns Buzz TLS/profile verification. Neither authorizes or proves Termu-inator browser behavior.
+- The safe-access guide is a proposal, not observed SSH installation or permission to change services/keys/network settings. No remote command is in scope for this local continuation.
+- Source follow-up: benchmark samples call legacy `send_command()`, whose implicit `ensure_daemon()` can relaunch a crashed daemon during measurement. Intermediate stop results are discarded, while final cleanup alone determines quality. `--socket`/`--pidfile` are used for probes but do not select the legacy CLI/client target. These need deterministic regression coverage before another device handoff.
+- The follow-up closes those gaps with a benchmark-only auto-start opt-out, mandatory transition cleanup/startup checks, exact HOME/client/probe path agreement, and pre-existing runtime rejection before any stop command. `--isolated-runtime` reuses the canonical HOME/XDG/TMP helper, so output and transport share one fresh identity without changing the operator's HOME.
+- Startup/cleanup failures retain raw evidence only in the owner-private report. The public summary exposes fixed lifecycle reasons and per-operation `artifact_invalid`/`command_failed` counts, not exception text or response bodies. This distinguishes failure boundaries without claiming a browser-process crash.
+- The fresh macOS wheel and installed-source bindings both verify 58 files after the `src/client.py` change. A new wheel is required; the historical v0.2.18 bytes cannot represent this patch. The temporary UV installation's empty PEP 610 `archive_info` is not acceptable canonical provenance; the documented pip install yields the required hash without weakening the verifier.
+
 ## 2026-09-07 — v0.2.18 benchmark quality follow-up
 
 - Implemented preflight by reusing the daemon's actual `validate_path()` contract. A regression passes a generated PNG through the real daemon screenshot handler in the corrected isolated layout; the browser capture boundary alone is substituted.

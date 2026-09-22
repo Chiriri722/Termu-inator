@@ -1,5 +1,18 @@
 # Progress: Termu-inator Modernization
 
+## 2026-09-22 — v0.2.19 follow-up locally complete
+
+- Handoff clarification: a fresh read-only `git ls-remote origin HEAD refs/heads/main` and local HEAD both returned `0a295fe4cdf94bc185e7f75f932043b017beac78`; the twelve-path follow-up remains uncommitted. Added an explicit base-versus-candidate status and copyable Hermes hold/correction message. No candidate SHA was fabricated, and no commit/push or device run was performed. A sealed execution instruction requires the new user-owned commit first.
+- Read and classified the four supplied documents; no private device raw log, new device run, SSH installation, or unrelated plugin/Buzz change is claimed.
+- Confirmed clean exact v0.2.19 base and the previous nine-file patch. Continuing with test-first lifecycle/isolation checks and a reproducible handoff path.
+- The docs skill's referenced shared style guide remains absent; available skill guidance and repository conventions are used. Some combined reads were truncated; relevant portions were reread in bounded chunks.
+- Test-first RED: the first seven lifecycle/isolation cases reproduced ignored transition cleanup, commands after startup failure, implicit auto-start, mismatched probe/client paths, dangling-socket false absence, and the missing isolation option. Later RED cases covered existing-runtime preservation, duplicate backends, missing public failure categories, and discarded private startup evidence. All fourteen new lifecycle tests are GREEN.
+- Changes reuse the canonical child-environment helper and legacy transport; no new runtime dependency, browser engine, or remote access layer. Default CLI auto-start is preserved, but benchmark-owned samples disable it. Unsafe cleanup/startup stops remaining measurements; private evidence and final cleanup are retained.
+- Final focused benchmark/lifecycle/packaging suite: 70/70 PASS. Warning-as-error full matrix: Python 3.14.7 with MCP 1.29.0/websockets 17.0.1, 457/457 PASS; Python 3.11.15 and 3.12.13, 457 tests OK with the existing eight optional-MCP skips each. Socket tests ran with approved local permissions; no extra skips. Compileall, shell syntax, and diff-check PASS.
+- Built a pre-commit wheel from a clean tracked-source staging directory, not the ignored checkout build outputs. Fresh pip wheel installation, `pip check`, CLI version, all 58 wheel/installed-source files, entrypoints, RECORD/license/metadata, and PEP 610 wheel hash binding PASS. The local wheel is 280661 bytes; SHA-256 `d308358ef02670286c01e2041b3b82a495b47b64356909bd05f465c2e1780f36`; source-tree digest `9be6acf4d12d1850823ef2f0051c64ad7af6cc6b627fe0accc9d5609d8c727a1`. These are local macOS checks, not a sealed candidate or Termux ABI/device proof.
+- Tooling notes: offline build-tool installation could not find uncached `build`/`wheel`; approved installation was confined to a fresh temporary venv. An initial installed-metadata probe found checkout egg-info; using the verifier's existing venv-scoped distribution helper corrected the probe. UV's local-wheel installation omitted archive hashes, which the canonical provenance check correctly rejected; reinstalling the same bytes with the documented pip path produced valid PEP 610 hashes. No provenance check was relaxed. Yarn/Prettier is absent and was not installed.
+- Updated the twelve-path scope, evidence review, plan, and executable isolation handoff. No S22U execution, device environment change, commit, push, registration, or production cutover. A new user-owned clean commit and sealed identity remain required.
+
 ## 2026-09-07 — Benchmark hardening resumed
 
 - Completed nine-file harness/test/documentation patch; no `src/`, dependency, canonical verifier, sealed bundle, or device changes.

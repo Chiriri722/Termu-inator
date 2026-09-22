@@ -72,12 +72,13 @@ async def ensure_daemon(browser="firefox"):
     )
 
 
-async def send_command(action, params=None, timeout=120, browser="firefox"):
+async def send_command(action, params=None, timeout=120, browser="firefox", *, autostart=True):
     """Send command to daemon and return response dict.
 
-    Auto-starts daemon if not running.
+    Auto-starts daemon unless explicitly disabled by a lifecycle-owning caller.
     """
-    await ensure_daemon(browser=browser)
+    if autostart:
+        await ensure_daemon(browser=browser)
 
     reader, writer = await asyncio.open_unix_connection(
         SOCKET_PATH, limit=32 * 1024 * 1024)  # 32MB limit for full-page screenshots
