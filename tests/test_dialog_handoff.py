@@ -117,15 +117,19 @@ class SensitiveHandoffServiceTests(unittest.IsolatedAsyncioTestCase):
         assert status.active_tab_id is not None
         assert status.active_page_id is not None
         assert status.page_revision is not None
-        observation = await service.observe(
-            session_id=started.session_id,
-            tab_id=status.active_tab_id,
-            page_id=status.active_page_id,
-            expected_revision=status.page_revision,
-            include_screenshot=False,
-            include_accessibility=False,
-            text_limit=1_000,
-        )
+        with self.assertRaises(TermuinatorError) as paused:
+            await service.observe(
+                session_id=started.session_id,
+                tab_id=status.active_tab_id,
+                page_id=status.active_page_id,
+                expected_revision=status.page_revision,
+                include_screenshot=False,
+                include_accessibility=False,
+                text_limit=1_000,
+            )
+        self.assertEqual(paused.exception.code, ErrorCode.SESSION_PAUSED)
+        # Inspect internal challenge state, not a public confidential response.
+        observation = service._active.observation.last_observation
         return started.session_id, observation
 
     async def test_password_or_otp_field_pauses_remote_control_without_value_capture(self) -> None:

@@ -120,14 +120,14 @@ class Pilot:
         self._lock.acquire()
         try:
             result = await self._browser.start()
+            await self._init_session(result)
+        except BaseException as start_error:
             try:
-                await self._init_session(result)
-            except Exception:
-                # Clean up browser/Xvfb if session init fails
-                await self._browser.stop()
-                raise
-        except Exception:
-            self._lock.release()
+                await self.stop()
+            except (Exception, asyncio.CancelledError):
+                # Keep the session/process handles and lock for owner cleanup.
+                if hasattr(start_error, "add_note"):
+                    start_error.add_note("Owned startup cleanup is incomplete")
             raise
         return self
 
@@ -194,6 +194,8 @@ class Pilot:
             save_session: If a path is given, save cookies to that file
                 before shutting down. Ensures session persistence.
         """
+        stop_error = None
+        cancelled = False
         # Save session state before closing CDP
         if isinstance(save_session, str) and save_session and self.cookies and self._session:
             try:
@@ -202,15 +204,19 @@ class Pilot:
                 else:
                     await self.cookies.save(save_session)
                 logger.info("Session saved to %s", save_session)
+            except asyncio.CancelledError:
+                cancelled = True
             except Exception as e:
                 logger.warning("Error saving session: %s", e)
 
-        # Stop network tracker
+        # Stop independent resources even if one of them cannot be closed.
         try:
             if self.network:
                 await self.network.stop()
-        except Exception as e:
-            logger.warning("Error stopping network tracker: %s", e)
+        except asyncio.CancelledError:
+            cancelled = True
+        except Exception as exc:
+            stop_error = exc
 
         # Close browser session
         try:
@@ -219,16 +225,24 @@ class Pilot:
                 # For Firefox: also delete WebDriver session (stops Firefox)
                 if self._browser_type == "firefox" and hasattr(self._session, 'delete_session'):
                     await self._session.delete_session()
-        except Exception as e:
-            logger.warning("Error closing session during stop: %s", e)
+        except asyncio.CancelledError:
+            cancelled = True
+        except Exception as exc:
+            stop_error = stop_error or exc
         finally:
             # Graceful browser shutdown (SIGTERM -> wait -> SIGKILL)
             try:
                 await self._browser.stop()
-            except Exception as e:
-                logger.warning("Error stopping browser during stop: %s", e)
-            finally:
-                self._lock.release()
+            except asyncio.CancelledError:
+                cancelled = True
+            except Exception as exc:
+                stop_error = stop_error or exc
+
+        if cancelled:
+            raise asyncio.CancelledError
+        if stop_error is not None:
+            raise RuntimeError("Owned pilot cleanup is incomplete") from stop_error
+        self._lock.release()
 
     # --- Navigation ---
 

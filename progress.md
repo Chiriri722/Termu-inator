@@ -1,5 +1,637 @@
 # Progress: Termu-inator Modernization
 
+## 2026-09-23 — Operational documentation and candidate authority checkpoint
+
+- Classified the preceding CDP repair as verified progress. Current HEAD is
+  still v0.2.20; the local hardening is not a new sealed candidate.
+- The documented MCP version command raised AttributeError in the pinned
+  environment. Added a failing documentation contract, then replaced the
+  nonexistent attribute with importlib.metadata and executed the exact revised
+  snippet successfully. Its Mac version output is not Termux ABI evidence.
+- Aligned installation/security/operations docs with four actual entrypoints,
+  distribution 0.1.0a1 versus commit labels, owner confirmation syntax, BiDi
+  observation, and historical versus current performance evidence. Clarified
+  that legacy registrations do not inherit compact security guarantees.
+- Removed unscoped idle-server/output-overwrite and uninstall command examples.
+  Installation checks do not prove MCP readiness; updates, candidate-only
+  rollback, isolated profiles, and private evidence require separate authority.
+  A venv rollback does not undo data migration. Full privacy reset, clean Termux,
+  pre-follow redirect/peer enforcement, fault/soak, and activation stay open.
+- The existing handoff now has a current unsealed-candidate checkpoint. It
+  requires the user's new clean commit, exact scope and wheel binding, fresh
+  identities, and predeclared follow-up approval. The new tests/test_cdp.py must
+  be included in commit review. No remote instruction was sent or executed.
+- Documentation contracts: 23 PASS on all three interpreters. Full warning-as-
+  error discovery: 596 tests OK on 3.14.7 (9.895s, one opt-in browser skip),
+  3.12.13 (8.082s) and 3.11.15 (8.184s), each with 11 explicit skips on the
+  bare interpreters. No real browser ran in this slice; prior evidence remains
+  separately recorded. Bash syntax: 19 documented blocks plus setup.sh PASS,
+  not executed. All 34 changed/new Python files parse as Python 3.10 grammar;
+  diff checks pass. No commit/push, build/seal, device change, or activation.
+
+### Errors encountered in this slice
+
+- The first documentation patch had a malformed hunk and was rejected before
+  application; split and reapplied it correctly. The metadata-command failure
+  and its regression RED were expected and are now GREEN.
+- The shared documentation style reference/formatter remain unavailable;
+  existing Markdown style was retained without installing tools.
+
+## 2026-09-23 — CDP request cleanup and initialized MCP EOF recovery
+
+- Continued from verified journal/cancellation progress, preserving v0.2.20
+  HEAD and its device evidence. Traced CDPClient callers through CDPSession and
+  BrowserPilot before changing the shared request path.
+- Reproduced callback retention after reply-wait cancellation and send failure.
+  The isolated real Chrome fixture also failed on a retained cancelled Future.
+  The minimum repair covers send and reply wait in one finally: remove the
+  request, retire an unawaited Future, and consume a racing disconnect error.
+  Cancellation still propagates; no retry or automatic reconnect was added.
+- Real Chrome submitted the synthetic form once before its response was
+  cancelled. The callback was removed and an explicitly new CDP connection
+  observed the same count of one. This is transport/fixture evidence, not a
+  full service/MCP action gate or Firefox/Termux acceptance.
+- Extended the existing owned observer MCP subprocess test: initialize over
+  real stdio, close stdin, require exit 0/empty stderr/socket removal, then
+  restart in the same temporary data root. SIGTERM/EOF each passed twice.
+  No browser was attached to these MCP instances.
+- Python 3.14.7 warning-as-error full suite: 595/595 PASS, skip 0, including
+  real Chrome (14.051s). Python 3.12.13 / 3.11.15: 595 tests OK (8.112s /
+  7.840s), with 11 explicit dependency/opt-in skips. The two new CDP tests
+  require websockets, absent in those bare interpreters; they both run in the
+  pinned 3.14 environment. Focused CDP/MCP after that guard: 10 PASS, skip 0.
+  SDK test diagnostics are not zero-stderr canonical evidence.
+- All 33 changed/new Python files parse as Python 3.10 grammar; diff and shell
+  checks pass. Planning/docs skills retain active-browser recovery, 100-action,
+  idle/resume, and S22U acceptance as incomplete. No commit/push, wheel/seal,
+  remote run, dependency/config change, Hermes registration, or activation.
+
+### Errors encountered in this slice
+
+- Discovery referenced absent .agents/cdp_discovery/session paths; resolved
+  actual files via repository-wide symbol/file queries without creating them.
+- Bare 3.11/3.12 discovery initially failed importing websockets in the new
+  test. Classified it explicitly as dependency absence, using the existing
+  conditional-test pattern; did not install packages or claim transport PASS.
+- Playwright CLI and docs shared style guide/formatter remain unavailable.
+  Reused the repository's CDP fixture test and Markdown style.
+
+## 2026-09-23 — Owned process interruption and cancelled dispatch recovery
+
+- Reused the existing journal, service, FakeBackend boundary, and session lock.
+  Two new regression methods pass without a production change. Existing worktree
+  changes and all prior device evidence remain intact.
+- Service task cancellation and deadline expiry after backend acceptance leave
+  DISPATCHED state: replay returns outcome_unknown without another dispatch.
+  A fresh service rejects the old session; rebinding the same key to its new
+  session/page/ref conflicts and never invokes the replacement backend.
+- An actual isolated child writes a private synthetic effect marker and journal
+  before the parent kills only that exact owned child. The persistent session
+  lock is busy while the child lives, retains its inode, and is acquirable after
+  exit. DISPATCHED recovers as unknown; TERMINAL returns the stored result.
+  This strengthens object-only restart coverage, not real-browser or power-loss
+  durability evidence. No existing Hermes/browser process was interrupted.
+- Focused journal/service/lock/runtime/MCP suite: 37 PASS. Warning-as-error full
+  discovery: Python 3.14.7 593 tests OK (9.687s, one opt-in browser skip);
+  Python 3.12.13 / 3.11.15 each 593 tests OK (8.010s / 8.111s, nine skips:
+  eight optional MCP plus browser). No real browser ran in this slice.
+  All 31 changed Python files parse as Python 3.10 grammar; shell syntax and
+  diff checks pass. No Python 3.10 runtime or zero-stderr device claim is made.
+- Planning/docs skills keep Stage 3 open for real backend/MCP interruption,
+  continuous work, idle/resume, and sealed S22U evidence. Shared style guide
+  and formatter remain unavailable; existing Markdown style was reused.
+  No commit/push, wheel/seal, package/config change, remote run, or activation.
+
+### Errors encountered in this slice
+
+- The first child probe exited before READY because the embedded Python script
+  interpreted a newline inside its bytes literal. A raw script string corrected
+  this test-harness error; it was not a journal failure or a product RED.
+
+## 2026-09-23 — Confidential transition and inert page authority gates
+
+- Previous turn made concrete action-boundary progress. Revalidated v0.2.20
+  HEAD and preserved 33 modified paths; no device result or identity was reused.
+- Found and reproduced five first-detection leaks: observe, navigation, wait,
+  tab switch, and action set takeover state but still returned page-bearing
+  results. Existing state guards now also run before publication. An action's
+  trace/terminal result is persisted first; after local resume the identical
+  request returns its terminal result without another backend dispatch.
+- Canonical now exercises synthetic login/OTP pages, owner-only start/resume,
+  11 blocked page-sensitive tools in both takeover states, redacted status,
+  rotated page identity, stale-context refusal, and bounded fresh observation.
+  The page-injection fixture cannot change origin policy/tool inventory or
+  enable Developer Mode. Existing CLI/MCP/ref helpers are reused.
+- Gate tests use the real service, router, durable permission/artifact state,
+  and a real temporary process lock with the existing FakeBackend boundary.
+  Read/title leaks, policy/tool/Developer changes, malformed policy data, and
+  unrotated resume are rejected with fixed sanitized failures. No new fake
+  automation engine or runtime test-only hook was introduced.
+- The existing isolated Chrome test now runs the production DOM probe through
+  the actual observation detector for empty password/OTP fixtures. Both create
+  takeover challenges; inert page instructions create no such challenge and
+  contain no script. No credentials were entered and no remote sites opened.
+- Final warning-as-error matrix: pinned-MCP Python 3.14.7 591/591 PASS, skip 0
+  (12.323s), including real Chrome; Python 3.12.13 / 3.11.15 each 591 tests OK
+  (8.302s / 8.426s), with nine existing optional skips. Focused privacy/verifier/
+  permissions/MCP suite: 134 PASS. All 30 changed Python files parse as Python
+  3.10 grammar; shell and diff checks pass. SDK test diagnostics are not a
+  zero-stderr device result, and no Python 3.10 runtime claim is made.
+- Planning/docs skills keep Stage 2 device acceptance open and queue Stage 3
+  dispatch interruption/recovery. Detection blocks publication, not all prior
+  backend capture or caller-requested private artifact storage. Existing clean
+  Termux, redirect/peer enforcement, soak, and activation requirements remain.
+  No commit/push, wheel/seal, S22U run, package/config change, or activation.
+
+### Errors encountered in this slice
+
+- Guessed handoff/readonly/observation test paths did not exist; used the file
+  inventory to find takeover/dialog/shared-view tests before editing.
+- New gate test setup omitted the required session lock, then supplied the
+  lock's keyword-only constructor positionally. Corrected to an actual private
+  ProcessSessionLock; the browser fixture also needed explicit viewport=None.
+- A negative subtest initially inspected its exception outside the subtest;
+  nested it correctly. Malformed policy initially raised raw AttributeError;
+  a typed-failure assertion reproduced this before the mapping guard fix.
+- Full-suite legacy tests expected the first sensitive observation to escape.
+  They now require session_paused and separately inspect internal challenge
+  state/public sanitized errors. No service guard was relaxed to pass tests.
+- Playwright CLI and docs shared style reference/formatter remain unavailable;
+  reused the existing CDP fixture test and Markdown style without installation.
+
+## 2026-09-23 — Stale targets, unavailable actions, and wait boundaries
+
+- Preserved the preceding 32-path worktree and v0.2.20 device results. Continued
+  Stage 2 rather than revisiting the completed socket-r1 intake or Stage 1.
+- TDD reproduced a real service defect: already-observed disabled/hidden/zero-
+  area targets reached confirmation, and a disabled drag destination reached
+  dispatch and became outcome_unknown. The shared action-binding path now
+  rejects both source and destination before confirmation/dispatch. It does not
+  change read/wait ref resolution or uncertain outcomes after dispatch.
+- Canonical now checks stale revisions, retired refs, fresh-ref recovery,
+  dynamic-list effects, disabled/hidden refusals, and positive/negative waits.
+  Typed MCP error codes are retained separately from sanitized exception text;
+  wrong codes, unexpected success/effects, false timeout, malformed elapsed
+  values, and foreign wait-page evidence all fail. The candidate is still
+  stopped if this added gate fails. Form validation helpers are reused.
+- Extended the existing opt-in isolated Chrome test using the actual legacy
+  DOM probe. Node replacement changes handles; clicking the detached old node
+  has no effect; the current node increments the counter. Disabled/hidden flags,
+  dynamic add/remove, and delayed Ready are real DOM checks. A direct hidden
+  JS click increments the fixture counter, proving such a bypass is observable.
+  These are fixture/probe results, not full S22U MCP action acceptance.
+- Focused verifier/service/ref suite: 117 PASS. Warning-as-error full matrix:
+  pinned-MCP Python 3.14.7 587/587 PASS, skip 0 (12.412s), including Chrome;
+  Python 3.12.13 / 3.11.15 each 587 tests OK (8.048s / 8.070s), with nine
+  existing optional skips (eight MCP, one opt-in browser). SDK diagnostics are
+  not zero-stderr device evidence. All 28 changed Python files parse as Python
+  3.10 grammar; shell syntax, diff checks, and 22 packaging/documentation
+  contracts pass. No Python 3.10 runtime claim is made.
+- Planning/docs skills record the local slice and leave takeover/page-injection,
+  both-device action evidence, recovery/soak, and activation acceptance open.
+  Playwright CLI/shared style guide/formatter remain unavailable; reused the
+  existing CDP test and Markdown style without installation. No commit/push,
+  wheel/seal, remote run, package/config change, or production activation.
+
+### Errors encountered in this slice
+
+- Initial unavailable-target subtests reused a persisted journal key; changed
+  each subtest to its own key, then reproduced the intended three refusal REDs.
+- The form-only caller returned /forms for new boundary routes. Kept that test
+  scoped to form/artifact orchestration with an explicit boundary-call check;
+  separate queued MCP tests exercise the real boundary helper and error parser.
+- A newly typed DOM parser import used a guessed name; checked the actual
+  normalize_observation API and corrected it before running the browser test.
+
+## 2026-09-23 — First form action gate implemented locally
+
+- Classified the previous plan-only turn as no implementation progress. Re-read
+  the actual verifier, fixture, action/confirmation/owner-control contracts and
+  callers, preserving the existing 30-path worktree and v0.2.20 device evidence.
+- TDD reproduced missing form-state evidence, missing action checks, lost
+  pending confirmation identity, absent owner-approval wiring, and indistinct
+  failure stages/action-kind labels. Existing code now checks type/check/select effects via fresh
+  observations and synthetic submit counts 0/1/1 across approval and replay.
+  Failure cleanup still stops the candidate session; exceptions omit raw text.
+- Extended existing verifier transport fixtures rather than adding a fake
+  backend. Forced no-effect success, early submit, duplicate submit, origin
+  change and failed action are rejected. Owner responses must match the pending
+  challenge ID/kind/state, and only a valid pending ID is retained in memory.
+- Actual isolated Chrome fixture test PASS: DOM input/check/select values match
+  rendered state and two real submits yield counts 1 then 2. It uses existing
+  CDP code, no additional browser engine or dependency. No S22U action result is
+  inferred; the default test suite does not launch a browser without opt-in.
+- Final warning-as-error matrix: pinned-MCP Python 3.14.7 580/580 PASS, skip 0
+  (12.320s), including real Chrome fixture; Python 3.12.13 and 3.11.15 each
+  580 tests OK (7.338s / 7.786s), with 9 skips: 8 existing optional MCP tests
+  plus the opt-in browser check. SDK test diagnostics are not zero-stderr
+  device evidence. All 27 changed Python files parse as Python 3.10 grammar;
+  shell syntax and diff checks pass. No Python 3.10 runtime claim is made.
+- Planning/docs skills record the completed local slice and next stale/disabled/
+  wait slice without closing Stage 2. Optional shared style reference/formatter
+  remain absent. No commit/push, wheel/seal, remote run, package/config change,
+  Hermes registration or production activation.
+
+### Errors encountered in this slice
+
+- Initial source searches guessed nonexistent models.py/control_cli.py/config.py
+  and an mcp directory; actual contracts.py/host_control_cli.py/mcp_v1.py were
+  located before edits. One patch mismatched the backend test signature and
+  was rejected before mutation; corrected against the inspected signature.
+- Playwright CLI offline preflight returned ENOTCACHED; no install/network
+  retry occurred. Used the already-installed Chrome and repository CDP client
+  for the bounded fixture test, not a replacement automation backend.
+
+## 2026-09-23 — User-requested improvement plan refresh
+
+- Revalidated v0.2.20 HEAD and preserved all 30 existing modified paths.
+  Rechecked downloaded/preserved socket-r1 hashes and completed JSON. This
+  closes intake without another Hermes reply, rerun, or global socket query.
+- Updated the existing plan rather than adding a second roadmap. Fixed its
+  stale instruction to repeat Stage 1; that stage is locally complete. Next is
+  the bounded form action/approval/idempotency unit, then remaining action
+  boundaries, recovery, and a separately sealed device acceptance run.
+- The planning/docs skills kept distinct exit criteria, local/device evidence,
+  new user-owned commit identity, and production approval. The optional shared
+  style guide/formatter are unavailable; existing Markdown style is retained.
+- This turn changes planning documents only. No new runtime tests, wheel,
+  commit/push, remote execution, package/config change, or activation. Earlier
+  574-test results remain historical local evidence, not a fresh run this turn.
+
+## 2026-09-23 — Canonical transitions and Stage 1 local acceptance
+
+- Previous goal turn made concrete benchmark ownership progress. Revalidated
+  HEAD and the existing 30-path worktree before continuing; no wait or blocker.
+- TDD reproduced skipped process checks after successful backends and a live
+  MCP control socket incorrectly preventing continuation after backend failure.
+  Success/failure now share `post_stop`: only the bound live MCP generation is
+  exempt, and private control/socket/lease and observed-descendant evidence
+  decide whether the next backend may start. Original browser results remain.
+- Added an exit check before observer restart, with no live-root exemption.
+  Known survivors or unavailable evidence block restart even if a later final
+  readback is clean. Repeated sampling cannot adopt a reused MCP generation;
+  a verified new profile may legitimately bind a new generation of the same PID.
+- Shared control-socket validation now requires current UID, not just type/mode.
+  Known unsafe metadata remains FAIL rather than UNKNOWN. Korean notes show
+  browser and transition results separately. Benchmark consumes declared
+  post_stop evidence fail-closed while preserving legacy-format compatibility.
+- Focused verifier: 88 PASS; benchmark suite: 82 PASS. Full warning-as-error
+  matrix: pinned-MCP Python 3.14.7 574/574 PASS (7.927s), Python 3.12.13 and
+  3.11.15 each 574 tests OK with the existing eight optional MCP skips
+  (7.251s / 7.256s). SDK diagnostics are not a device zero-stderr claim.
+  All 25 changed Python files pass Python 3.10 grammar parsing; diff and shell
+  syntax checks pass. No Python 3.10 or Termux runtime result was inferred.
+- Stage 1 local acceptance was reviewed against visibility, generation,
+  transition, owned real dummy-child/lease, independent collection, consumer,
+  and summary requirements. Those local conditions are complete; sampled
+  ancestry remains weaker than OS containment and device approval stays open.
+- Inspected the actual action call chain and existing fixture for Stage 2.
+  /forms exposes only a fixed submitted message, so it cannot yet distinguish
+  duplicate effects. Next is fixture effect evidence plus the compact action
+  loop, not another reporting framework. An initial read guessed
+  test_fixture_server.py; the listed test module is test_fixture_site.py.
+- Planning/docs skills update the acceptance table and next queue. The optional
+  shared style guide/formatter remain absent, so existing Markdown is retained.
+  No commit/push, new wheel/seal, device run, package/network change, or activation.
+
+## 2026-09-23 — Benchmark daemon ownership and transition evidence
+
+- Continued the in-progress implementation after rechecking v0.2.20 HEAD and
+  preserving the existing 30-path worktree. The completed socket-r1 JSON needs
+  no new Hermes reply, global socket read, or device rerun.
+- TDD reproduced unbound startup, unsafe/unowned shutdown, missing process
+  quality checks, and unavailable file evidence being resampled into absence.
+  The existing private-file reader, process census/ancestry, and quality/report
+  paths now bind the actual daemon to Unix peer PID/UID and start ticks.
+- Shutdown is sent only on that authenticated connection. No CLI reconnect,
+  broad process matching, or census-based signal is used. A missing baseline
+  prevents launch; incomplete post-launch ancestry retains authenticated
+  shutdown ownership but closes measurement/transition approval.
+- Warm commands capture ancestry before/finally, outside latency, even for
+  failure/cancellation. Observed reparented survivors, reused PIDs, incomplete
+  observations, and missing process cleanup all fail closed. Cold timing still
+  ends at socket readiness. Public output includes only scoped statuses/counts;
+  numeric identities remain private. This is sampled evidence, not containment.
+- Focused benchmark tests: 81 PASS; shared verifier tests: 76 PASS. Full
+  warning-as-error matrix: pinned-MCP Python 3.14.7 561/561 PASS (8.039s),
+  Python 3.12.13 and 3.11.15 each 561 tests OK with the existing eight optional
+  MCP skips (6.974s / 6.903s). SDK test diagnostics are not a zero-stderr claim.
+  All 25 changed Python files parse as Python 3.10 grammar; shell syntax and
+  git diff --check pass. No Python 3.10 or Termux runtime result was inferred.
+- A new public-summary test initially omitted the normal Python environment
+  field and errored in unrelated formatting. Corrected the fixture, obtained
+  the intended missing-process-summary assertion RED, then implemented it.
+  An exploratory search named a nonexistent test_packaging.py; the actual
+  test_packaging_contract.py is included in the passing full suite.
+- Planning/docs skills update the bounded queue rather than requesting more
+  diagnostics. The shared style reference/formatter remain absent; retained
+  existing Markdown without installation. Still open: canonical transition
+  checks, Stage 1 acceptance, actual actions, recovery, and operating readiness.
+  No wheel/seal, commit/push, S22U run, environment change, or activation.
+
+## 2026-09-23 — Canonical owned-process evidence implementation
+
+- Classified the preceding plan-only goal turn as no implementation progress.
+  Revalidated v0.2.20 HEAD and preserved the 30-path worktree before taking the
+  available local implementation step; no external wait or blocker was claimed.
+- TDD first reproduced omitted unnamed helpers and unnecessary command-line
+  reads. Numeric same-UID identities replace the name filter. Further REDs
+  distinguish observed reparented descendants, reused PIDs, unattributed new
+  processes, and incomplete live ownership observations. The gate stays closed
+  for UNKNOWN, without falsely asserting a candidate leak or sending signals.
+- Added observation around MCP calls. Removed the untested initial wiring,
+  reproduced timeout/cancellation omission as RED, then restored the minimal
+  before/finally capture. Focused verifier suite: 76 PASS.
+- The first full matrix exposed one existing documentation-contract failure:
+  the handoff no longer named quality.status. Restored its meaning rather than
+  weakening the test. The first async test wrapper also returned an unawaited
+  coroutine; corrected that test plumbing before accepting the four behavior REDs.
+- Documentation/planning skills keep sampled ancestry distinct from complete
+  descendant containment and device approval. Existing style is retained because
+  the optional style reference and formatter are absent. No new dependency,
+  runtime supervisor, process signal, S22U run, wheel, commit, or activation.
+- Final warning-as-error matrix after that correction: pinned-MCP Python 3.14.7
+  544/544 PASS (8.876s); Python 3.12.13 and 3.11.15 each 544 tests OK with the
+  existing eight optional-MCP skips (7.521s / 7.277s). SDK/asyncio diagnostic
+  output is not a zero-stderr device claim. All 25 changed Python files pass
+  Python 3.10 grammar parsing; setup.sh syntax and git diff --check pass.
+  No Python 3.10 runtime or Termux process-tree execution was claimed.
+- Stage 1 remains open for benchmark daemon ownership, safe process checks
+  between backend transitions, and final acceptance. The original broader
+  action/recovery/operating-readiness requirements remain unchanged.
+
+## 2026-09-23 — User-requested improvement plan refresh
+
+- Rechecked HEAD, the existing 30 changed paths, downloaded socket-r1 completion,
+  canonical/benchmark identities, and preserved report hashes. No device query
+  or raw private log access was needed to interpret the completed JSON.
+- Updated task_plan.md with a short execution queue and exit conditions: close
+  bounded local ownership work, verify actual fixture actions, test recovery,
+  then prepare an exact-identity device handoff and separately approved operation.
+  An unavailable global census is neither a new leak finding nor permission to
+  upgrade cleanup to PASS; it does not prevent independent local test preparation.
+- This is planning progress, not implementation or fresh test evidence. Existing
+  source/test edits remain untouched. No test suite, commit/push, wheel build,
+  S22U run, installation, network change, or production activation was performed.
+- Reused task_plan.md/findings.md/progress.md under the planning skill. The docs
+  skill's optional shared style file and formatter remain absent; retained the
+  repository's Markdown conventions without installing tooling.
+
+## 2026-09-23 — Canonical post-run collection and file publication
+
+- The previous planning turn repeated the bounded next-work plan rather than
+  implementing it; classified as no implementation progress. Revalidated HEAD
+  v0.2.20 and the existing 30-file worktree, then took the available local step.
+- TDD reproduced the blocking FIFO, replaced-file, symlink-parent/owner, missing
+  canonical closing checks, and missing return-file evidence. Shared bounded
+  private reading and independent Git/environment/PNG checks now pass. No new
+  dependency, browser engine, reporting framework, or privilege was introduced.
+- Added final-verify-files.json and baseline-files.json. Each validates returned
+  report bytes against the writer's intended bytes, permissions, and ownership.
+  The integrity record itself is read back after exclusive writing, but is not
+  self-hashed. Publication failure preserves the old run report while making the
+  command fail and preventing benchmark authorization. Changed/missing/denied
+  return-file regressions confirm the handoff cannot silently promote a run.
+- Further RED/GREEN preserves completed backend evidence after cancellation,
+  failed post-process record writes, census/cleanup inspection errors, and a
+  private diagnostic-write error. The independent checks continue once; nothing
+  relaunches a browser or retries a consumed device identity.
+- Standalone Python -I tests caught new sibling-import failures in CLI help and
+  canonical failure reporting. Moved the existing PNG validator into the shared
+  verifier and kept the benchmark delegate instead of adding a repository import
+  path to canonical. Corrected an initially mistyped test class, a subtest-scope
+  error, and a misplaced old assertion; none required weakening production checks.
+- Focused suite: 134 PASS. Full warning-as-error matrix: pinned-MCP Python 3.14.7
+  538/538 PASS; Python 3.11.15 and 3.12.13 each 538 tests OK with the existing eight
+  optional-MCP skips. SDK/asyncio test diagnostics are not a zero-stderr claim.
+  All 25 changed Python files pass Python 3.10 grammar parsing; setup.sh syntax
+  and git diff --check pass. No Python 3.10 runtime test was available.
+- Planning/documentation skills keep completion separate from device authority.
+  Style reference and formatter remain unavailable; existing Markdown is retained.
+  No commit/push, wheel/seal, S22U run, package/network change, or activation.
+  Stage 1 still needs owned-descendant evidence and its full acceptance review;
+  real-backend actions, fault/idle/soak, and operating-readiness gates remain open.
+
+## 2026-09-22 — Completed JSON review and bounded next-work plan
+
+- Rechecked the downloaded socket-r1 JSON against its preserved copy and SHA-256
+  sidecar: identical, checksum PASS. It has a completion timestamp, 21 PASS and
+  one UNAVAILABLE (PermissionError, errno 13); the diagnostic round is finished.
+  No further Hermes response or rerun is required for that round. The original
+  readback's missing actual is still not restored; global cleanup stays unknown.
+- Reviewed the current plan and canonical call path. Navigation/observation/
+  artifacts are exercised, but browser_act is not. Kept the order: finish bounded
+  evidence/ownership work, verify real actions, then recovery and operating limits.
+- Limited the next implementation batch to returned-report/canonical collection,
+  owned-descendant evidence, and Stage 1 acceptance. Existing uncommitted changes
+  are preserved. This planning follow-up changes documentation only; it does not
+  rerun tests, start a device run, commit, package, or activate production.
+
+## 2026-09-22 — Benchmark post-run evidence retention
+
+- Previous goal turn was concrete runtime progress. Revalidated HEAD v0.2.20
+  and preserved all earlier edits before continuing Stage 1; no remote work.
+- RED/GREEN reproduced dropped reports after closing environment authorization,
+  cleanup, unexpected measurement, and initial environment-capture failures.
+  Completed backend results now survive; further browser work stops, independent
+  readback continues, and quality stays FAIL. No stop command runs when initial
+  capture failed before a backend launch. Preflight remains an exit-2 boundary.
+- Added post-run environment, exact clean Git, and per-sample PNG checks using
+  existing authorization, Git, and file validators. Public output contains fixed
+  statuses/counts; private exception details remain only in the raw report.
+  Read denial is UNAVAILABLE with errno, observed missing files are FAIL, and
+  other inspection failures remain UNKNOWN. Missing sample binding is UNKNOWN;
+  a valid but changed image is FAIL. All three checkpoint groups must pass for
+  quality PASS, without rewriting historical v0.2.20 results.
+- PNG validation now also rejects a symlinked/non-private parent and rechecks
+  parent identity. A failed PNG read does not skip the other backend. A binding
+  branch drafted before its negative controls was removed, then reimplemented
+  after the changed-image/unbound-sample REDs. Existing success fixtures now
+  create real private PNG bytes instead of claiming an uncreated artifact.
+- Report writer overwrite/symlink RED now passes by reusing the canonical
+  exclusive private writer. No new reporting framework or dependency was added.
+- Noticed the package still declares Python >=3.10. A missing-add_note regression
+  caught a previous-turn 3.11-only assumption; all new exception-note calls are
+  optional, preserving the original failure and ownership on 3.10 too. No 3.10
+  interpreter is available locally; this is simulated API-absence/grammar
+  coverage, not a claimed 3.10 runtime test.
+- Focused benchmark/compatibility suite: 62 PASS. The first full 3.11/3.12 runs
+  exposed a test fault-injection difference: Path.lstat uses os.stat with
+  follow_symlinks=False there. Patching both OS entry points fixes the test;
+  production behavior was not changed to satisfy the fixture.
+- Final warning-as-error matrix: pinned-MCP Python 3.14.7 passes 522/522 tests;
+  Python 3.11.15 and 3.12.13 each report 522 tests OK with the existing eight
+  optional-MCP skips. All 25 changed Python files pass Python 3.10 grammar parsing;
+  shell syntax and diff checks pass. This is not a Python 3.10 runtime test or
+  a zero-stderr claim for the SDK/asyncio test runner.
+- An initial documentation patch had a missing anchor and made no changes;
+  reapplied against the current text. The optional style guide and formatter
+  remain absent; existing formatting is retained.
+- Still open: returned-report integrity collection, canonical post-run collection,
+  owned descendant evidence, and later action/recovery/device acceptance. No
+  commit/push, wheel, sealed instruction, S22U retry, or activation occurred.
+
+## 2026-09-22 — Partial startup ownership and cancellation
+
+- Continued the active goal without changing HEAD or the existing 29-path scope.
+  Traced Pilot, adapter, service, native Firefox, and daemon startup callers before
+  editing. Reused their stop paths instead of adding another lifecycle framework.
+- Five initial RED tests reproduced skipped session cleanup, lost adapter
+  ownership, released service leases, and cancellation/metadata-start leaks.
+  Pilot now cleans its partially initialized session as well as BrowserPilot;
+  the adapter and service retain pending ownership until stop and lease release
+  succeed. Original startup failures/cancellation are preserved with a fixed
+  incomplete-cleanup note. No browser fallback or action replay was added.
+- Further RED/GREEN covers an unclosed BiDi connection, daemon failure before
+  serving, cancellation during cookie save, replaced daemon state-file identity,
+  and pending startup being incorrectly displayed as idle. Daemon cleanup runs
+  after partial startup, only unlinks recorded file identities, and continues
+  Pilot cleanup even when listener/cookie cleanup fails. Listener drain has a
+  five-second deadline; unresolved evidence is not promoted to success.
+- A real dummy-child integration cancels a live startup task while termination
+  is denied. Both process and legacy leases remain held and replacement is
+  rejected; explicit owner close later reaps the same child and releases both.
+  Browser launch/I/O are substituted; teardown and locks are real. This is not
+  real-browser, descendant-census, or S22U evidence.
+- One broad focused test run met the existing sandbox loopback restriction;
+  approved local-only execution passed 154 focused tests. The first full matrix
+  passed 512 tests before the final listener-deadline regression was added.
+  A test's missing default pid-path patch was corrected; the real default .tbp
+  parent was confirmed absent, so no actual user state file was affected.
+- The docs style reference and formatter remain unavailable. Existing Markdown
+  conventions are preserved; no package was installed.
+- Final warning-as-error matrix: pinned-MCP Python 3.14.7 passes 513/513 tests;
+  Python 3.11.15 and 3.12.13 each report 513 tests OK with the existing eight
+  optional-MCP skips. All 24 changed Python files parse, shell syntax and diff
+  checks pass. SDK/asyncio test diagnostics are not a zero-stderr claim.
+  No commit/push, wheel/seal, device retry, or activation.
+- Still open: observed descendants, independent PNG/file/Git result collection,
+  canonical action effects, recovery/soak, and separately authorized device work.
+
+## 2026-09-22 — Owned shutdown failure propagation
+
+- Continued the active goal with the existing nine-file verifier/planning patch
+  intact. The previous turn was concrete progress, not a waiting state.
+- Python/TDD plus the existing plan guided the next change: four failing stop
+  regressions reproduced swallowed process/session errors and prematurely
+  discarded adapter/service ownership. The first test invocation had an incorrect
+  class name and an overly broad Mock; corrected both before implementing.
+- Browser, Pilot, adapter, and service now propagate failed owned cleanup, retain
+  unresolved references/leases, and keep sessions STOPPING instead of allowing a
+  new browser. Independent child cleanup still runs, including after cancellation.
+  Further RED/GREEN covers atexit profile preservation, cancelled stderr/network
+  cleanup, and hiding takeover content while a failed stop remains pending.
+- Reused one stdlib owned-process stop helper for Chromium/Xvfb/openbox, Chromium
+  failed-start attempts, VirGL, and Firefox. Both TERM and KILL waits are bounded;
+  tests cover signal/exit races, exited children, a stuck post-KILL wait, and an
+  actual local child while leaving a sibling untouched. No PID-wide kill is used.
+- A real test-created loopback HTTP listener reproduced Firefox's missing
+  server_close(). Native callback/BiDi failures now preserve ownership and still
+  reap Firefox; BiDi transport close failures remain fixed-value errors rather
+  than success. Updated callback doubles to match the real server interface.
+- Legacy daemon cleanup no longer deletes socket/pidfile evidence after failed
+  Pilot cleanup. CLI stop disables implicit auto-start during an exit race.
+- Existing MCP teardown lacked service cleanup. A failing lifecycle test and two
+  service REDs now pass with the same serialized stop path used on transport
+  shutdown. A composed real-Pilot/adapter/service test owns a real local dummy
+  child: denied termination retains both locks, then explicit owner close reaps
+  that same child and releases them. This is not a real browser or S22U run.
+- Initial focused tests encountered the established sandbox loopback restriction;
+  the same suite with approved local socket permissions passed. The docs style
+  guide remains absent; existing docs conventions are used without installation.
+  One documentation patch had a missing context anchor; it made no changes and
+  was reapplied after reading the exact section.
+- Intermediate full pinned-MCP Python 3.14 suite passed 496 tests before the
+  service-close/integration additions. Final current-tree matrix is recorded
+  below after completion. No commit, push, wheel, device run, or activation.
+- Still open: ownership after partial startup failure, observed descendants,
+  independent PNG/file/Git result collection, and later real action/recovery
+  acceptance. Direct child waits are not host-wide cleanup evidence.
+- Final warning-as-error matrix: Python 3.14.7 with pinned MCP passes 499/499;
+  Python 3.11.15 and 3.12.13 each report 499 tests OK with the existing eight
+  optional-MCP skips. All 24 changed Python files parse, shell syntax and diff
+  checks pass. Existing SDK/asyncio test diagnostics are not a zero-stderr claim.
+- Completion audit leaves Stage 1 open: active-session stop now has evidence,
+  but adapter/service partial-start exceptions still need ownership retention
+  and transport-close coverage before a candidate can be sealed. No old device
+  evidence is upgraded and the runtime changes require a new wheel later.
+
+## 2026-09-22 — Post-v0.2.20 stage 1 implementation
+
+- Active goal resumed from the unchanged v0.2.20 source and the three existing
+  planning edits; no unrelated worktree changes were present.
+- Read the Python/TDD/planning/docs skills and TDD mocking reference. Traced both
+  callers of process snapshots and the canonical-to-benchmark report contract.
+- First RED: all five process-census regressions fail for the intended missing
+  status/generation/incomplete-evidence behavior. Extended the same filesystem
+  fixture to cover foreign UID, malformed identity, and mid-read PID reuse.
+  No browser or device was launched.
+- Process census RED/GREEN now covers nine cases, plus three orchestration cases
+  proving that unavailable counts stay null, backend results survive, the gate
+  stays closed, and an MCP failure still reaches independent cleanup. A separate
+  CLI RED/GREEN adds a private Korean summary derived from the same manifest.
+- Focused verifier 53/53 PASS. Pinned Python 3.14 full suite 470/470 PASS, no
+  skips, using approved local socket permissions. Existing test logging included
+  an asyncio slow-task notice and an SDK tool-validation notice; this is not a
+  zero-stderr claim about the test runner. No new S22U result is claimed.
+- Four more cleanup REDs cover unavailable socket metadata, unreadable lease
+  enumeration, and symlinked lease roots across canonical/benchmark. Corrected
+  fault injection from Path wrappers to their underlying stat/lstat and
+  scandir/listdir calls after inspecting the installed stdlib. The corrected
+  negative controls reproduce against the exact unmodified v0.2.20 functions
+  loaded in memory; no checkout was rewritten. Focused 127 tests pass before the
+  remaining integration/report work.
+- Added RED/GREEN for first-unavailable preservation, rejecting uninspectable
+  runtime before output/stop, and the benchmark's bounded cleanup/Korean summary.
+  The first full cross-version matrix exposed two incomplete OS-fault injections;
+  the corrected tests also reproduced a real raw-PermissionError escape through
+  an unnecessary old-Python symlink probe. Reusing the shared absence check fixes
+  the typed preflight boundary without weakening dangling-link rejection.
+- Python 3.14 with pinned MCP passes 478/478; Python 3.11.15 and 3.12.13 pass
+  478 tests with the existing eight optional-MCP skips. A final test-first Korean
+  summary check additionally names incomplete cleanup fields while excluding
+  private text. Final current-tree verification is recorded below when complete.
+- Updated install/handoff documentation to describe the observed scope, null
+  semantics, derived Korean notes, and superseded historical handoff. Sealed
+  artifacts, historical manifests, S22U state, production, and Git commits remain
+  untouched. Stage 1 is still open for candidate-owned descendant evidence and
+  the full independent collector; the broader stability goal is not complete.
+- Final current-tree warning-as-error matrix: pinned-MCP Python 3.14.7 passes
+  479/479 with no skips; Python 3.11.15 and 3.12.13 each pass 479 tests with the
+  existing eight optional-MCP skips. Shell syntax, Python AST, and diff checks
+  pass. These are local checks only; no candidate wheel or device run was made.
+- Next lifecycle work is grounded in the existing stop chain, not a new process
+  supervisor: static tracing found that BrowserPilot.stop catches child-stop
+  errors and clears handles, Pilot.stop catches session/browser-stop errors,
+  and the adapter/service discard their ownership references after failures.
+  Reproduce these failure paths first, including continued cleanup of other
+  owned resources, before changing runtime behavior. This is a source finding,
+  not evidence that any historical S22U run leaked a process.
+
+## 2026-09-22 — Post-v0.2.20 plan, no implementation
+
+- Rechecked clean v0.2.20 HEAD and read the completed socket-r1 report alongside
+  the existing plan, architecture, capability, migration, and security boundaries.
+  Hermes does not owe another result for this completed diagnostic.
+- Traced canonical cleanup/process enumeration, benchmark stop/PNG validation,
+  session locks/display leases, and current fixture/action tests. Identified the
+  smallest next work: explicit evidence completeness, owned-resource cleanup,
+  real action workflows, and bounded recovery coverage.
+- Used planning-with-files and docs-write to update the existing plan/findings/
+  progress files only. No runtime implementation, new wheel, test execution,
+  device command, commit/push, registration, or production change in this turn.
+- Planning lookup corrections: `docs/migration.md` does not exist; read
+  `docs/migration-from-tbp.md`. The docs skill's shared style guide is absent;
+  used available guidance and existing Markdown conventions. Oversized combined
+  reads were narrowed to the relevant sections.
+- Completed the four-stage plan with explicit completion criteria, a proposed
+  (not retroactive) acceptance-policy boundary, and a first implementation batch
+  limited to evidence/owned-resource checks. Superseded stale commit-wait items
+  while retaining historical records. Revalidated all four received-file hashes
+  and the socket-r1 sidecar. `git diff --check` passes; only the three planning
+  files changed. Yarn is absent; no formatter installation or product test run
+  was needed for these Markdown-only edits.
+
 ## 2026-09-22 — v0.2.19 follow-up locally complete
 
 - Handoff clarification: a fresh read-only `git ls-remote origin HEAD refs/heads/main` and local HEAD both returned `0a295fe4cdf94bc185e7f75f932043b017beac78`; the twelve-path follow-up remains uncommitted. Added an explicit base-versus-candidate status and copyable Hermes hold/correction message. No candidate SHA was fabricated, and no commit/push or device run was performed. A sealed execution instruction requires the new user-owned commit first.

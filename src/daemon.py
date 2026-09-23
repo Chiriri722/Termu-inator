@@ -59,6 +59,8 @@ class Daemon:
         self._start_time = None
         self._last_activity = None
         self._server = None
+        self._socket_identity = None
+        self._pid_identity = None
         self._shutting_down = False
         self._cmd_lock = None  # Initialized in run() within event loop
         self._main_wid = None  # Main browser window ID (set after start)
@@ -77,15 +79,31 @@ class Daemon:
         # Write PID with restrictive permissions
         fd = os.open(PID_PATH, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
         with os.fdopen(fd, "w") as f:
+            info = os.fstat(f.fileno())
+            self._pid_identity = (info.st_dev, info.st_ino)
             f.write(str(os.getpid()))
 
+        try:
+            await self._run_browser()
+        except BaseException as run_error:
+            try:
+                await self._cleanup()
+            except (Exception, asyncio.CancelledError):
+                if hasattr(run_error, "add_note"):
+                    run_error.add_note("Owned daemon cleanup is incomplete")
+            raise
+        else:
+            await self._cleanup()
+
+    async def _run_browser(self):
         # Start browser with persistent Firefox profile
         os.makedirs(FIREFOX_PROFILE_DIR, mode=0o700, exist_ok=True)
         # Ensure Firefox uses system CA certificates (fixes SSL errors on Termux)
         _user_js = os.path.join(FIREFOX_PROFILE_DIR, "user.js")
         _cert_pref = 'user_pref("security.enterprise_roots.enabled", true);'
         if os.path.exists(_user_js):
-            _existing = open(_user_js).read()
+            with open(_user_js) as f:
+                _existing = f.read()
             if "enterprise_roots" not in _existing:
                 with open(_user_js, "a") as f:
                     f.write("\n" + _cert_pref + "\n")
@@ -140,6 +158,8 @@ class Daemon:
             self._handle_client, path=SOCKET_PATH,
             limit=32 * 1024 * 1024,  # 32MB limit for full-page screenshots
         )
+        info = os.lstat(SOCKET_PATH)
+        self._socket_identity = (info.st_dev, info.st_ino)
         os.chmod(SOCKET_PATH, 0o600)
 
         logger.info("Daemon listening on %s", SOCKET_PATH)
@@ -162,8 +182,6 @@ class Daemon:
             await self._server.serve_forever()
         except asyncio.CancelledError:
             pass
-        finally:
-            await self._cleanup()
 
     async def _handle_client(self, reader, writer):
         """Handle one client connection."""
@@ -277,20 +295,30 @@ class Daemon:
 
     async def _cleanup(self):
         """Stop browser and remove state files."""
-        if self.pilot:
-            # Auto-save cookies before stopping for persistent sessions
-            _auto_cookies = os.path.join(TBP_DIR, "auto_cookies.json")
+        try:
+            if self._server is not None:
+                self._server.close()
+                await asyncio.wait_for(self._server.wait_closed(), timeout=5)
+        finally:
+            if self.pilot:
+                # Auto-save cookies before stopping for persistent sessions
+                _auto_cookies = os.path.join(TBP_DIR, "auto_cookies.json")
+                try:
+                    await self.pilot.save_cookies(_auto_cookies)
+                    logger.info("Auto-saved cookies to %s", _auto_cookies)
+                except Exception as e:
+                    logger.warning("Failed to auto-save cookies: %s", e)
+                finally:
+                    # Retain evidence if cleanup fails, including after a cancelled save.
+                    await self.pilot.stop(save_session=self._session_file)
+        for path, identity in ((SOCKET_PATH, self._socket_identity),
+                               (PID_PATH, self._pid_identity)):
+            if identity is None:
+                continue
             try:
-                await self.pilot.save_cookies(_auto_cookies)
-                logger.info("Auto-saved cookies to %s", _auto_cookies)
-            except Exception as e:
-                logger.warning("Failed to auto-save cookies: %s", e)
-            try:
-                await self.pilot.stop(save_session=self._session_file)
-            except Exception as e:
-                logger.warning("Error stopping pilot: %s", e)
-        for path in (SOCKET_PATH, PID_PATH):
-            try:
+                info = os.lstat(path)
+                if (info.st_dev, info.st_ino) != identity:
+                    raise RuntimeError("Daemon state file ownership changed")
                 os.unlink(path)
             except FileNotFoundError:
                 pass

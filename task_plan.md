@@ -19,7 +19,62 @@ Termux/Android에서 실제 Firefox·Chromium을 제어하되, 기존의 방대�
 
 ## Next Step
 
-2026-09-22 follow-up: clean base is now `0a295fe4cdf94bc185e7f75f932043b017beac78`
+2026-09-23 최신 확인 commit은 `22155ee1d7536dbf7f1fcd1d98507323b6db96ce`
+(`v.0.2.20`)이다. S22U canonical과 benchmark quality는 PASS이며,
+`socket-r1` 보완 진단도 완료됐다. 전역 Unix socket census만 권한 부족으로
+UNAVAILABLE이고, 이는 소켓 잔존의 확인도 전체 cleanup의 증명도 아니다.
+기존 결과와 실행 identity는 보존하고 같은 진단을 다시 요청하지 않는다.
+
+다운로드 JSON의 완료 시각과 보존본 SHA 일치는 확인됐으며 추가 답변은 필요하지 않다.
+3단계의 local 취소·연결 복구 회귀와 4단계 설치·되돌리기 문서 점검을 진행했다.
+다음 기기 검수에는 사용자가 확정한 **새 clean commit SHA**가 필요하다.
+현재 v0.2.20 SHA로 보강본 wheel이나 실행 지시를 봉인하지 않는다.
+
+앞선 회차에서는 계획 갱신 뒤 active goal의 local 구현을 재개했다. 현재 worktree의 기존 보강은
+미커밋 상태로 보존한다. 아래 local 구현 기록을 v0.2.20 기기 PASS와 혼동하지 않는다.
+
+아래 **Post-v0.2.20 보강 계획**의 1단계 local 구현·인수 검토를 완료했다.
+관측 실패를 빈 목록/파일 부재로 오인하는 경로, PID generation 비교,
+독립 cleanup 결과 보존, JSON에서 생성하는 한국어 요약을 보강했다.
+소유 자원 종료 실패를 숨기는 runtime 경로도 회귀로 재현해, 직접 child wait,
+실패 시 참조·잠금 보존, STOPPING 상태, MCP 종료 시 service cleanup을 연결했다.
+부분 시작 실패·취소 뒤에도 adapter/service가 소유권을 보존하며, transport 종료가
+같은 자원을 정리한다. daemon 시작 실패와 BiDi 연결 실패도 회귀로 확인했다.
+Benchmark는 사후 환경·Git·PNG 검사를 독립 실행하고, 측정/정리/환경 재확인
+실패에도 완료된 결과를 보존한다. Canonical도 독립 사후 검사를 수행하고,
+두 검사 모두 반환 보고서의 hash·권한·안정적인 파일 읽기를 검증한다.
+취소·프로세스 증거 저장·private 진단 저장 실패에도 수집 가능한 후속 결과를 남긴다.
+Canonical은 이름 필터 대신 현재 UID의 숫자 process identity를 수집하고,
+신뢰된 MCP child에서 관측한 후손과 귀속 불명 process를 구분한다.
+이는 sampled ancestry이며 모든 후손의 OS 격리 증명은 아니다.
+Benchmark도 private pidfile·Unix peer PID/UID·process generation으로 실제 daemon을
+확인하고 같은 인증된 연결로만 shutdown을 요청한다. 측정 전후 후손 관측은 latency에
+포함하지 않는다. 확인된 잔존·관측 실패는 후속 시작과 quality PASS를 막는다.
+Canonical도 성공·실패 양쪽 backend 뒤 같은 전환 검사를 사용한다. 같은 MCP의
+PID/generation과 private control socket은 살아 있어야 하고, browser 후손·lease는
+해제돼야 한다. interactive MCP 종료 증거가 통과해야 observer를 재시작한다.
+2단계의 첫 local 구현도 완료했다. `/forms`는 실제 입력·체크·선택 값과 제출 횟수를
+표시하고, canonical은 compact action 뒤 fresh observe로 효과를 확인한다.
+기존 owner-local 승인으로 제출 전 0회·승인 후 1회·동일 key 재전달 후 1회를 검증한다.
+stale revision·retired ref 거부, fresh ref 복구, disabled/hidden 대상의 효과 0회,
+wait 성공/timeout도 기존 fixture와 canonical에 연결했다. 관찰에서 이미 비활성인 대상은
+service 공통 경로에서 승인·dispatch 전에 거부한다. dispatch 이후 불확실성은 그대로 보존한다.
+takeover를 처음 감지한 응답도 공개하지 않도록 navigation/observe/wait/tab/action 경로를
+막았다. 이미 실행된 action은 terminal journal을 보존한 뒤 응답을 숨긴다. 기존 owner CLI로
+login/OTP takeover·복귀, paused 읽기 차단, 오래된 context 거부와 페이지 권한 불변을 검증한다.
+실제 자식 process 종료 뒤 journal/lock 복구와 서비스 취소 뒤 재실행 차단을 확인했다.
+CDP 취소·전송 실패 때 남던 대기 요청을 공통 finally에서 정리한다. 실제 격리 Chrome의
+응답 취소와 새 연결 후 합성 제출 횟수 1회 유지, 초기화된 observer MCP의 stdin EOF 뒤
+정상 종료·소켓 제거·재시작도 확인했다. 직전 595개 회귀는 실제 Chrome 포함 skip 없이 통과했고,
+문서 보강 후 596개 회귀는 Python 3.14에서 opt-in 브라우저 1개만 제외하고 통과했다.
+이는 S22U의 양 backend MCP 조작·복구 결과가 아니다. 연속 작업과 idle/resume도 아직 남았다.
+새 wheel·봉인된 기기 지시·원격 검사·등록·production 전환은 아직 하지 않는다.
+
+### Historical next-step records
+
+아래 기록은 각 당시의 상태이며 위 최신 계획으로 대체된다.
+
+2026-09-22 earlier follow-up: clean base was `0a295fe4cdf94bc185e7f75f932043b017beac78`
 (`v.0.2.19`), containing the previous nine-file fix. The twelve-path follow-up
 is locally complete: lifecycle/isolation guards, safe failure evidence, 457-test
 matrix, and fresh wheel/install binding. Next: obtain the user-owned clean commit,
@@ -142,23 +197,298 @@ benchmark나 RC 승인을 진행하지 않는다.
 
 ## Current Phase
 
-Active 2026-09-22 — Benchmark execution safety (local implementation complete)
+2026-09-23 — Local 보강·운영 문서 확인, 새 candidate commit 확정 필요
+
+- [x] v0.2.20 clean commit과 완료된 socket-r1 결과 확인.
+- [x] 기존 코드·fixture·계획을 대조하고 최소 보강 순서와 완료 조건 작성.
+- [x] 1단계 local: 검수 결과·관측 범위·소유 자원 종료 증거 보강.
+  - [x] procfs 관측 실패와 PID generation 결함을 실패하는 회귀로 재현.
+  - [x] 관측 실패/경로 조회/보고서 개선의 RED→GREEN과 Python 3.11/3.12/3.14 회귀.
+  - [x] 종료 실패 전파·소유 참조/잠금 보존·callback socket·MCP 종료 경로의 local 회귀.
+  - [x] 부분 시작 실패·취소·시작 후 metadata 실패의 소유권 및 owner close local 회귀.
+  - [x] Benchmark 사후 환경·Git·PNG 독립 검사 및 실패 보고서 보존 local 회귀.
+  - [x] 반환 보고서 hash/권한 수집 및 canonical의 독립 후속 검사 local 회귀.
+  - [x] 후보 소유 child/descendant 종료 증거 및 후속 독립 결과 수집 연결.
+    - [x] Canonical의 이름 비의존 census, MCP 호출 전후 ancestry 관측,
+      재부모화·PID 재사용·귀속 불명·관측 실패의 local 회귀.
+    - [x] Benchmark의 신뢰된 daemon identity와 관측한 후손 확인 연결.
+    - [x] Benchmark의 cold/warm/backend 전환 전 잔존·관측 한계 차단 local 회귀.
+    - [x] Canonical backend 전환에서 살아 있는 MCP parent와 종료할 browser 후손을 구분.
+    - [x] 반복 관측의 root generation 고정과 interactive 종료 후 observer 재시작 gate.
+  - [x] 1단계 local 인수 조건·기존 소비자 호환성 확인. 새 기기 증거로 승격하지 않음.
+- [ ] 2단계: 실제 backend의 핵심 observe–act–verify 작업 검증.
+  - [x] `/forms` 실제 필드 값·제출 카운터와 canonical action/승인/replay local 연결.
+  - [x] 임시 Chrome 프로필에서 실제 fixture 이벤트·DOM 값·카운터 0→1→2 확인.
+  - [x] stale revision/retired ref 거부·fresh recovery와 disabled/hidden/wait gate local 연결.
+  - [x] takeover/페이지 지시문 경계의 gate local 연결 및 전환 응답 누출 차단.
+  - [ ] S22U 양 backend의 실제 MCP action 경로와 승인/replay 증거.
+- [ ] 3단계: 후보 자원만 대상으로 중단·재시작·idle/soak 검증.
+  - [x] 요청 취소/시간 초과 후 dispatch 재실행 및 새 세션으로 key 재결합 차단 local 회귀.
+  - [x] 소유한 실제 자식 process 강제 종료 후 journal 복구와 persistent lock 재획득.
+  - [x] CDP 취소/전송 실패 정리 및 실제 Chrome 응답 취소·새 연결 후 효과 1회 확인.
+  - [x] 브라우저 미연결 observer MCP의 초기화 후 stdin EOF·정상 종료·같은 경로 재시작.
+  - [ ] 활성 backend/MCP 중단, 양 backend 100-action·idle/resume 및 S22U 증거.
+- [ ] 4단계: 안전 범위를 명시한 설치·운영 전환 준비와 별도 승인.
+  - [x] 네 entrypoint·distribution/commit 구분 및 실행 가능한 버전 진단 명령 확인.
+  - [x] 격리 업데이트·원래 설정 복구·제거 범위·비공개 증거·운영 제한 문서 정리.
+  - [ ] 별도 안전한 환경의 clean Termux 설치, 양 backend 기기 인수, 운영 전환 승인.
+
+**다음 실행 경계:** 새 사용자 commit과 정확한 변경 범위가 확인되기 전에는 기기 지시서를
+실행 가능 상태로 만들지 않는다. `tests/test_cdp.py`는 아직 untracked이므로 커밋 검토에
+포함해야 한다. Canonical/benchmark와 별개인 fault·100-action·1시간 idle 검사는
+소유 자원·횟수·새 output identity·승인 범위를 먼저 확정한다. 전체 목표는 아직 미완료다.
+
+## Post-v0.2.20 보강 계획
+
+### 출발점과 증거의 한계
+
+| 범위 | 확인된 상태 | 계획에 미치는 영향 |
+|---|---|---|
+| Canonical / benchmark quality | 양 backend PASS, benchmark 작업 오류 0 | 같은 실패를 전제로 다시 고치지 않는다. |
+| 보완 PNG / 파일 무결성 / Git | socket-r1 보고상 PASS | 이미 끝난 확인을 Hermes에 다시 요청하지 않는다. |
+| 전역 Unix socket 목록 | UNAVAILABLE: PermissionError, errno 13 | `null`을 0으로 바꾸지 않는다. 전역 cleanup 판정은 UNKNOWN으로 남긴다. |
+| 실제 입력·클릭 등 작업 | form/stale/disabled/wait/takeover gate local 구현·회귀 완료, 기기 실행은 아직 없음 | 복구 경계를 묶어 준비한 뒤 양 backend에서 실제 검증한다. |
+| Production 승인 | 미승인 | 계획·local 테스트·기기 검수와 운영 전환을 분리한다. |
+
+수신 증거는 저장소 밖
+`../Termu-inator-device-artifacts/s22u-v0220-22155ee1d753-results/`에 보존한다.
+기기 보고와 Mac의 hash/identity 대조를 구분한다. 예전 readback의 미기록 actual은
+socket-r1로 복원되지 않았고, 기존 PASS/FAIL manifest도 다시 쓰지 않는다.
+
+### 바로 다음 작업의 범위
+
+기존 미커밋 보강을 보존하고 검수 도구 확장은 여기서 마감한다.
+첫 `/forms` 구현 묶음은 local 완료됐다. 고정 `submitted` 문구를 실제 값·제출 횟수로
+바꾸고, 요청 성공뿐 아니라 fresh observe의 실제 상태를 요구한다. 기존 owner control과
+idempotency 계약을 사용하며 원문 challenge·페이지 값을 실패 메시지에 노출하지 않는다.
+
+기존 `/stale-replacement`, `/dynamic-list`, `/states`, `/delayed`, `/login`, `/otp`,
+`/prompt-injection`의 행동·takeover 경계는 local 완료했다. 다음은 기존 journal/lifecycle
+테스트로 dispatch 이후 중단·취소·재시작의 중복 방지와 명시적 복구를 확인하는 묶음이다.
+local PASS를 양 실제 backend의 기기 PASS로 올리지 않는다.
+
+반환 파일 수집과 canonical 후속 검사는 local 구현·회귀를 완료했다. 이 결과는 새
+S22U 실행 증거가 아니며, 이미 보존된 v0.2.20 보고서를 갱신하거나 승격하지 않는다.
+현재 local 전체 suite는 591 tests이며 pinned MCP Python 3.14는 실제 Chrome fixture를
+포함해 모두 PASS다. Python 3.11/3.12는 9 skip(기존 optional MCP 8개와 opt-in browser 1개)
+외 모두 통과했다. Chrome fixture는 실제 DOM 이벤트 검사이며 MCP/Termux 기기 검사는 아니다.
+
+이 계획 확인만으로 새 기기 실행을 요청하지 않는다. 새 S22U 검수는 local 보강과
+행동 검증 준비를 묶어 검토한 뒤 정확한 commit·wheel·실행 identity로 한 번 봉인한다.
+같은 권한 오류를 반복 확인하거나 기존 v0.2.20 결과를 소급 변경하지 않는다.
+
+### 실행 순서와 각 묶음의 종료선
+
+| 순서 | 작업과 산출물 | 종료 조건 |
+|---|---|---|
+| 1. 기존 보강 마감 — local 완료 | 기존 변경의 인수 검토와 후보 소유 process 종료 증거 | 정상 종료·부분 시작·취소에서 직접 child와 후손의 확인 범위를 구분한다. 관측 실패를 0으로 바꾸지 않고 기존 회귀와 보고서 소비자가 통과한다. 새 기기 증거는 아직 없다. |
+| 2. 핵심 조작 검증 — 다음 작업 | 기존 fixture를 사용하는 observe → act → verify 시나리오. 폼 → stale/disabled → takeover 순서로 묶음을 나눈다. | 양 backend에서 입력·체크·선택·클릭의 실제 효과, stale ref 거부, 승인 전 effect 0회와 같은 승인/key의 중복 effect 0회를 확인한다. |
+| 3. 복구 검증 | 후보만 대상으로 한 중단·재시작 결과와 별도 장시간 검사 계획 | 불명확한 effect를 자동 재전송하지 않고 기존 사용자 자원을 변경하지 않는다. 실제 100-action/1시간 idle은 별도 승인·identity로 검증한다. |
+| 4. 기기 인수·운영 준비 | 정확한 commit/tree/wheel과 새 실행 경로가 있는 지시서, JSON에서 만든 한국어 요약, 되돌리기 절차 | local 검증을 모아 검토한 뒤 기기 실행을 봉인한다. canonical·조건부 benchmark·행동 검사의 결과와 미확인을 구분하고, production은 별도 승인을 받는다. |
+
+1단계에서 프로세스 이름 필터를 늘리는 방식으로 후손 종료를 증명하지 않는다.
+직접 child handle의 종료 확인과 procfs에서 관측한 ancestry는 서로 다른 증거다.
+기존 handle·PID generation·확인 가능한 부모 관계를 먼저 사용하고, 후보 귀속이
+불명확한 프로세스는 종료하지 않는다. 범용 process supervisor나 새 reporting
+framework는 실제로 재현한 결함을 기존 경로에서 해결할 수 없을 때만 검토한다.
+
+관측 권한 때문에 필수 인수 증거를 얻을 수 없다면 그 항목은 보류한다. 다만
+독립적인 local 행동 회귀 준비까지 막거나 같은 전역 census를 반복하지 않는다.
+미확인 항목을 PASS로 바꾸지 않으며, 새 원격 실행이 필요한지는 필요한 증거와
+실행 범위를 정리한 뒤 결정한다. 네 묶음의 완료 조건 외 리팩터링은 추가하지 않는다.
+
+### 1단계 — 검수가 종료까지 결과를 남기도록 보강
+
+**목표:** 검사 도구의 관측 한계 때문에 제품 결함과 작업 완료 여부가 섞이지 않게 한다.
+범용 검수 프레임워크를 새로 만들지 않고 기존 두 검사 스크립트를 사용한다.
+
+- 항목마다 PASS / FAIL / UNAVAILABLE / UNKNOWN, 검사 범위, 고정 reason,
+  실제 관측값 또는 `null`을 구분한다. raw stderr·전체 프로세스 인자·비밀은
+  공개 JSON에 넣지 않는다. 한 독립 검사 실패 뒤에도 PNG·파일·Git 확인은 계속하며,
+  선행 조건이 필요한 항목은 미실행 이유를 남긴다.
+- `/proc/net/unix` 전체 목록과 후보가 만든 control socket / daemon socket,
+  pidfile / display lease / session lock을 별도 증거로 취급한다.
+  `_cleanup_summary()`, `validate_released_session_lock()`, `file_check()`를 재사용한다.
+  영구 session.lock은 파일 삭제가 아니라 안전한 inode·owner·flock 계약으로 판정한다.
+- `_process_snapshot()`의 unreadable-entry 생략과 PID-only 비교를 보강한다.
+  이미 보유한 child process handle과 시작 시점의 identity를 우선 사용하며,
+  같은 PID의 다른 process generation을 구별할 수 없으면 종료 증거로 삼지 않는다.
+  다른 앱의 관측 불가와 후보 소유 프로세스의 관측 불가를 혼동하지 않는다.
+- benchmark의 socket/pidfile 부재만으로 process 종료까지 증명했다고 표현하지 않는다.
+  후보 browser/daemon/helper 종료 증거가 부족하면 그 항목과 다음 작업을 명시한다.
+  소유권이 불명확한 process 종료, 광역 `pkill`, lock의 무조건 unlink는 금지한다.
+- 같은 결과 JSON에서 짧은 한국어 요약을 만든다. `실행 완료 여부`, `기능/성능 결과`,
+  `미확인 항목`, `추가 작업 필요 여부`, `production 승인 여부`를 항상 포함한다.
+  MCP stdout에는 프로토콜 외 문장을 쓰지 않고 기존 zero-stderr 게이트도 유지한다.
+
+**최소 수정 후보:** `scripts/final_verify.py`, `scripts/benchmark_device.py`와
+각 기존 테스트. 공유 process 종료 경로에 실제 결함이 재현될 때만 runtime을 수정한다.
+실행 때마다 다른 ad hoc Python을 만드는 방식과 helper의 AST 복제는 후속 지시에서 없앤다.
+
+**완료 조건:** EACCES, 일치 항목 존재, 정상 0개, PID 재사용/관측 실패,
+dangling path/unsafe parent, 중간 검사 실패를 구분하는 local 회귀가 통과한다.
+안전하게 독립 실행 가능한 뒤 항목은 끝까지 수집되고, 불완전한 후보 종료가 PASS가 되지 않는다.
+기존 schema 소비자와 benchmark authority/exit 계약의 호환성도 확인한다.
+
+**2026-09-23 local 인수 결과: 완료.** 아래는 실제로 실행한 코드/회귀의 범위이며,
+새 S22U 실행, 보이지 않는 후손의 부재, production 승인을 증명하지 않는다.
+
+| 인수 항목 | 확인 근거 | 범위 |
+|---|---|---|
+| 관측 불가·PID 재사용·재부모화 | `ProcessCensusEvidenceTests`, `ProcessCensusGateTests` | 실제 임시 proc 파일 파싱과 주입한 프로세스 상태; 숫자 identity만 수집 |
+| 안전한 backend/MCP 전환 | `ProcessCensusGateTests`, `BenchmarkLifecycleTests` | 실제 private Unix socket metadata, shared 전환 orchestration; 살아 있는 root만 예외 |
+| 부분 시작·취소·종료 실패 | `test_runtime_composition.py`, `test_browser_lifecycle.py` | 실제 소유 dummy child wait와 kernel lease; 실제 browser descendant 전체 증명은 아님 |
+| 독립 결과 수집·파일 무결성 | `CanonicalPostRunEvidenceTests`, `PrivateReportReadTests`, benchmark 회귀 | 실패 뒤 Git/환경/PNG/반환 파일 확인 지속, 읽기 불가를 0으로 변환하지 않음 |
+| 소비자·종료 코드·완료 요약 | `CanonicalAuthorityTests`, `FinalVerifyCliContractTests`, packaging 계약 | 선언된 `post_stop` 실패 거부, 기존 형식 호환, JSON 기반 한국어 상태 구분 |
+
+전체 warning-as-error suite: Python 3.14 574/574 PASS, Python 3.11/3.12 각각
+574 tests OK(기존 optional MCP 8 skip). Python 3.10은 문법 검사만 수행했다.
+새 기기 인수 기준의 명시적 확정과 실제 실행은 아래 별도 gate로 남긴다.
+
+**인수 기준 제안 — 아직 적용 아님:** 전역 socket census는 보조 진단으로 두고,
+후보가 소유한 자원의 종료 증거를 필수로 삼는다. 필수 증거가 불충분하면 계속 보류한다.
+이 기준은 다음 실행 전에 명시적으로 확정해야 하며 과거 결과를 소급 승격하지 않는다.
+같은 EACCES 진단을 반복하거나 root/ADB 권한을 추가하는 것은 해결 계획에 포함하지 않는다.
+
+### 2단계 — 실제로 읽고 조작하고 결과를 확인하는 작업 검증
+
+**목표:** 지금의 탐색·관찰·PNG smoke를 실제 작업 수준으로 확장한다.
+새 기능을 늘리기보다 기존 `LegacyPilotBackend`와 service 계약의 빈 검증 구간을 채운다.
+
+- 기존 `/forms`에서 observe → ref 기반 type/check/select/click → fresh observe로
+  예상 상태를 확인한다. `dispatch 성공`과 실제 효과 확인을 구분한다.
+- `/dynamic-list`, `/stale-replacement`에서 오래된 ref/page revision을 행동 전에
+  거부하고 새 관찰로 복구하는지 확인한다. 실패한 행동을 임의로 다시 보내지 않는다.
+- `/delayed`, `/states`에서 wait timeout과 disabled 대상 거부를 확인한다.
+- `/login`, `/otp`, `/prompt-injection`에서 takeover 중 읽기·캡처 억제,
+  페이지 텍스트의 권한 변경 불가를 확인한다. 값은 모두 synthetic fixture 데이터다.
+- 기존 idempotency/confirmation 테스트를 재사용해 fixture submit은 승인 전 0회,
+  동일 승인·동일 key 재전달에도 실제 효과 1회인지 검증한다. 실제 외부 제출은 하지 않는다.
+
+**수정 후보:** `tests/fixtures/server.py`, 기존 service/action/adapter 테스트,
+`scripts/final_verify.py`의 좁은 E2E 확장. 새 fake backend나 별도 자동화 엔진은 만들지 않는다.
+탭·popup·dialog·다운로드의 미지원 상태는 성공으로 바꾸지 않는다.
+
+**완료 조건:** 위 다섯 작업 묶음을 양 실제 backend에서 확인하고 각 실패를 구분한다.
+local fake/contract PASS와 실제 장치 PASS를 별도 기록한다. count 목표를 맞추려고
+비슷한 fixture를 늘리지 않으며, 기존 navigation/artifact/stdio 검증도 유지한다.
+
+**2026-09-23 첫 묶음 local 결과:** 정상 form flow 및 무효 효과·승인 전 제출·중복 제출·
+origin 변경·실패 action을 기존 verifier 테스트로 검증했다. 실제 임시 Chrome fixture는
+필드의 DOM 값과 표시 상태를 대조하고 제출 카운터가 0→1→2로 변함을 확인했다.
+후자는 fixture 자체가 중복 효과를 식별한다는 증거이지, MCP의 exactly-once 기기 증거가 아니다.
+선택 실행은 `TERMUINATOR_TEST_BROWSER`에 격리 실행할 Chromium 계열 바이너리의 절대경로를
+지정하고 `tests.test_fixture_site.FixtureSiteTests.test_live_browser_form_events_count_each_real_submit`
+unittest를 실행한다. 기본 suite는 브라우저를 임의로 시작하지 않는다.
+
+**추가 local 결과:** stale revision과 retired ref의 기계 오류 코드를 구분하고, 거부 뒤
+효과가 없으며 fresh ref로만 정상 복구되는지 canonical에서 확인한다. disabled/hidden은
+관찰된 상태와 activation 0회를 모두 요구하고, wait는 실제 조건·마지막 관찰·경과 시간을
+검사한다. 서비스는 이미 관찰된 비활성 source/drag destination을 승인·dispatch 전에 거부한다.
+실제 Chrome에서는 교체 노드의 backend handle 변경, detached node의 효과 없음,
+숨김 버튼을 JS로 우회 클릭했을 때 counter 증가도 확인했다. 이는 fixture 검증 범위다.
+
+**Takeover local 결과:** 다섯 capture 경로의 최초 민감 응답 누출을 RED로 재현한 뒤
+기존 session-state guard로 차단했다. action 결과는 durable terminal 뒤 차단하므로 복귀 후
+같은 key 재전달이 effect를 반복하지 않는다. Canonical은 login/OTP의 required/active 두 상태에서
+11개 page-sensitive 도구를 거부하고, owner-only 복귀·epoch 변경·fresh observe를 확인한다.
+페이지 지시문 전후 site policy와 도구 목록이 같으며 Developer Mode가 비활성인지도 확인한다.
+실제 Chrome DOM probe가 비어 있는 password/OTP를 감지했다. 이는 감지 후 응답 공개의 보호이며,
+감지 전 backend snapshot 수집이나 요청된 private artifact 보존 자체를 없앴다는 주장은 아니다.
+
+### 3단계 — 중단과 재시작에서도 안전한지 확인
+
+**목표:** 이미 확보한 warm 성능을 다시 최적화하기보다 작업 유실·중복 실행을 방지한다.
+
+- `tests/test_browser_lifecycle.py`, `tests/test_session_lock.py`,
+  `tests/test_idempotency_journal.py`, benchmark lifecycle 테스트를 먼저 재사용한다.
+  browser/daemon 종료, MCP 취소·연결 종료, stale socket/lock을 local에서 재현한다.
+- dispatch 후 결과 저장 전 중단은 `outcome_unknown`으로 유지하고 effect를 자동 재실행하지 않는다.
+  같은 process가 session lock만 해제한 상태와 process 종료 후 상태를 계속 구분한다.
+- 이후 명시적으로 봉인된 **격리 후보 자원에 한해서만** S22U fault 검사를 진행한다.
+  기존 Hermes/Termu-inator 세션이나 다른 앱을 종료하지 않는다. 신뢰된 ownership 확인이
+  안 되면 fault 주입을 중단하고 원인을 기록한다.
+- 기존 목표인 100-action 연속 작업과 1시간 idle/resume을 별도 identity에서 확인한다.
+  Android background kill은 synthetic task로 별도 승인 후 확인하고,
+  실제 플랫폼 kill을 재현하지 못했으면 그 한계를 표시한다.
+
+**완료 조건:** 중복 effect 0, 후보 소유 자원의 확인된 survivor 0,
+이전 사용자 자원 변경 0, idle 후 명시적 복구 가능. 오류는 숨기지 않고
+기존 latency budget을 회귀 기준으로 유지한다. cold start 최적화는 이 단계의 필수가 아니다.
+
+**현재 local 결과:** 기존 journal/service 구현으로 새 회귀 두 개가 통과했다.
+서비스 취소와 deadline 이후 같은 요청은 `outcome_unknown`이며, 새 세션에 이전 key를
+다시 묶으면 conflict로 거부되어 추가 backend dispatch가 없다. 별도 실제 자식 process가
+synthetic marker와 journal을 기록한 뒤 강제 종료되어도 `dispatched`는 불확실 상태,
+`terminal`은 저장된 결과로 복구된다. 살아 있을 때 잠금은 busy이고 종료 뒤에는
+같은 persistent inode의 lease를 다시 얻는다. 이는 실제 브라우저 effect, 전원 손실,
+Android background kill 또는 idle/soak 증거가 아니며 런타임 변경을 추가하지 않았다.
+
+그 다음 CDP 검사에서는 취소·전송 실패 후 요청 Future가 남는 결함을 재현했다.
+공통 전송의 finally 정리로 수정했고, 실제 Chrome에서도 응답을 취소한 제출의 횟수가
+새 연결 뒤 1회인 것을 확인했다. 연결 복구는 명시적 새 client이며 자동 재전송은 없다.
+별도 MCP 검사는 observer 초기화 후 stdin EOF·SIGTERM 뒤 exit 0, stderr 0,
+제어 소켓 제거와 같은 임시 data root 재시작을 확인했다. 활성 브라우저가 붙은 MCP
+중단, Firefox/Android 수명주기, 장시간 안정성을 이 결과로 승인하지 않는다.
+
+### 4단계 — 제한된 운영 준비와 남은 보안·제품 범위 확정
+
+- 설치·업데이트·되돌리기 문서가 실제 entrypoint와 일치하도록 정리한다.
+  현재 `tbp-mcp`는 legacy이고 `tbp-mcp-v1`이 compact라는 구분을 유지한다.
+  commit 표시 버전과 distribution `0.1.0a1`도 혼동하지 않도록 설명한다.
+  준비가 끝났다는 이유만으로 default entrypoint나 Hermes 등록을 바꾸지 않는다.
+- 새 venv 설치와 **깨끗한 Termux 설치**를 다른 검사로 관리한다.
+  후자는 별도 안전한 장치/환경이 있을 때 검증하며 S22U를 초기화하지 않는다.
+- pre-follow redirect와 DNS/peer enforcement가 아직 없는 사실을 운영 제한에 명시한다.
+  신뢰하지 않는 외부 사이트까지 일반 사용을 승인하기 전에는 이 보안 게이트를 해결해야 한다.
+  단순 최초 URL 허용 목록이나 사후 quarantine만으로 해결했다고 주장하지 않는다.
+- 그 전의 사용 평가는 synthetic fixture와 명시적으로 통제한 환경으로 제한한다.
+  기존 설정 백업과 되돌리기 절차를 준비한 뒤에도 등록·production 전환은 별도 승인을 받는다.
+
+**문서 local 확인:** 잘못된 `mcp.__version__` 진단은 실제 고정 환경에서 실패를 재현하고
+배포 metadata 조회로 수정했다. 네 entrypoint와 버전/commit 구분, 이전 command·arguments·
+data root 보존, 후보만 종료하는 rollback, private 로그 처리와 일반 웹 운영 제한을 정리했다.
+설치 스크립트의 native package 변경과 봉인된 wheel 검수를 구분한다. 문서 계약 23개 및
+문서 속 Bash 19개 block의 구문 검사는 통과했지만 Termux 설치/rollback을 실행한 증거는 아니다.
+
+### 작업을 다시 길게 늘리지 않는 진행 규칙
+
+1. 1단계와 2단계 행동/takeover 묶음의 local 구현, journal/서비스 취소, CDP 연결 복구,
+   observer MCP EOF 회귀와 운영 문서를 확인했다. 새 clean commit 확정 뒤 첫 기기 gate로
+   현재 행동 경로부터 검증한다. **활성 backend 중단과 연속 작업**은 별도 승인된 후속 검사다.
+   필요한 기기 증거를 로컬 fixture PASS로 대신하거나 관계없는 리팩터링을 추가하지 않는다.
+2. 문서·기존 evidence 검토만으로 새 wheel이나 canonical/benchmark를 요구하지 않는다.
+   runtime/verifier 변경이 포함된 다음 후보는 local 검증을 모아 끝낸 뒤 한 번 봉인한다.
+3. Hermes에게는 정확한 commit/tree/변경 범위/wheel hash와 새 output identity가
+   모두 있는 지시서만 준다. 기존 canonical → 조건부 benchmark 게이트를 유지하고,
+   새 작업·복구 검사도 실행 수와 격리 경로를 사전에 정한다. 변경된 환경에 과거 PASS를 재사용하지 않는다.
+   사용자 소유의 새 clean commit이 확정되기 전에는 지시서를 실행 가능 상태로 봉인하지 않는다.
+4. 완료 시각과 항목별 상태를 포함한 결과 JSON이면 해당 회차는 종료한다. 별도 텍스트
+   답변은 기다리지 않고 같은 JSON에서 한국어 요약을 만든다. 새로운 결함이나 승인된
+   범위가 없으면 같은 진단을 반복 요청하지 않는다. 장시간 soak는 승인된 별도 작업으로 관리한다.
+5. Camofox/Lightpanda, Buzz/SSH 추가 구성, 148-tool 전체 재작성, 자동 backend fallback,
+   공개 release와 운영 전환은 이번 첫 보강 묶음에 포함하지 않는다.
+
+### Historical phase records
+
+2026-09-22 — Benchmark execution safety (v0.2.20 device run received)
 
 - [x] Classify four attachments and confirm clean v0.2.19 base.
 - [x] Reproduce remaining lifecycle/isolation/reporting gaps with failing tests.
 - [x] Implement bounded fixes and executable isolated-run support.
 - [x] Run focused/full tests and update the device handoff.
-- [ ] New clean user commit, sealed wheel/output identity, and S22U verification.
+- [x] User commit v0.2.20, sealed wheel/output identity, and S22U canonical/benchmark PASS.
+  Supplemental global socket census is UNAVAILABLE; this is not unconditional production approval.
 
 Previous follow-up:
 
-Active follow-up — Benchmark artifact and quality contract (local implementation complete)
+Historical follow-up — Benchmark artifact and quality contract
 
 - [x] Verify downloaded v0.2.18 manifest checksum and sanitized failure summary.
 - [x] Reproduce output-boundary and false-success defects with failing tests.
 - [x] Implement bounded fixes without weakening runtime path restrictions.
 - [x] Verify focused/full suites and prepare next-device-run guidance.
-- [ ] User-owned clean commit and new sealed S22U canonical/benchmark run.
+- [x] Completed by the subsequent v0.2.20 canonical/benchmark run; old identities were preserved.
 
 Historical phase record follows:
 
@@ -1193,6 +1523,7 @@ Termu-inator MVP는 다음 조건을 모두 만족해야 한다.
 | RC verifier의 MCP child는 전용 HOME/XDG/TMP와 고정 owner scope를 사용하고 진단 override를 상속하지 않는다. | 기존 `~/.tbp`, config, `TBP_SINGLE_PROCESS`가 release candidate를 오염하거나 사용자 상태를 변경하지 못하게 한다. |
 | optional VirGL은 manager가 직접 시작한 process만 종료하며 외부 server를 선행 종료하지 않는다. | 동시 Termux 세션과 다른 앱의 GPU helper를 보호하고, 충돌·실행 실패는 안전한 SwiftShader fallback으로 처리한다. |
 | Device benchmark는 checksum-valid canonical manifest와 현재 runtime identity가 정확히 일치할 때만 시작한다. | `--system-site-packages`의 native package가 canonical 이후 갱신될 수 있으므로 과거 PASS를 변경된 환경의 성능 승인으로 재사용하지 않는다. |
+| v0.2.20과 socket-r1은 완료된 증거로 보존하고 다음 작업은 소유 자원 증거와 실제 작업·복구 검증으로 제한한다. | 전역 목록의 관측 불가를 제품 실패나 전체 PASS로 바꾸지 않으며 같은 진단의 반복을 끝낸다. 새로운 인수 기준과 production 승인은 별도 결정이다. |
 
 ---
 
@@ -1218,7 +1549,28 @@ Termu-inator MVP는 다음 조건을 모두 만족해야 한다.
 
 | Error | Attempt | Resolution |
 |---|---:|---|
+| 최초 민감 감지 시 observe/navigate/wait/tab/action이 내용을 반환함 | 1 | 다섯 RED 뒤 기존 active-state guard를 응답 직전에도 적용했다. action은 terminal 기록 후 차단하고 같은 key의 중복 effect가 없음을 확인했다. |
+| 새 privacy 테스트가 필수 session_lock·keyword-only lock 인자·snapshot viewport를 빠뜨림 | 1 | 실제 constructor에 맞춰 기존 ProcessSessionLock과 명시적 viewport를 사용했다. 새 fake/production API는 만들지 않았다. |
+| privacy fault의 subtest 바깥 exception 참조 및 malformed policy raw AttributeError | 1 | typed VerificationFailure를 assert하도록 음성 대조를 바로잡고 policy record의 mapping 검증을 추가했다. |
+| 전체 회귀의 과거 adapter/action 기대가 첫 민감 observation 공개를 요구함 | 1 | 첫 호출부터 session_paused를 요구하고 내부 challenge 상태와 공개 error envelope 검증을 분리했다. 최종 591개 회귀가 통과했다. |
+| 비활성 target/drag destination이 승인 요청 또는 outcome_unknown으로 넘어감 | 1 | 실제 RED 후 공통 action binding 경로에서 관찰된 비활성·숨김·zero-area 대상을 dispatch 전에 거부했다. dispatch 후 불확실성 처리는 유지했다. |
+| 비활성 target 회귀 subtest가 같은 journal key를 재사용해 두 번째부터 conflict 발생 | 1 | subtest마다 고유 key를 사용한 뒤 세 상태 모두 의도한 target 거부 assertion RED를 다시 확인했다. |
+| 새 boundary gate가 기존 폼 전용 lifecycle Caller의 /forms 응답과 충돌함 | 1 | boundary protocol은 별도 실제 MCP-error parser 테스트로 검증하고, 폼 lifecycle 테스트에서는 gate 연결·실패 시 stop만 검증했다. |
+| Form gate RED가 실제 값·제출 횟수·승인 연결·고정 action 진단 누락을 확인함 | 1 | 기존 fixture/control/MCP 경로를 재사용해 0→1→1 검증을 연결했다. 580개 회귀와 실제 Chrome fixture 검사를 통과했다. |
+| Stage 2 조회의 추정 파일 경로 및 한 test signature patch 문맥이 실제와 달랐음 | 1 | 목록·실제 signature를 읽고 수정했다. 실패 patch는 적용되지 않았다. |
+| Playwright CLI offline preflight가 ENOTCACHED를 반환함 | 1 | 설치·network retry 없이 기존 Chrome과 repository CDP client로 격리 fixture만 확인했다. |
+| Canonical 전환 RED가 성공 뒤 검사 누락·살아 있는 control socket 오판·observer 조기 재시작·root PID 재사용 채택을 확인함 | 1 | 성공/실패 공통 post_stop과 profile별 generation 고정, interactive 종료 재검증을 연결했다. 양성 대조와 574개 전체 회귀가 통과했다. |
+| Stage 2 사전 조회에서 fixture 테스트를 test_fixture_server.py로 잘못 추정함 | 1 | 파일 목록의 실제 test_fixture_site.py를 다음 작업 대상으로 확인했다. fixture와 제품 소스는 이 조회에서 수정하지 않았다. |
+| Benchmark 공개 process-summary 회귀가 정상 Python 환경 필드 누락 때문에 먼저 IndexError로 중단됨 | 1 | fixture를 실제 보고서 형태로 고친 뒤 누락된 process-summary assertion RED를 확인하고 고정 상태·숫자만 공개하도록 보강했다. |
+| Benchmark 시작 전 census 불가인데도 daemon을 띄우고, 시작 후 ancestry 불완전 시 인증된 shutdown identity까지 버림 | 1 | 두 실제 RED를 확인한 뒤 시작 전 관측 gate와 신원/ancestry 별도 상태를 연결했다. 안전한 shutdown은 보존하고 측정·후속 시작·quality 승인은 닫는다. |
+| 문서 계약 검색에 존재하지 않는 test_packaging.py를 지정함 | 1 | 실제 test_packaging_contract.py로 확인했고 22개 계약 및 전체 561개 회귀를 통과했다. |
+| 새 process gate 회귀의 async mock이 coroutine을 중첩 반환함 | 1 | async wrapper가 기존 wait를 직접 await하도록 고쳐 경고를 없앴다. 그 뒤 네 기대 동작이 각각 실제 assertion RED를 보인 것을 확인했다. |
+| 전체 회귀에서 기존 benchmark 문서의 `quality.status` 설명 누락 발견 | 1 | 테스트를 완화하지 않고 측정 품질과 반환 파일 publication/종료 코드의 구분을 문서에 복구했다. |
 | None at plan creation | 0 | 구현 중 모든 오류를 즉시 추가한다. |
+| Python 3.11/3.12 전체 회귀에서 마지막 두 OS fault 주입이 lstat 한 경로에만 걸림 | 1 | stat/lstat 양쪽 호출로 주입을 통일했다. 3.11에서 드러난 중복 is_symlink 검사의 raw PermissionError도 공유 lstat 부재 판정으로 통합해 구조화된 사전 거부를 유지했다. |
+| cleanup 권한 오류 회귀에서 Path 메서드 mock이 Python 3.14의 직접 OS 호출과 일치하지 않음 | 1 | 설치된 stdlib를 확인하고 stat/lstat·scandir/listdir OS 경계로 fault 주입을 통일했다. HEAD의 원본 함수만 메모리에 로드해 네 음성 대조가 실제로 실패하는 것도 다시 확인했다. |
+| 2026-09-22 계획 조회에서 `docs/migration.md`를 찾지 못함 | 1 | 파일 목록으로 확인한 실제 문서 `docs/migration-from-tbp.md`를 읽었다. |
+| 계획 작성용 docs skill의 shared style guide가 없고 묶음 조회 출력이 잘림 | 1 | 설치된 지침과 기존 Markdown을 사용하고 관련 부분만 작은 범위로 다시 읽었다. 새 도구는 설치하지 않았다. |
 | 재개 후 첫 검증이 macOS 기본 Python 3.9를 사용해 지원 문법 import 전에 중단됨 | 1 | 지원되는 Python 3.11/3.12/3.14 절대 경로로 모든 검증을 재실행했다. |
 | 기본 Python compileall이 보호된 macOS cache 경로에 `PermissionError`를 냄 | 1 | 후속 compile gate는 저장소 밖의 명시적 pycache prefix를 사용한다. |
 | 새 packaging 계약 단일 테스트의 class 이름을 잘못 지정해 loader error가 발생함 | 1 | 실제 class 이름 `InstallationDocumentationTests`로 동일 RED를 재실행했다. |

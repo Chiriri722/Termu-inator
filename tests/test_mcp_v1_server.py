@@ -4,15 +4,17 @@ from __future__ import annotations
 
 import importlib.util
 from contextlib import asynccontextmanager
+import json
 import os
 from pathlib import Path
+import selectors
 import subprocess
 import sys
 import tempfile
 import time
 from types import SimpleNamespace
 import unittest
-from unittest.mock import ANY, patch
+from unittest.mock import ANY, AsyncMock, patch
 
 
 MCP_AVAILABLE = importlib.util.find_spec("mcp") is not None
@@ -20,7 +22,7 @@ MCP_AVAILABLE = importlib.util.find_spec("mcp") is not None
 
 @unittest.skipUnless(MCP_AVAILABLE, "requires the pinned MCP optional dependency")
 class CompactMcpServerTests(unittest.IsolatedAsyncioTestCase):
-    def test_sigterm_cleans_control_socket_and_allows_restart(self) -> None:
+    def test_sigterm_and_stdio_eof_clean_control_socket_and_allow_restart(self) -> None:
         with tempfile.TemporaryDirectory() as root:
             data_home = Path(root) / "data"
             environment = os.environ.copy()
@@ -29,10 +31,11 @@ class CompactMcpServerTests(unittest.IsolatedAsyncioTestCase):
             environment["XDG_DATA_HOME"] = str(data_home)
             socket_path = data_home / "termuinator" / "runtime" / "control.sock"
 
-            for _attempt in range(2):
+            for shutdown in ("sigterm", "eof", "sigterm", "eof"):
                 process = subprocess.Popen(
                     [
                         sys.executable,
+                        "-B",
                         "-m",
                         "src.mcp_v1_server",
                         "--tool-profile",
@@ -52,13 +55,35 @@ class CompactMcpServerTests(unittest.IsolatedAsyncioTestCase):
                     self.assertIsNone(process.poll())
                     self.assertTrue(socket_path.exists())
 
-                    process.terminate()
+                    if shutdown == "eof":
+                        process.stdin.write(json.dumps({
+                            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+                            "params": {
+                                "protocolVersion": "2025-11-25", "capabilities": {},
+                                "clientInfo": {"name": "recovery-test", "version": "1"},
+                            },
+                        }).encode() + b"\n")
+                        process.stdin.flush()
+                        with selectors.DefaultSelector() as selector:
+                            selector.register(process.stdout, selectors.EVENT_READ)
+                            self.assertTrue(selector.select(timeout=5))
+                        response = json.loads(process.stdout.readline())
+                        self.assertEqual(response["id"], 1)
+                        self.assertEqual(response["result"]["protocolVersion"], "2025-11-25")
+                        process.stdin.write(
+                            b'{"jsonrpc":"2.0","method":"notifications/initialized"}\n'
+                        )
+                        process.stdin.close()
+                        process.stdin = None
+                    else:
+                        process.terminate()
                     stdout, stderr = process.communicate(timeout=5)
                 finally:
                     if process.poll() is None:
                         process.kill()
                         process.communicate(timeout=5)
 
+                self.assertEqual(process.returncode, 0)
                 self.assertEqual(stdout, b"")
                 self.assertEqual(stderr, b"")
                 self.assertFalse(socket_path.exists())
@@ -147,6 +172,10 @@ class CompactMcpServerTests(unittest.IsolatedAsyncioTestCase):
             async def run(self, *_args: object) -> None:
                 events.append("mcp-run")
 
+        class Service:
+            async def close(self) -> None:
+                events.append("service-close")
+
         @asynccontextmanager
         async def fake_stdio():
             events.append("stdio-open")
@@ -159,6 +188,7 @@ class CompactMcpServerTests(unittest.IsolatedAsyncioTestCase):
             host_server=HostServer(),
             shared_view_server=None,
             mcp_router=object(),
+            service=Service(),
         )
         with (
             patch("src.mcp_v1_server.build_compact_server", return_value=McpServer()),
@@ -174,6 +204,7 @@ class CompactMcpServerTests(unittest.IsolatedAsyncioTestCase):
                 "mcp-run",
                 "stdio-close",
                 "host-close",
+                "service-close",
             ],
         )
 
@@ -206,6 +237,9 @@ class CompactMcpServerTests(unittest.IsolatedAsyncioTestCase):
             shared_view_server=None,
             mcp_router=object(),
         )
+        runtime.service = SimpleNamespace(
+            close=AsyncMock(side_effect=lambda: events.append("service-close")),
+        )
         with (
             patch("src.mcp_v1_server.build_compact_server", return_value=McpServer()),
             patch("src.mcp_v1_server.stdio_server", side_effect=fake_stdio),
@@ -213,7 +247,7 @@ class CompactMcpServerTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaisesRegex(RuntimeError, "stdio failed"):
                 await _run_stdio(runtime)
 
-        self.assertEqual(events, ["host-start", "mcp-run", "host-close"])
+        self.assertEqual(events, ["host-start", "mcp-run", "host-close", "service-close"])
 
     async def test_stdio_lifecycle_owns_optional_shared_view(self) -> None:
         from src.mcp_v1_server import _run_stdio
@@ -255,6 +289,9 @@ class CompactMcpServerTests(unittest.IsolatedAsyncioTestCase):
             host_server=HostServer(),
             shared_view_server=ViewServer(),
             mcp_router=object(),
+            service=SimpleNamespace(
+                close=AsyncMock(side_effect=lambda: events.append("service-close")),
+            ),
         )
         with (
             patch("src.mcp_v1_server.build_compact_server", return_value=McpServer()),
@@ -273,6 +310,7 @@ class CompactMcpServerTests(unittest.IsolatedAsyncioTestCase):
                 "stdio-close",
                 "view-close",
                 "host-close",
+                "service-close",
             ],
         )
         self.assertIn("http://127.0.0.1:9123/", printed.call_args.args[0])

@@ -5,7 +5,10 @@ from __future__ import annotations
 import os
 from pathlib import Path
 import json
+import selectors
 import stat
+import subprocess
+import sys
 import tempfile
 from typing import Any, Mapping
 import unittest
@@ -24,6 +27,7 @@ from src.termuinator.core.idempotency import (
     JournalState,
     canonical_action_digest,
 )
+from src.termuinator.core.sessions import ProcessSessionLock
 from src.termuinator.errors import TermuinatorError
 
 
@@ -173,6 +177,85 @@ class DurableActionJournalTests(unittest.TestCase):
 
             self.assertEqual(resumed.state, JournalState.WAITING_CONFIRMATION)
             self.assertIsNone(resumed.result)
+
+    def test_actual_writer_exit_preserves_journal_and_releases_its_lease(self) -> None:
+        script = r"""
+import os, pathlib, sys
+sys.path.insert(0, sys.argv[1])
+from tests.test_idempotency_journal import DurableActionJournalTests
+from src.termuinator.core.sessions import ProcessSessionLock
+root = pathlib.Path(sys.argv[2])
+lease = ProcessSessionLock(lock_path=root / 'session.lock', owner_scope='writer-owner')
+lease.acquire()
+case = DurableActionJournalTests()
+request = case._request()
+journal = case._journal(root)
+journal.reserve(request)
+journal.mark_dispatched(request)
+descriptor = os.open(root / 'effect', os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+try:
+    os.write(descriptor, b'one synthetic effect\n')
+    os.fsync(descriptor)
+finally:
+    os.close(descriptor)
+if sys.argv[3] == 'terminal':
+    journal.record_terminal(request, case._result())
+print('READY', flush=True)
+sys.stdin.buffer.read()
+"""
+        for phase in ("dispatched", "terminal"):
+            with self.subTest(phase=phase), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                with subprocess.Popen(
+                    [sys.executable, "-I", "-B", "-c", script,
+                     str(Path(__file__).resolve().parents[1]), str(root), phase],
+                    stdin=subprocess.PIPE,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                ) as child:
+                    lock_path = root / "session.lock"
+                    lease = ProcessSessionLock(
+                        lock_path=lock_path, owner_scope="recovery-owner",
+                    )
+                    try:
+                        with selectors.DefaultSelector() as selector:
+                            selector.register(child.stdout, selectors.EVENT_READ)
+                            self.assertTrue(
+                                selector.select(timeout=5),
+                                "journal writer did not reach its interruption point",
+                            )
+                        self.assertEqual(child.stdout.readline(), b"READY\n")
+                        self.assertEqual(json.loads(lock_path.read_text())["pid"], child.pid)
+                        lock_inode = lock_path.stat().st_ino
+                        with self.assertRaises(TermuinatorError) as busy:
+                            lease.acquire()
+                        self.assertEqual(busy.exception.code, ErrorCode.SESSION_BUSY)
+                        child.kill()  # Only this owned child; no PID/name census.
+                        self.assertLess(child.wait(timeout=5), 0)
+                        self.assertEqual(child.stderr.read(), b"")
+                        self.assertEqual(lock_path.stat().st_ino, lock_inode)
+                        lease.acquire()
+                        lease.release()
+                        recovered = self._journal(root)
+                        if phase == "dispatched":
+                            with self.assertRaises(TermuinatorError) as unknown:
+                                recovered.reserve(self._request())
+                            self.assertEqual(
+                                unknown.exception.code, ErrorCode.OUTCOME_UNKNOWN,
+                            )
+                            self.assertFalse(unknown.exception.retryable)
+                        else:
+                            claim = recovered.reserve(self._request())
+                            self.assertEqual(claim.state, JournalState.TERMINAL)
+                            self.assertEqual(claim.result, self._result())
+                        self.assertEqual(
+                            (root / "effect").read_bytes(), b"one synthetic effect\n",
+                        )
+                    finally:
+                        lease.release()
+                        if child.poll() is None:
+                            child.kill()
+                        child.wait(timeout=5)
 
     def test_terminal_before_dispatch_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

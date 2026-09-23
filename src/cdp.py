@@ -121,13 +121,18 @@ class CDPClient:
         future = asyncio.get_running_loop().create_future()
         self._callbacks[msg_id] = future
 
-        await self._ws.send(json.dumps(payload))
-
         try:
+            await self._ws.send(json.dumps(payload))
             result = await asyncio.wait_for(future, timeout=timeout)
         except asyncio.TimeoutError:
-            self._callbacks.pop(msg_id, None)
             raise TimeoutError(f"CDP command {method} timed out after {timeout}s")
+        finally:
+            self._callbacks.pop(msg_id, None)
+            if not future.done():
+                future.cancel()
+            elif not future.cancelled():
+                # A disconnect may finish the future before send itself fails.
+                future.exception()
 
         if "error" in result:
             raise RuntimeError(

@@ -225,7 +225,10 @@ async def _run_stdio(
                 if shared_view is not None:
                     await shared_view.close()
             finally:
-                await runtime.host_server.close()
+                try:
+                    await runtime.host_server.close()
+                finally:
+                    await runtime.service.close()
     finally:
         for termination_signal in handled_signals:
             loop.remove_signal_handler(termination_signal)

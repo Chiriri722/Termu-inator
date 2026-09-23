@@ -9,6 +9,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import AsyncMock
 
 from src.termuinator.backends import (
     BackendArtifactPayload,
@@ -100,6 +101,8 @@ class SharedViewServiceTests(unittest.IsolatedAsyncioTestCase):
     async def _start_and_observe(
         self,
         service: BrowserService,
+        *,
+        expect_takeover: bool = False,
     ) -> tuple[str, object]:
         started = await service.session_start(
             project_id="shared-view-project",
@@ -109,7 +112,7 @@ class SharedViewServiceTests(unittest.IsolatedAsyncioTestCase):
         assert status.active_tab_id is not None
         assert status.active_page_id is not None
         assert status.page_revision is not None
-        observed = await service.observe(
+        attempt = service.observe(
             session_id=started.session_id,
             tab_id=status.active_tab_id,
             page_id=status.active_page_id,
@@ -118,6 +121,13 @@ class SharedViewServiceTests(unittest.IsolatedAsyncioTestCase):
             include_accessibility=False,
             text_limit=1_000,
         )
+        if expect_takeover:
+            with self.assertRaises(TermuinatorError) as paused:
+                await attempt
+            self.assertEqual(paused.exception.code, ErrorCode.SESSION_PAUSED)
+            observed = None
+        else:
+            observed = await attempt
         return started.session_id, observed
 
     async def test_snapshot_and_image_use_only_cached_active_state(self) -> None:
@@ -159,6 +169,19 @@ class SharedViewServiceTests(unittest.IsolatedAsyncioTestCase):
             await service.shared_view_screenshot()
         self.assertEqual(missing.exception.code, ErrorCode.ARTIFACT_NOT_FOUND)
 
+    async def test_partial_start_cleanup_is_not_reported_as_idle(self) -> None:
+        service, backend = self._service()
+        backend.start = AsyncMock(side_effect=RuntimeError("start failed"))
+        backend.stop = AsyncMock(side_effect=RuntimeError("not reaped"))
+        with self.assertRaises(TermuinatorError):
+            await service.session_start(project_id="partial-start")
+        with self.assertRaises(TermuinatorError) as pending:
+            await service.shared_view_snapshot()
+        self.assertEqual(pending.exception.code, ErrorCode.SESSION_BUSY)
+        backend.stop.side_effect = None
+        await service.close()
+        self.assertEqual((await service.shared_view_snapshot()).state, "idle")
+
     async def test_pending_permission_is_visible_then_cleared_by_local_decision(self) -> None:
         service, backend = self._service()
         session_id, observation = await self._start_and_observe(service)
@@ -194,7 +217,7 @@ class SharedViewServiceTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_takeover_hides_page_challenges_traces_and_screenshot(self) -> None:
         service, _backend = self._service(sensitive=True)
-        _session_id, _observation = await self._start_and_observe(service)
+        _session_id, _observation = await self._start_and_observe(service, expect_takeover=True)
 
         state = await service.shared_view_snapshot()
 
@@ -208,6 +231,23 @@ class SharedViewServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(state.pending_permissions, ())
         self.assertEqual(state.pending_confirmations, ())
         self.assertEqual(state.recent_traces, ())
+        with self.assertRaises(TermuinatorError) as paused:
+            await service.shared_view_screenshot()
+        self.assertEqual(paused.exception.code, ErrorCode.SESSION_PAUSED)
+
+
+    async def test_failed_stop_keeps_takeover_content_hidden(self) -> None:
+        service, backend = self._service(sensitive=True)
+        session_id, _ = await self._start_and_observe(service, expect_takeover=True)
+        backend.stop = AsyncMock(side_effect=RuntimeError("cleanup incomplete"))
+        with self.assertRaises(TermuinatorError):
+            await service.session_stop(session_id)
+        state = await service.shared_view_snapshot()
+        status = await service.session_status(session_id)
+        self.assertEqual(state.state, SessionState.STOPPING.value)
+        self.assertTrue(state.confidential)
+        self.assertEqual((state.url, state.title, status.url, status.title), ("", "", "", ""))
+        self.assertIsNone(state.screenshot_artifact_uri)
         with self.assertRaises(TermuinatorError) as paused:
             await service.shared_view_screenshot()
         self.assertEqual(paused.exception.code, ErrorCode.SESSION_PAUSED)

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+from http.server import BaseHTTPRequestHandler, HTTPServer
+import threading
 from types import SimpleNamespace
 import unittest
 from unittest.mock import AsyncMock, Mock, patch
@@ -14,6 +16,80 @@ from src.termuinator.backends.legacy_dom import observe_script
 
 
 class NativeExecutionLatencyTests(unittest.IsolatedAsyncioTestCase):
+    async def test_failed_bidi_connect_retains_unclosed_transport_for_owner_cleanup(self) -> None:
+        for error in (RuntimeError("connect failed"), asyncio.CancelledError()):
+            with self.subTest(error=type(error).__name__):
+                stream = asyncio.StreamReader()
+                stream.feed_data(b"WebDriver BiDi listening on ws://127.0.0.1:46249\n")
+                stream.feed_eof()
+                process = SimpleNamespace(pid=4242, returncode=None, stderr=stream,
+                                          terminate=Mock(), wait=AsyncMock(return_value=0))
+                server = SimpleNamespace(server_address=("127.0.0.1", 43123),
+                                         serve_forever=Mock(), shutdown=Mock(), server_close=Mock())
+                bidi = SimpleNamespace(connect=AsyncMock(side_effect=error),
+                                       close=AsyncMock(side_effect=[RuntimeError("close failed"), None]))
+                session = NativeFirefoxSession()
+                with (
+                    patch("src._utils.require_binaries"),
+                    patch("src.native.HTTPServer", return_value=server),
+                    patch("src.native.asyncio.create_subprocess_exec", new=AsyncMock(return_value=process)),
+                    patch("src.native.asyncio.sleep", new=AsyncMock()),
+                    patch("src.native.FirefoxBidiClient", return_value=bidi),
+                    patch.object(session, "_cleanup_profile_locks"),
+                    patch.object(session, "_find_main_window", new=AsyncMock()),
+                ):
+                    with self.assertRaises(type(error)) as caught:
+                        await session.connect()
+                    if isinstance(error, asyncio.CancelledError):
+                        self.assertIs(caught.exception, error)
+                    self.assertIs(session._bidi, bidi)
+                    await session.close()
+                self.assertIsNone(session._bidi)
+                self.assertIsNone(session._firefox_proc)
+                self.assertIsNone(session._callback_server)
+                self.assertEqual(bidi.close.await_count, 2)
+                process.wait.assert_awaited_once()
+
+    async def test_close_releases_owned_callback_listener(self) -> None:
+        with patch("socket.getfqdn", return_value="localhost"):
+            server = HTTPServer(("127.0.0.1", 0), BaseHTTPRequestHandler)
+        worker = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.01})
+        worker.start()
+        session = NativeFirefoxSession()
+        session._callback_server = server
+        try:
+            await session.close()
+            self.assertEqual(server.fileno(), -1)
+            self.assertIsNone(session._callback_server)
+        finally:
+            server.shutdown()
+            server.server_close()
+            worker.join(timeout=1)
+
+    async def test_close_failure_keeps_owned_resource_and_still_reaps_firefox(self) -> None:
+        for failed in ("bidi", "callback"):
+            with self.subTest(failed=failed):
+                session = NativeFirefoxSession()
+                bidi = SimpleNamespace(close=AsyncMock())
+                callback = SimpleNamespace(shutdown=Mock(), server_close=Mock())
+                process = SimpleNamespace(returncode=None, terminate=Mock(), kill=Mock(),
+                                          wait=AsyncMock(return_value=0))
+                session._bidi, session._callback_server = bidi, callback
+                session._firefox_proc = process
+                operation = bidi.close if failed == "bidi" else callback.shutdown
+                operation.side_effect = [RuntimeError("private failure detail"), None]
+                with self.assertRaises(RuntimeError):
+                    await session.close()
+                self.assertIsNone(session._firefox_proc)
+                self.assertTrue(session._disconnected)
+                self.assertIs(getattr(session, "_bidi" if failed == "bidi"
+                                      else "_callback_server"),
+                              bidi if failed == "bidi" else callback)
+                process.wait.assert_awaited_once()
+                await session.close()
+                self.assertIsNone(session._bidi)
+                self.assertIsNone(session._callback_server)
+
     async def test_connect_keeps_missing_window_off_stderr_when_bidi_is_owned(
         self,
     ) -> None:
@@ -30,6 +106,9 @@ class NativeExecutionLatencyTests(unittest.IsolatedAsyncioTestCase):
 
             def shutdown(self) -> None:
                 events.append("callback_shutdown")
+
+            def server_close(self) -> None:
+                return None
 
         class _Stderr:
             def __init__(self) -> None:
@@ -117,6 +196,9 @@ class NativeExecutionLatencyTests(unittest.IsolatedAsyncioTestCase):
             def shutdown(self) -> None:
                 return None
 
+            def server_close(self) -> None:
+                return None
+
         class _FirefoxProcess:
             def __init__(self) -> None:
                 self.returncode = None
@@ -182,6 +264,9 @@ class NativeExecutionLatencyTests(unittest.IsolatedAsyncioTestCase):
 
             def shutdown(self) -> None:
                 events.append("callback_shutdown")
+
+            def server_close(self) -> None:
+                return None
 
         class _Stderr:
             def __init__(self) -> None:

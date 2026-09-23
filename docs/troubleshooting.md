@@ -2,13 +2,16 @@
 
 This guide covers the staged compact alpha and the preserved legacy `tbp`
 environment. Keep those two surfaces distinct while diagnosing a failure.
-Commands below preserve the previous environment or data by moving it to an
-explicit backup path; they do not recursively delete a home or workspace tree.
+Maintenance requires owner approval and exact resource ownership. Preserve the
+previous environment and evidence; never use a process-name kill or recursively
+delete a home/workspace tree to recover a candidate.
 
 ## First Evidence to Collect
 
-Record the exact command, exit code, stdout, stderr, Android and Termux version,
-browser backend, Python path, and active virtual environment. For browser smoke,
+Keep the exact command, exit code, stdout, stderr, Android and Termux version,
+browser backend, Python path, and active virtual environment locally in private
+0700 directories/0600 files. Share sanitized codes, counts, hashes, and approved
+fixture evidence, not raw browser/stdio logs or credentials. For browser smoke,
 also record final URL, title, body marker, valid non-empty PNG metadata, backend
 identity, and clean stop. `No daemon running` after the final stop is the
 expected clean state, not an installation failure.
@@ -18,8 +21,12 @@ For compact MCP, confirm the executable and versions from the MCP venv:
 ```bash
 ~/.venvs/termuinator-mcp-v1/bin/tbp-mcp-v1 --help
 ~/.venvs/termuinator-mcp-v1/bin/python -c \
-  'import cryptography, mcp, websockets; print(cryptography.__version__, mcp.__version__, websockets.__version__)'
+  'from importlib import metadata; import cryptography, mcp, websockets; print(cryptography.__version__, metadata.version("mcp"), websockets.__version__)'
 ```
+
+These version values are diagnostic information, not wheel/source provenance
+or proof of the native Termux cryptography path. The canonical verifier checks
+those separately. Do not repair a failed sealed run in place or reuse its output.
 
 ## DNS Fails While Direct IP HTTPS Works
 
@@ -74,29 +81,24 @@ session.
 ## MCP Stdio Is Contaminated or Times Out
 
 MCP stdout is protocol-only. Shell banners, debug prints, and wrapper messages
-must go to stderr or be removed. Test a local idle start before involving SSH:
+must not appear there. Start with the completed sealed run's sanitized protocol
+and stderr counts; a nonzero count is not permission to publish its private log.
+The [candidate gate](termux-install.md#release-candidate-device-gate) performs
+real initialization and discovery in an isolated runtime. A three-second idle
+timeout alone does not establish readiness. Do not overwrite a previous capture
+or start another server on a live data root while diagnosing it.
 
-```bash
-timeout 3 ~/.venvs/termuinator-mcp-v1/bin/tbp-mcp-v1 \
-  --tool-profile observer \
-  >~/.cache/termuinator/mcp-v1.stdout \
-  2>~/.cache/termuinator/mcp-v1.stderr
-test "$?" -eq 124
-test ! -s ~/.cache/termuinator/mcp-v1.stdout
-test ! -s ~/.cache/termuinator/mcp-v1.stderr
-```
-
-Then repeat through `ssh -T` from the host. Any remote shell startup text on
-stdout is a failed integration gate even if the local test is clean.
+An SSH transport check is a separate approved check, not an automatic retry.
+It must use its own private output and isolated candidate. Any shell startup
+text on MCP stdout is a failed integration gate, even when local stdio is clean.
 
 ## Browser or Daemon Does Not Start
 
-Inspect `~/.tbp/daemon.log`, then use the normal lifecycle commands first:
-
-```bash
-~/.venvs/termuinator/bin/tbp status --json
-~/.venvs/termuinator/bin/tbp stop --json
-```
+First identify the interface and exact runtime. `~/.tbp/daemon.log` belongs to
+the legacy daemon, not necessarily the compact session under investigation.
+Legacy commands can auto-start a daemon; do not use them as a read-only probe
+for a compact failure. Any stop must target the verified candidate through its
+own host/session or authenticated lifecycle command, not another existing daemon.
 
 Do not blindly remove PID, socket, or profile-lock files. A path may have been
 replaced or may still belong to a live process. Capture the log and process
@@ -130,25 +132,26 @@ the whole file without redaction.
 
 ## Firefox Loads the Page but Observation Fails
 
-The native Firefox bridge accepts only an exact randomized console sentinel.
-A JavaScript timeout invalidates the cached console/focus state, and compact
-DOM observation retries that typed failure once with a fresh synchronization.
-If the second attempt fails, the public response remains a generic,
-retryable `backend_crashed`; clipboard contents and the raw inherited
-exception are intentionally excluded.
+An established Firefox BiDi connection supplies JavaScript observation without
+the global clipboard. Its failure does not silently fall back to the console.
+The compatibility console path applies only when startup did not establish
+BiDi and uses an exact randomized sentinel. Compact DOM collection has a
+bounded retry for its typed JavaScript timeout; it is not permission to replay
+an uncertain state-changing action.
 
 Preserve the final URL/title, a screenshot artifact and its hash, the compact
-error code/details, and the relevant timestamped daemon log lines. Do not use
-clipboard contents as diagnostic evidence. One successful navigation is not a
-substitute for a successful `browser_observe` result.
+error code/allowlisted stage, and timestamp. Keep raw diagnostic logs private
+and never use clipboard contents as evidence. `backend_crashed` alone does not
+prove an OS process crash. Successful navigation does not prove observation.
 
 ## Firefox Is Much Slower Than Chromium
 
-The S22U baseline measured multi-second Firefox status/text calls while
-Chromium met the warm budgets. This is a known backend-performance gate, not an
-MCP import error. Use Chromium as the current default, keep Firefox explicit,
-and rerun `scripts/benchmark_device.py` after any adapter optimization. Do not
-weaken budgets or report parity from a single successful page load.
+The original S22U baseline had multi-second Firefox status/text calls; the
+[later compact measurements](device-benchmark-s22u-v0217-2026-08-31.md) cleared
+those warm budgets. Do not treat that old baseline as a current regression or
+silently change the chosen backend. Compare only checksum-bound evidence with
+its recorded environment. A new benchmark requires a new sealed identity and
+the immediately preceding canonical PASS, not an ad hoc rerun of an old report.
 
 ## Shared View Cannot Be Reached from the Mac
 
@@ -165,10 +168,10 @@ confidential takeover. It cannot approve, resume, or execute actions.
 
 ## Update without overwriting
 
-The installer deliberately refuses an existing venv. For an update, create
-new sibling environments, validate them, and switch the host command only
-after both backend smokes and MCP discovery pass. Example names are explicit so
-the known-good environments remain recoverable:
+The installer deliberately refuses an existing venv. It also runs `pkg install`
+and pip upgrades, so it is not a read-only diagnostic or a sealed-candidate
+update procedure. Only use the following example when native package changes
+are separately approved; the known-good environments remain recoverable:
 
 ```bash
 export TERMUINATOR_CLI_VENV="$HOME/.venvs/termuinator-next"
@@ -179,27 +182,36 @@ bash setup.sh
 Do not reuse those names if either path already exists. Record the source
 commit and dependency versions alongside the validation evidence.
 
+For the S22U candidate workflow, instead use the checksum-bound wheel and new
+commit-suffixed venv/runtime paths from the sealed instruction. Keep the old
+venv, registration, profile, and reports unchanged. Do not change native
+packages after canonical and then run benchmark under the same authority.
+
+Before any separately approved host switch, preserve the exact old command,
+arguments/tool profile, runtime config location, and data-root identity in a
+private backup. Confirm the candidate's new canonical/quality/action evidence
+and remaining acceptance limits. Never start two servers on the same profile
+or use a successful smoke as permission to activate the compact alpha.
+
 ## Rollback
 
-Stop the new daemon/server, restore the previous Hermes/Codex command path, and
-start a fresh host session. Because the old venv was preserved, rollback does
-not require package mutation. Do not point two live MCP processes at the same
-project profile.
+Stop only the identified new daemon/server, confirm its owned cleanup, restore
+the previously recorded Hermes/Codex command and arguments, and start a fresh
+host session. If ownership or cleanup is uncertain, stop and report it; do not
+unlink a lock/socket to force a restart. A preserved venv restores code, not
+browser data that was mutated or migrated. Candidate validation must therefore
+use isolated data roots, and any later data migration needs its own backup and
+rollback approval. Do not change packages or erase candidate evidence to roll back.
 
 ## Uninstall
 
-First stop all Termu-inator processes and disconnect the MCP host. A recoverable
-uninstall moves each explicitly checked venv instead of deleting it:
-
-```bash
-test -d "$HOME/.venvs/termuinator"
-mv "$HOME/.venvs/termuinator" "$HOME/.venvs/termuinator.retired"
-test -d "$HOME/.venvs/termuinator-mcp-v1"
-mv "$HOME/.venvs/termuinator-mcp-v1" "$HOME/.venvs/termuinator-mcp-v1.retired"
-```
-
-Choose unused destination names. Browser packages installed through `pkg` may
-be shared with other workflows and are not removed automatically.
+Disconnect only the selected registration and stop its verified owned processes.
+For each venv explicitly selected for removal, verify the exact source is an
+owned real directory and its backup destination is unused, including no dangling
+symlink. Move that directory to the checked backup path rather than deleting it;
+if any check fails, leave it untouched. Preserve other venvs and reports.
+Browser packages installed through `pkg` may be shared and are not removed
+automatically. No uninstall command is part of canonical or benchmark validation.
 
 ## Project data reset
 
@@ -213,6 +225,10 @@ and project ID, verify that the resolved path is one child below the data root,
 then move only that project directory to a uniquely named backup. Do not use a
 glob or a broad recursive delete. If the owner scope, project ID, or path is
 uncertain, keep the data and request a diagnostic review instead.
+
+Moving a browser project directory does not erase sibling service-owned policy,
+journal, trace, or artifact state. Do not claim a complete privacy reset or move
+the whole state tree; such a reset needs a separately scoped owner-approved plan.
 
 ## Still Unsupported in the Real Legacy Adapters
 

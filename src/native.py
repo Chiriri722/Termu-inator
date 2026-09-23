@@ -28,6 +28,7 @@ from .commands import (
     NativeNavigationError,
 )
 from .firefox_bidi import FirefoxBidiClient, parse_firefox_bidi_endpoint
+from ._utils import stop_owned_process
 
 logger = logging.getLogger(__name__)
 
@@ -334,18 +335,24 @@ class NativeFirefoxSession:
 
         if endpoint is not None:
             bidi = FirefoxBidiClient(endpoint)
+            self._bidi = bidi
             try:
                 await bidi.connect(timeout=10)
-            except asyncio.CancelledError:
-                await bidi.close()
+            except asyncio.CancelledError as cancelled:
+                try:
+                    await bidi.close()
+                except (Exception, asyncio.CancelledError):
+                    if hasattr(cancelled, "add_note"):
+                        cancelled.add_note("Owned BiDi startup cleanup is incomplete")
+                else:
+                    self._bidi = None
                 raise
             except Exception:
                 await bidi.close()
+                self._bidi = None
                 logger.warning(
                     "Firefox BiDi unavailable; using native compatibility path"
                 )
-            else:
-                self._bidi = bidi
 
         if self._main_wid is None:
             if self._bidi is None:
@@ -1125,38 +1132,50 @@ class NativeFirefoxSession:
     async def close(self):
         """Close Firefox and callback server."""
         cancelled = False
+        close_error = None
+        self._disconnected = True
         bidi = self._bidi
-        self._bidi = None
         if bidi is not None:
             try:
                 await bidi.close()
             except asyncio.CancelledError:
                 cancelled = True
-            except Exception:
-                logger.warning("Firefox BiDi cleanup failed")
+            except Exception as exc:
+                close_error = exc
+            else:
+                self._bidi = None
         if self._callback_server:
-            await asyncio.to_thread(self._callback_server.shutdown)
-            self._callback_server = None
-        if self._firefox_proc and self._firefox_proc.returncode is None:
-            self._firefox_proc.terminate()
             try:
-                await asyncio.wait_for(self._firefox_proc.wait(), timeout=5)
-            except asyncio.TimeoutError:
-                self._firefox_proc.kill()
-                await self._firefox_proc.wait()
-        self._firefox_proc = None
+                await asyncio.to_thread(self._callback_server.shutdown)
+                self._callback_server.server_close()
+            except asyncio.CancelledError:
+                cancelled = True
+            except Exception as exc:
+                close_error = close_error or exc
+            else:
+                self._callback_server = None
+        if self._firefox_proc is not None:
+            try:
+                await stop_owned_process(self._firefox_proc)
+            except asyncio.CancelledError:
+                cancelled = True
+            except Exception as exc:
+                close_error = close_error or exc
+            else:
+                self._firefox_proc = None
         stderr_task = self._firefox_stderr_task
-        self._firefox_stderr_task = None
-        if stderr_task is not None:
+        if self._firefox_proc is None and stderr_task is not None:
+            self._firefox_stderr_task = None
             if not stderr_task.done():
                 stderr_task.cancel()
             try:
                 await stderr_task
             except asyncio.CancelledError:
                 pass
-        self._disconnected = True
         if cancelled:
             raise asyncio.CancelledError
+        if close_error is not None:
+            raise RuntimeError("Owned Firefox cleanup is incomplete") from close_error
 
     async def delete_session(self):
         """No-op for native session (close handles everything)."""

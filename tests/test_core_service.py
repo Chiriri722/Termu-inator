@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import inspect
 from pathlib import Path
 import stat
 import tempfile
 import unittest
+from unittest.mock import AsyncMock, patch
 
 from src.termuinator.backends.fake import FakeBackend
 from src.termuinator.contracts import (
@@ -196,7 +198,7 @@ class BrowserServiceTests(unittest.IsolatedAsyncioTestCase):
             )
 
         self.assertEqual(caught.exception.code, ErrorCode.BACKEND_CRASHED)
-        self.assertEqual(failing_firefox.calls, ["start"])
+        self.assertEqual(failing_firefox.calls, ["start", "stop"])
         self.assertEqual(self.chromium.calls, [])
 
         recovered = await service.session_start(project_id="project-a")
@@ -218,6 +220,94 @@ class BrowserServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(stopped.session_id, started.session_id)
         self.assertTrue(stopped.stopped_at.endswith("+00:00"))
         self.assertEqual(self.chromium.calls, ["start", "stop"])
+
+    async def test_failed_stop_keeps_session_lease_until_owned_cleanup_succeeds(self) -> None:
+        started = await self.service.session_start(project_id="project-a")
+        self.chromium.stop = AsyncMock(side_effect=[RuntimeError("child still live"), None])
+        with self.assertRaises(TermuinatorError) as caught:
+            await self.service.session_stop(started.session_id)
+        self.assertEqual(caught.exception.code, ErrorCode.BACKEND_CRASHED)
+        self.assertTrue(self.session_lock.acquired)
+        status = await self.service.session_status(started.session_id)
+        self.assertEqual(status.state, SessionState.STOPPING)
+        with self.assertRaises(TermuinatorError) as busy:
+            await self.service.session_start(project_id="project-b")
+        self.assertEqual(busy.exception.code, ErrorCode.SESSION_BUSY)
+        with self.assertRaises(TermuinatorError) as paused:
+            await self.service.observe(
+                session_id=started.session_id, tab_id=status.active_tab_id,
+                page_id=status.active_page_id, expected_revision=status.page_revision,
+                include_screenshot=False, include_accessibility=False, text_limit=100,
+            )
+        self.assertEqual(paused.exception.code, ErrorCode.SESSION_PAUSED)
+        stopped = await self.service.session_stop(started.session_id)
+        self.assertEqual(stopped.state, SessionState.STOPPED)
+        self.assertFalse(self.session_lock.acquired)
+        self.assertEqual(self.chromium.stop.await_count, 2)
+
+    async def test_owner_close_stops_the_active_session_once(self) -> None:
+        await self.service.session_start(project_id="project-a")
+        close = getattr(self.service, "close", None)
+        self.assertTrue(callable(close), "service must own transport-shutdown cleanup")
+        await close()
+        await close()
+        self.assertEqual(self.chromium.calls, ["start", "stop"])
+        self.assertFalse(self.session_lock.acquired)
+
+    async def test_owner_close_failure_preserves_cleanup_identity(self) -> None:
+        started = await self.service.session_start(project_id="project-a")
+        self.chromium.stop = AsyncMock(side_effect=[RuntimeError("not reaped"), None])
+        close = getattr(self.service, "close", None)
+        self.assertTrue(callable(close), "service must own transport-shutdown cleanup")
+        with self.assertRaises(TermuinatorError):
+            await close()
+        self.assertTrue(self.session_lock.acquired)
+        self.assertEqual((await self.service.session_status(started.session_id)).state,
+                         SessionState.STOPPING)
+        await close()
+        self.assertFalse(self.session_lock.acquired)
+
+    async def test_cancelled_start_releases_only_after_backend_cleanup(self) -> None:
+        cancellation = asyncio.CancelledError()
+        self.chromium.start = AsyncMock(side_effect=cancellation)
+        with self.assertRaises(asyncio.CancelledError) as caught:
+            await self.service.session_start(project_id="project-a")
+        self.assertIs(caught.exception, cancellation)
+        self.assertEqual(self.chromium.calls, ["stop"])
+        self.assertFalse(self.session_lock.acquired)
+        self.assertEqual(self.firefox.calls, [])
+
+    async def test_failed_start_cleanup_blocks_replacement_until_owner_close(self) -> None:
+        for error in (RuntimeError("launch failed"), asyncio.CancelledError()):
+            with self.subTest(error=type(error).__name__):
+                self.chromium.start = AsyncMock(side_effect=error)
+                self.chromium.stop = AsyncMock(side_effect=RuntimeError("not reaped"))
+                expected = (asyncio.CancelledError if isinstance(error, asyncio.CancelledError)
+                            else TermuinatorError)
+                with self.assertRaises(expected):
+                    await self.service.session_start(project_id="project-a")
+                self.assertTrue(self.session_lock.acquired)
+                self.chromium.stop.assert_awaited_once()
+                with self.assertRaises(TermuinatorError) as busy:
+                    await self.service.session_start(project_id="project-b", backend=Backend.FIREFOX)
+                self.assertEqual(busy.exception.code, ErrorCode.SESSION_BUSY)
+                self.assertEqual(self.firefox.calls, [])
+                with self.assertRaisesRegex(RuntimeError, "not reaped"):
+                    await self.service.close()
+                self.assertTrue(self.session_lock.acquired)
+                self.chromium.stop.side_effect = None
+                await self.service.close()
+                self.assertFalse(self.session_lock.acquired)
+                self.chromium.start.assert_awaited_once()
+
+    async def test_post_start_metadata_failure_reaps_backend_before_releasing_lease(self) -> None:
+        with patch.object(self.chromium, "cached_status", side_effect=RuntimeError("metadata failed")):
+            with self.assertRaises(RuntimeError):
+                await self.service.session_start(project_id="project-a")
+        self.assertEqual(self.chromium.calls, ["start", "stop"])
+        self.assertFalse(self.session_lock.acquired)
+        started = await self.service.session_start(project_id="project-b")
+        await self.service.session_stop(started.session_id)
 
     async def test_empty_project_id_is_rejected_before_filesystem_use(self) -> None:
         with self.assertRaises(TermuinatorError) as caught:

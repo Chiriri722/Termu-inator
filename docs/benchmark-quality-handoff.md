@@ -1,8 +1,35 @@
 # Benchmark quality follow-up after v0.2.18
 
+> Historical preparation record: the v0.2.19 commit-wait instructions below
+> were superseded by the v0.2.20 run. The active post-v0.2.20 hardening work is
+> tracked in [the current plan](../task_plan.md#current-phase) and is not yet a
+> sealed candidate. Do not execute the historical hold/run text as a new order.
+
 This is a preparation checklist, **not an authorization to rerun v0.2.18**.
 Its canonical and benchmark identities have already been consumed. Keep the
 old checkout, wheel, venv, reports, and sealed ZIP unchanged.
+
+## Next post-v0.2.20 candidate: not sealed
+
+The current local base is `22155ee1d7536dbf7f1fcd1d98507323b6db96ce`.
+The hardening work is uncommitted; this SHA does not identify the new candidate.
+Before sending an executable Hermes instruction, obtain the user's new clean
+commit, verify its exact tree/path scope, then bind a newly built wheel and its
+byte count/hash/source provenance. No old wheel filename or test count substitutes
+for those identities. Preserve the current native cryptography version at the
+device run; past 50.0.0/50.0.1 evidence does not establish today's environment.
+
+The newly sealed instruction must authorize canonical once, followed only on
+complete PASS by one isolated benchmark in the same environment. The local
+canonical now also exercises form effects, confirmation/replay, stale/unavailable
+targets, waits, and takeover boundaries. These have not yet passed on S22U.
+Active-browser interruption, 100-action runs, and one-hour idle/resume remain
+separate planned checks: declare their candidate ownership, run counts, new
+output identities, and approval before execution. Do not append them to a
+consumed canonical/benchmark run or enable production after a partial PASS.
+
+Completed sanitized JSON is the final response for a run. Generate the Korean
+summary from it; do not request another run or wait for a second prose response.
 
 ## Handoff status checked on 2026-09-22
 
@@ -114,10 +141,13 @@ reports are under `h/benchmark/`. Directory modes remain 0700; file modes 0600.
 
 ## Judge quality separately from execution
 
+`quality.status` records the measurement result. Exit 0 additionally requires
+successful return-file publication; neither value grants production approval.
+
 | Exit | Meaning | Action |
 |---|---|---|
-| 0 | Version 2 `quality.status` is `PASS` | Review the summary and independent cleanup evidence |
-| 1 | `quality.status` is `FAIL`; reports preserved | Return the sanitized summary; no retry or promotion |
+| 0 | Quality and return-file publication both PASS | Review the summary and independent cleanup evidence |
+| 1 | Quality or publication failed | Preserve the separate results; no retry or promotion |
 | 2 | Authority or output preflight rejected | Preserve the used identity; report the bounded error |
 | Other / missing report | Unexpected execution failure | Preserve evidence; no retry or promotion |
 
@@ -153,5 +183,83 @@ The sanitized summary also reports per-operation counts of `artifact_invalid`
 and `command_failed`. These fixed categories do not disclose private exception
 strings, response payloads, filesystem paths, or page content. They classify the
 observed boundary, not an inferred Firefox/Chromium crash cause.
+
+## Post-v0.2.20 reporting hardening — local, not yet device-verified
+
+The public `cleanup` section now records `scope: daemon_files_only`, a status,
+and the observed socket/pidfile absence booleans. A metadata access failure is
+`null`/`UNKNOWN`; an observed remaining entry is `false`/`FAIL`. The first
+unavailable observation is preserved rather than retried into a clean result.
+An existing or uninspectable runtime is rejected before output creation or a
+stop command. These file checks alone do not prove browser/helper process termination,
+display-lease release, session-lock release, or global Unix socket absence.
+
+The local benchmark now authenticates the daemon through its connected Unix
+socket peer PID/UID, private pidfile, and process start ticks. The CLI launcher
+double-forks, so its PID is not treated as the daemon PID. An unavailable
+pre-launch process census prevents launch. After launch, incomplete ancestry
+does not discard an already authenticated daemon's shutdown authority.
+
+Shutdown uses that same authenticated connection and rechecks its recorded
+generation, rather than reconnecting through an unchecked CLI stop. No
+unowned daemon receives shutdown and no census-derived PID receives a signal.
+Before/finally observations around warm commands retain visible descendants,
+including on failure/cancellation, outside the measured command interval.
+Cold latency still ends at socket readiness, before identity inspection.
+
+The additive `process_cleanup` record reports fixed counts and a status for
+`visible_same_uid_processes` separately from daemon-file absence. Confirmed
+observed survivors are FAIL; unattributed new processes or incomplete evidence
+remain UNKNOWN/UNAVAILABLE. Either blocks the next cold/warm/backend launch
+and `quality.status: PASS`. Numeric identities remain in the private raw report.
+This is sampled ancestry, not proof of invisible or never-observed descendants.
+Canonical now checks both successful and failed backend transitions through
+`post_stop`, allowing only the same live MCP root/control socket. Failed or
+incomplete cleanup blocks the next backend and observer restart. Interactive
+MCP exit is checked again without the live-root exception before the observer
+launch. Benchmark authorization rejects a declared non-PASS `post_stop`, even
+if the surrounding report claims PASS. Legacy reports without this additive
+field remain readable; this does not authorize reusing an old execution identity.
+No new device execution or production approval follows from these local tests.
+
+The same sanitized JSON produces a private `baseline-summary.ko.txt` with the
+run's completion, quality result, limited cleanup scope, and remaining review.
+Return this note with the JSON instead of treating the JSON-only response as
+an unfinished job. Neither note grants production approval. New evidence fields
+apply to new sealed executions, not to rewriting earlier PASS/FAIL reports.
+
+After measurement, environment authorization, Git identity/cleanliness, and
+every expected PNG are checked independently. `post_run` exposes fixed
+environment/checkout statuses and PNG status counts. A read denial is not a
+missing file, and a valid but changed PNG is not the captured sample. A symlinked
+PNG parent or unsafe file mode fails validation. Missing sample metadata stays
+unbound instead of being promoted from a later file read.
+
+Unlike the historical harness, closing authority/cleanup failures preserve the
+measurements and quality-FAIL report. Unexpected measurement errors also stop
+further browser work, preserve completed backends, and continue independent
+readback. Report writing refuses existing files and symlinks. Preflight rejection
+still happens before browser work and returns exit 2; a recorded run failure
+returns exit 1. No failure triggers an automatic rerun or production approval.
+Canonical now performs the equivalent independent closing Git/environment/PNG
+checks. Cancellation and post-run process evidence write failures preserve the
+completed backend results and continue independent cleanup checks. If one
+private diagnostic cannot be saved, the public failure report is still written
+when its own output path remains usable.
+
+Return `final-verify-files.json` with its canonical manifest, checksum, and Korean
+note; return `baseline-files.json` with the benchmark summary and Korean note.
+These owner-private records compare each file with the exact bytes supplied by
+its writer and include its hash, size, mode, and current-owner check. The reader
+is bounded and nonblocking, rejects unsafe file/parent identities, and checks
+for changes during reading. The integrity record does not hash itself.
+
+A publication failure never rewrites the saved run result to make the two agree.
+Canonical exits 1 with stdout FAIL and benchmark permission false; the benchmark
+loader also requires any declared canonical return-file record to pass and
+match current bytes. Benchmark publication failure exits 1 with a fixed
+`report_publication=FAIL` message even if its saved quality result is PASS.
+Missing integrity output is not approval. Returned-file checks do not establish
+browser-descendant termination; use the separately scoped process evidence.
 
 Camofox and Lightpanda remain deferred options, outside this repair.

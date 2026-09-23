@@ -66,7 +66,7 @@ async def cmd_stop(args):
         print("No daemon running")
         return
     try:
-        resp = await send_command("shutdown", timeout=10)
+        resp = await send_command("shutdown", timeout=10, autostart=False)
         if resp.get("success"):
             print("Daemon shutting down...")
             # Wait for process to exit

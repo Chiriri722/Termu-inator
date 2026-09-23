@@ -3,13 +3,20 @@
 from __future__ import annotations
 
 import base64
+import asyncio
 from pathlib import Path
+import sys
 import tempfile
 import unittest
+from unittest.mock import AsyncMock, patch
 
+from src.lock import SessionLock
+from src.pilot import Pilot
 from src.termuinator.config import RuntimeConfig
-from src.termuinator.contracts import Backend, PageRevision
+from src.termuinator.contracts import Backend, ErrorCode, PageRevision
 from src.termuinator.core.service import BrowserService
+from src.termuinator.core.sessions import ProcessSessionLock
+from src.termuinator.errors import TermuinatorError
 from src.termuinator.runtime import (
     CompactRuntime,
     build_legacy_browser_service,
@@ -38,6 +45,133 @@ class _FakePilot:
 
 
 class RuntimeCompositionTests(unittest.IsolatedAsyncioTestCase):
+    async def test_cancelled_partial_start_keeps_real_child_until_owner_close(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            config = RuntimeConfig(
+                data_root=root / "runtime", default_backend=Backend.CHROMIUM,
+                profile_schema_version="v1", artifact_retention_seconds=120,
+                artifact_quota_bytes=1024 * 1024, trace_retention_seconds=120,
+                trace_quota_bytes=1024 * 1024, max_artifact_chunk_bytes=1024,
+            )
+            child = await asyncio.create_subprocess_exec(
+                sys.executable, "-I", "-c", "import sys; sys.stdin.buffer.read()",
+                stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+            starting = asyncio.Event()
+
+            async def wait_for_cancel(_result):
+                starting.set()
+                await asyncio.Future()
+
+            def pilot_factory(**kwargs):
+                pilot = Pilot(**kwargs)
+                pilot._lock = SessionLock(str(root / "legacy.lock"))
+                pilot._browser.start = AsyncMock(return_value=None)
+                pilot._init_session = wait_for_cancel
+                pilot._browser._chrome_proc = child
+                return pilot
+
+            service = build_legacy_browser_service(
+                config=config, owner_scope="transport-owner", pilot_factory=pilot_factory,
+            )
+            lease = ProcessSessionLock(
+                lock_path=config.data_root / "runtime/session.lock", owner_scope="transport-owner",
+            )
+            task = asyncio.create_task(service.session_start(project_id="partial-start"))
+            try:
+                await asyncio.wait_for(starting.wait(), timeout=2)
+                with patch.object(child, "terminate", side_effect=PermissionError("denied")):
+                    task.cancel()
+                    with self.assertRaises(asyncio.CancelledError):
+                        await task
+                self.assertIsNone(child.returncode)
+                self.assertTrue((root / "legacy.lock").is_file())
+                with self.assertRaises(TermuinatorError) as held:
+                    lease.acquire()
+                self.assertEqual(held.exception.code, ErrorCode.SESSION_BUSY)
+                with self.assertRaises(TermuinatorError) as busy:
+                    await service.session_start(project_id="replacement")
+                self.assertEqual(busy.exception.code, ErrorCode.SESSION_BUSY)
+                await service.close()
+                self.assertIsNotNone(child.returncode)
+                self.assertFalse((root / "legacy.lock").exists())
+                lease.acquire()
+                lease.release()
+            finally:
+                if not task.done():
+                    task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
+                if child.returncode is None:
+                    child.kill()
+                await child.wait()
+                child.stdin.close()
+                await child.stdin.wait_closed()
+                await service.close()
+                lease.release()
+
+    async def test_failed_stop_and_owner_close_reap_the_same_real_owned_child(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            config = RuntimeConfig(
+                data_root=root / "runtime", default_backend=Backend.CHROMIUM,
+                profile_schema_version="v1", artifact_retention_seconds=120,
+                artifact_quota_bytes=1024 * 1024, trace_retention_seconds=120,
+                trace_quota_bytes=1024 * 1024, max_artifact_chunk_bytes=1024,
+            )
+            child = await asyncio.create_subprocess_exec(
+                sys.executable, "-I", "-c", "import sys; sys.stdin.buffer.read()",
+                stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+
+            def pilot_factory(**kwargs):
+                pilot = Pilot(**kwargs)
+                pilot._lock = SessionLock(str(root / "legacy.lock"))
+                # Substitute only browser launch/I/O, not the teardown chain.
+                pilot._browser.start = AsyncMock(return_value=None)
+                pilot._init_session = AsyncMock()
+                pilot._browser._chrome_proc = child
+                return pilot
+
+            runtime = build_legacy_compact_runtime(
+                config=config, owner_scope="transport-owner", pilot_factory=pilot_factory,
+            )
+            competing_lease = ProcessSessionLock(
+                lock_path=config.data_root / "runtime/session.lock", owner_scope="transport-owner",
+            )
+            try:
+                started = await runtime.mcp_router.dispatch("browser_session_start", {
+                    "project_id": "owned-child-test", "backend": "chromium",
+                    "viewport": {"width": 1000, "height": 700, "device_scale_factor": 1.0},
+                })
+                with patch.object(child, "terminate", side_effect=PermissionError("denied")):
+                    with self.assertRaises(TermuinatorError) as stopped:
+                        await runtime.mcp_router.dispatch("browser_session_stop", {
+                            "session_id": started["session_id"],
+                        })
+                self.assertEqual(stopped.exception.code, ErrorCode.BACKEND_CRASHED)
+                self.assertIsNone(child.returncode)
+                self.assertTrue((root / "legacy.lock").is_file())
+                with self.assertRaises(TermuinatorError) as held:
+                    competing_lease.acquire()
+                self.assertEqual(held.exception.code, ErrorCode.SESSION_BUSY)
+
+                await runtime.service.close()
+                self.assertIsNotNone(child.returncode)
+                self.assertFalse((root / "legacy.lock").exists())
+                competing_lease.acquire()
+                competing_lease.release()
+            finally:
+                if child.returncode is None:
+                    child.kill()
+                await child.wait()
+                child.stdin.close()
+                await child.stdin.wait_closed()
+                await runtime.service.close()
+                competing_lease.release()
+
     async def test_developer_availability_is_a_trusted_explicit_option(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             config = RuntimeConfig(

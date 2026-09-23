@@ -227,6 +227,7 @@ class BrowserService:
         self._max_artifact_chunk_bytes = max_artifact_chunk_bytes
         self._developer_mode_available = developer_mode_available
         self._active: _ActiveSession | None = None
+        self._pending_backend: BrowserBackend | None = None
         self._mutex = asyncio.Lock()
 
     async def session_start(
@@ -248,6 +249,11 @@ class BrowserService:
                     "A browser session is already active",
                     retryable=True,
                     details={"active_backend": self._active.capabilities.backend.value},
+                )
+            if self._pending_backend is not None:
+                raise TermuinatorError(
+                    ErrorCode.SESSION_BUSY,
+                    "The previous browser start still requires owned cleanup",
                 )
 
             factory = self._backend_factories.get(selected)
@@ -280,6 +286,7 @@ class BrowserService:
                 )
                 confirmations = self._confirmation_factory(project_id)
                 implementation = factory()
+                self._pending_backend = implementation
                 if implementation.backend != selected:
                     raise TermuinatorError(
                         ErrorCode.INTERNAL_ERROR,
@@ -300,14 +307,11 @@ class BrowserService:
                     ) from exc
 
                 if capabilities.backend != selected:
-                    try:
-                        await implementation.stop()
-                    finally:
-                        raise TermuinatorError(
-                            ErrorCode.INTERNAL_ERROR,
-                            "Backend capability identity mismatch",
-                            details={"backend": selected.value},
-                        )
+                    raise TermuinatorError(
+                        ErrorCode.INTERNAL_ERROR,
+                        "Backend capability identity mismatch",
+                        details={"backend": selected.value},
+                    )
 
                 session_id = "session_" + secrets.token_urlsafe(24)
                 observation = ObservationEngine(
@@ -336,7 +340,7 @@ class BrowserService:
                     retention_seconds=self._trace_retention_seconds,
                     quota_bytes=self._trace_quota_bytes,
                 )
-                self._active = _ActiveSession(
+                active = _ActiveSession(
                     session_id=session_id,
                     project_id=project_id,
                     project_digest=project_digest,
@@ -363,15 +367,22 @@ class BrowserService:
                     permissions=permissions,
                     confirmations=confirmations,
                 )
-                status = self._status_result(self._active)
-                return SessionStartResult(
+                status = self._status_result(active)
+                result = SessionStartResult(
                     session_id=session_id,
                     capabilities=capabilities,
                     status=status,
                 )
-            except Exception:
+                self._active = active
+                self._pending_backend = None
+                return result
+            except BaseException as start_error:
                 if lease_acquired:
-                    self._session_lock.release()
+                    try:
+                        await self._stop_pending()
+                    except (Exception, asyncio.CancelledError):
+                        if hasattr(start_error, "add_note"):
+                            start_error.add_note("Owned startup cleanup is incomplete")
                 raise
 
     async def session_status(self, session_id: str) -> SessionStatus:
@@ -386,6 +397,11 @@ class BrowserService:
         async with self._mutex:
             active = self._active
             if active is None:
+                if self._pending_backend is not None:
+                    raise TermuinatorError(
+                        ErrorCode.SESSION_BUSY,
+                        "Browser startup cleanup is incomplete",
+                    )
                 return SharedViewState(
                     generated_at=generated_at,
                     session_id=None,
@@ -407,10 +423,7 @@ class BrowserService:
                 )
 
             status = self._status_result(active)
-            confidential = active.state in {
-                SessionState.USER_TAKEOVER_REQUIRED,
-                SessionState.USER_TAKEOVER_ACTIVE,
-            }
+            confidential = active.state is not SessionState.ACTIVE
             if confidential:
                 return SharedViewState(
                     generated_at=generated_at,
@@ -422,7 +435,7 @@ class BrowserService:
                     page_revision=None,
                     url="",
                     title="",
-                    ready_state="takeover",
+                    ready_state=status.ready_state,
                     freshness_ms=status.freshness_ms,
                     screenshot_artifact_uri=None,
                     pending_permissions=(),
@@ -479,13 +492,10 @@ class BrowserService:
                     ErrorCode.ARTIFACT_NOT_FOUND,
                     "No current shared-view screenshot is available",
                 )
-            if active.state in {
-                SessionState.USER_TAKEOVER_REQUIRED,
-                SessionState.USER_TAKEOVER_ACTIVE,
-            }:
+            if active.state is not SessionState.ACTIVE:
                 raise TermuinatorError(
                     ErrorCode.SESSION_PAUSED,
-                    "Shared-view page content is hidden during local takeover",
+                    "Shared-view page content is hidden while the session is inactive",
                 )
             last = active.observation.last_observation
             uri = last.screenshot_artifact_uri if last is not None else None
@@ -628,6 +638,7 @@ class BrowserService:
                     quarantine=True,
                 )
             self._apply_observation_handoff(active, observation)
+            self._require_remote_active(active)
             return observation
 
     async def observe(
@@ -684,6 +695,7 @@ class BrowserService:
                 screenshot_artifact_uri=screenshot_artifact_uri,
             )
             self._apply_observation_handoff(active, observation)
+            self._require_remote_active(active)
             return observation
 
     async def wait(
@@ -863,15 +875,15 @@ class BrowserService:
                 )
                 satisfied = evaluate_wait(condition, last_observation)
                 elapsed_ms = self._wait_elapsed_ms(started)
-                handoff_required = self._apply_observation_handoff(
+                self._apply_observation_handoff(
                     active,
                     last_observation,
                 )
+                self._require_remote_active(active)
                 if (
                     satisfied
                     or elapsed_ms >= timeout_ms
                     or document_changed
-                    or handoff_required
                 ):
                     return WaitResult(
                         condition_kind=condition.kind,
@@ -1579,42 +1591,56 @@ class BrowserService:
                     "The action completed but its terminal result was not durable",
                     details={"action_id": request.action_id},
                 ) from exc
+            # Preserve the terminal effect before hiding a newly confidential result.
+            self._require_remote_active(active)
             return result
 
     async def session_stop(self, session_id: str) -> SessionStopResult:
         async with self._mutex:
-            active = self._require_session(session_id)
-            stop_error: Exception | None = None
-            try:
-                await active.backend.stop()
-            except Exception as exc:
-                stop_error = exc
+            return await self._stop_active(self._require_session(session_id))
 
-            active.permissions.clear_session(active.session_id)
+    async def close(self) -> None:
+        """Stop active or partially started resources on transport shutdown."""
+        async with self._mutex:
+            if self._active is not None:
+                await self._stop_active(self._active)
+            else:
+                await self._stop_pending()
 
-            self._active = None
-            lease_error: Exception | None = None
-            try:
-                self._session_lock.release()
-            except Exception as exc:
-                lease_error = exc
-            if stop_error is not None:
-                raise TermuinatorError(
-                    ErrorCode.BACKEND_CRASHED,
-                    f"Backend '{active.capabilities.backend.value}' failed to stop cleanly",
-                    retryable=True,
-                    details={"backend": active.capabilities.backend.value},
-                ) from stop_error
-            if lease_error is not None:
-                raise TermuinatorError(
-                    ErrorCode.INTERNAL_ERROR,
-                    "Browser session lease failed to release cleanly",
-                ) from lease_error
-            return SessionStopResult(
-                session_id=active.session_id,
-                state=SessionState.STOPPED,
-                stopped_at=datetime.now(timezone.utc).isoformat(),
-            )
+    async def _stop_pending(self) -> None:
+        # Caller holds _mutex. Discard ownership only after stop and lease release.
+        if self._pending_backend is not None:
+            await self._pending_backend.stop()
+        self._session_lock.release()
+        self._pending_backend = None
+
+    async def _stop_active(self, active: _ActiveSession) -> SessionStopResult:
+        # Both callers hold _mutex; failed cleanup stays owned and blocks new work.
+        active.state = SessionState.STOPPING
+        try:
+            await active.backend.stop()
+        except Exception as exc:
+            raise TermuinatorError(
+                ErrorCode.BACKEND_CRASHED,
+                f"Backend '{active.capabilities.backend.value}' failed to stop cleanly",
+                retryable=True,
+                details={"backend": active.capabilities.backend.value},
+            ) from exc
+
+        active.permissions.clear_session(active.session_id)
+        try:
+            self._session_lock.release()
+        except Exception as exc:
+            raise TermuinatorError(
+                ErrorCode.INTERNAL_ERROR,
+                "Browser session lease failed to release cleanly",
+            ) from exc
+        self._active = None
+        return SessionStopResult(
+            session_id=active.session_id,
+            state=SessionState.STOPPED,
+            stopped_at=datetime.now(timezone.utc).isoformat(),
+        )
 
     def _status_result(self, active: _ActiveSession) -> SessionStatus:
         cached = active.backend.cached_status()
@@ -1622,6 +1648,7 @@ class BrowserService:
             SessionState.USER_TAKEOVER_REQUIRED,
             SessionState.USER_TAKEOVER_ACTIVE,
         }
+        page_hidden = active.state is not SessionState.ACTIVE
         freshness_ms = min(
             86_400_000,
             max(0, int((time.monotonic() - cached.updated_at_monotonic) * 1000)),
@@ -1634,9 +1661,10 @@ class BrowserService:
             active_page_id=active.observation.page_id,
             active_tab_id=active.observation.tab_id,
             page_revision=active.observation.revision,
-            url="" if confidential_takeover else cached.url,
-            title="" if confidential_takeover else cached.title,
-            ready_state="takeover" if confidential_takeover else cached.ready_state,
+            url="" if page_hidden else cached.url,
+            title="" if page_hidden else cached.title,
+            ready_state=("takeover" if confidential_takeover else active.state.value)
+            if page_hidden else cached.ready_state,
             freshness_ms=freshness_ms,
             capabilities=active.capabilities,
         )
@@ -1743,6 +1771,7 @@ class BrowserService:
             active_state.url = observation.url
             active_state.title = observation.title
 
+        self._require_remote_active(active)
         return TabsResult(
             operation=operation,
             tabs=tuple(
@@ -2280,6 +2309,19 @@ class BrowserService:
             if request.kind is ActionKind.DRAG
             else None
         )
+        for binding in (target, destination):
+            if binding is None:
+                continue
+            candidate = binding.candidate
+            bounds = candidate.bounds
+            if (
+                not candidate.visible or not candidate.enabled
+                or (bounds is not None and (bounds.width <= 0 or bounds.height <= 0))
+            ):
+                raise TermuinatorError(
+                    ErrorCode.TARGET_NOT_FOUND,
+                    "The observed action target is not actionable",
+                )
         return target, destination
 
     @staticmethod

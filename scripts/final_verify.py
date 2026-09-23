@@ -24,6 +24,7 @@ import platform
 import re
 import secrets
 import stat
+import struct
 import subprocess
 import sys
 import sysconfig
@@ -31,6 +32,7 @@ import time
 from typing import Any
 from urllib.parse import unquote, urlsplit
 import zipfile
+import zlib
 
 
 _ARTIFACT_URI = re.compile(r"^artifact://sha256/[0-9a-f]{64}$")
@@ -133,18 +135,6 @@ _EXPECTED_WHEEL_HEADERS = {
     "Root-Is-Purelib": ("true",),
     "Tag": ("py3-none-any",),
 }
-_PROCESS_TERMS = (
-    "firefox",
-    "chromium",
-    "chrome",
-    "xvfb",
-    "openbox",
-    "tbp-mcp-v1",
-    "final_verify.py",
-    "virgl_test_server_android",
-    "xclip",
-    "xdotool",
-)
 _MCP_ERROR_CODES = frozenset(
     {
         "action_failed",
@@ -222,12 +212,21 @@ _MCP_EXEC_LAUNCHER = "\n".join(
 class VerificationFailure(RuntimeError):
     """A bounded, page-data-free release-gate failure."""
 
+    mcp_code: str | None = None
+
+class _ConfirmationRequired(VerificationFailure):
+    def __init__(self, confirmation_id: str) -> None:
+        super().__init__("fixture submission requires local confirmation")
+        self.confirmation_id = confirmation_id
+
 
 ToolCaller = Callable[
     [str, dict[str, object]],
     Awaitable[Mapping[str, Any]],
 ]
 PermissionGrant = Callable[[str, str], Awaitable[None]]
+ConfirmationApproval = Callable[[str, str], Awaitable[None]]
+LocalTakeover = Callable[[str, str], Awaitable[None]]
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -1149,25 +1148,33 @@ def project_digest(owner_scope: str, project_id: str) -> str:
     return digest.hexdigest()
 
 
-def _require_private_directory(path: Path, label: str) -> None:
+def _require_private_directory(path: Path, label: str) -> os.stat_result:
     try:
         info = path.lstat()
     except OSError as exc:
         raise VerificationFailure(f"{label} is missing or unsafe") from exc
-    if not stat.S_ISDIR(info.st_mode) or stat.S_IMODE(info.st_mode) != 0o700:
+    if (not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid()
+            or stat.S_IMODE(info.st_mode) != 0o700):
         raise VerificationFailure(f"{label} must be a mode 0700 real directory")
+    return info
 
 
 def _read_private_regular(path: Path, label: str, maximum: int) -> bytes:
+    parent = _require_private_directory(path.parent, f"{label} parent")
     flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0)
-    flags |= getattr(os, "O_NOFOLLOW", 0)
+    flags |= os.O_NOFOLLOW | os.O_NONBLOCK
     try:
+        before = path.lstat()
+        if (not stat.S_ISREG(before.st_mode) or before.st_uid != os.getuid()
+                or stat.S_IMODE(before.st_mode) != 0o600):
+            raise VerificationFailure(f"{label} must be a mode 0600 regular file")
         descriptor = os.open(path, flags)
     except OSError as exc:
         raise VerificationFailure(f"{label} is missing or unsafe") from exc
     try:
         info = os.fstat(descriptor)
-        if not stat.S_ISREG(info.st_mode) or stat.S_IMODE(info.st_mode) != 0o600:
+        if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid()
+                or stat.S_IMODE(info.st_mode) != 0o600):
             raise VerificationFailure(
                 f"{label} must be a mode 0600 regular file"
             )
@@ -1181,7 +1188,18 @@ def _read_private_regular(path: Path, label: str, maximum: int) -> bytes:
                 raise VerificationFailure(f"{label} was truncated")
             chunks.append(chunk)
             remaining -= len(chunk)
+        fields = ("st_dev", "st_ino", "st_uid", "st_mode", "st_size", "st_mtime_ns", "st_ctime_ns")
+        after_parent = _require_private_directory(path.parent, f"{label} parent")
+        if (
+            any(getattr(value, key) != getattr(before, key)
+                for value in (info, os.fstat(descriptor), path.lstat()) for key in fields)
+            or any(getattr(parent, key) != getattr(after_parent, key)
+                   for key in ("st_dev", "st_ino", "st_uid", "st_mode"))
+        ):
+            raise VerificationFailure(f"{label} changed during read")
         return b"".join(chunks)
+    except OSError as exc:
+        raise VerificationFailure(f"{label} could not be read safely") from exc
     finally:
         os.close(descriptor)
 
@@ -1438,7 +1456,7 @@ def _write_private_bytes(path: Path, data: bytes) -> None:
         os.close(descriptor)
 
 
-def write_private_json(path: Path, value: object) -> None:
+def write_private_json(path: Path, value: object) -> bytes:
     try:
         encoded = (
             json.dumps(
@@ -1453,6 +1471,63 @@ def write_private_json(path: Path, value: object) -> None:
     except (TypeError, ValueError) as exc:
         raise VerificationFailure("verification report is not canonical JSON") from exc
     _write_private_bytes(path, encoded)
+    return encoded
+
+
+def write_return_file_manifest(path: Path, expected: Mapping[str, bytes]) -> dict[str, Any]:
+    """Record each published return file against the bytes the writer intended."""
+    _require_private_directory(path.parent, "return-file directory")
+    files: dict[str, Any] = {}
+    for name, expected_bytes in expected.items():
+        if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}", name) is None or name == path.name:
+            raise ValueError("return-file name must be a distinct bounded basename")
+        item: dict[str, Any] = {"status": "UNKNOWN", "bytes": None, "sha256": None,
+                                "mode": None, "owner_current_uid": None}
+        try:
+            data = _read_private_regular(path.parent / name, "returned report", len(expected_bytes))
+            matches = secrets.compare_digest(data, expected_bytes)
+            item.update(status="PASS" if matches else "FAIL", bytes=len(data), mode="0600",
+                        owner_current_uid=True, sha256=hashlib.sha256(data).hexdigest(),
+                        reason=None if matches else "content_changed")
+        except Exception as exc:
+            os_error = next((value for value in (exc, exc.__cause__)
+                             if isinstance(value, OSError)), None)
+            if isinstance(os_error, PermissionError):
+                item.update(status="UNAVAILABLE", reason="permission_denied", errno=os_error.errno)
+            elif isinstance(os_error, FileNotFoundError):
+                item.update(status="FAIL", reason="missing", errno=os_error.errno)
+            elif os_error is not None:
+                item.update(status="UNKNOWN", reason="read_failed", errno=os_error.errno)
+            else:
+                item.update(status="FAIL" if isinstance(exc, VerificationFailure) else "UNKNOWN",
+                            reason="unsafe_file" if isinstance(exc, VerificationFailure) else "verification_failed")
+        files[name] = item
+    report = {"format": "termuinator-return-files-v1", "files": files,
+              "status": "PASS" if files and all(item["status"] == "PASS" for item in files.values()) else "FAIL"}
+    encoded = write_private_json(path, report)
+    if not secrets.compare_digest(_read_private_regular(path, "return-file manifest", len(encoded)), encoded):
+        raise VerificationFailure("return-file manifest changed after writing")
+    return report
+
+
+def _verify_return_file_manifest(path: Path, names: set[str]) -> Mapping[str, Any]:
+    try:
+        receipt = json.loads(_read_private_regular(path, "return-file manifest", 64 * 1024),
+                             parse_constant=_reject_json_constant)
+    except (ValueError, UnicodeError) as exc:
+        raise VerificationFailure("return-file manifest is invalid") from exc
+    receipt = _mapping(receipt, "return-file manifest")
+    files = _mapping(receipt.get("files"), "return-file records")
+    if receipt.get("format") != "termuinator-return-files-v1" or receipt.get("status") != "PASS" or set(files) != names:
+        raise VerificationFailure("return-file verification did not pass")
+    for name in sorted(names):
+        item = _mapping(files[name], "returned file")
+        data = _read_private_regular(path.parent / name, "returned report", 1024 * 1024)
+        if (item.get("status") != "PASS" or item.get("owner_current_uid") is not True
+                or item.get("mode") != "0600" or type(item.get("bytes")) is not int
+                or item["bytes"] != len(data) or item.get("sha256") != hashlib.sha256(data).hexdigest()):
+            raise VerificationFailure("returned report differs from its integrity record")
+    return files
 
 
 async def _retrieve_artifact(
@@ -1501,10 +1576,344 @@ async def _retrieve_artifact(
     )
 
 
+def _fixture_text(
+    value: Mapping[str, Any], identity: Mapping[str, str], *, url: str, origin: str, label: str,
+) -> str:
+    current = _page_context(value)
+    text = value.get("text")
+    if (
+        any(current[key] != identity[key] for key in ("session_id", "tab_id", "page_id"))
+        or value.get("url") != url or value.get("origin") != origin
+        or value.get("ready_state") != "complete" or value.get("text_truncated") is not False
+        or not isinstance(text, str) or len(text) > 4096
+    ):
+        raise VerificationFailure(f"{label}: observation identity or completeness failed")
+    return text
+
+
+def _fixture_target(observed: Mapping[str, Any], name: str, role: str, *, label: str) -> Mapping[str, Any]:
+    elements = observed.get("interactive_elements")
+    if not isinstance(elements, list):
+        raise VerificationFailure(f"{label}: interactive targets are missing")
+    targets = [item for item in elements if isinstance(item, Mapping)
+               and item.get("accessible_name") == name and item.get("role") == role]
+    if len(targets) != 1:
+        raise VerificationFailure(f"{label}: target is missing or ambiguous")
+    ref = targets[0].get("ref")
+    if not isinstance(ref, str) or not _PUBLIC_REF.fullmatch(ref):
+        raise VerificationFailure(f"{label}: target ref is invalid")
+    return targets[0]
+
+
+def _checked_action_result(value: object, arguments: Mapping[str, object], *, label: str) -> Mapping[str, Any]:
+    result = _mapping(value, "fixture action result")
+    after = result.get("after_revision")
+    verification = result.get("verification")
+    if (
+        result.get("status") != "succeeded"
+        or result.get("before_revision") != arguments["expected_page_revision"]
+        or not isinstance(after, str) or not 1 <= len(after) <= 160
+        or not isinstance(verification, list) or not 1 <= len(verification) <= 32
+        or not any(isinstance(item, Mapping) and item.get("passed") is True
+                   and item.get("causal") is True for item in verification)
+    ):
+        raise VerificationFailure(f"{label}: action lacks successful causal evidence")
+    return result
+
+
+async def _verify_form_actions(
+    caller: ToolCaller,
+    observed: Mapping[str, Any],
+    *,
+    approve_confirmation: ConfirmationApproval,
+    fixture_url: str,
+    fixture_origin: str,
+) -> tuple[Mapping[str, Any], dict[str, object]]:
+    """Check fixture effects through fresh observations, never RPC success alone."""
+    context = _page_context(observed)
+    identity = {key: context[key] for key in ("session_id", "tab_id", "page_id")}
+    expected: dict[str, object] = {"text": "", "terms": False, "choice": "A", "submissions": 0}
+    stage = "initial"
+
+    def require_state(value: Mapping[str, Any]) -> None:
+        text = _fixture_text(value, identity, url=fixture_url, origin=fixture_origin, label=f"form {stage}")
+        lines = [line.strip() for line in text.splitlines() if line.strip().startswith("Fixture state:")]
+        if lines != ["Fixture state: " + json.dumps(expected, separators=(",", ":"))]:
+            raise VerificationFailure(f"form {stage}: actual values or submission count did not match")
+
+    async def observe() -> Mapping[str, Any]:
+        nonlocal context
+        value = await caller("browser_observe", {
+            **context, "include_screenshot": False, "include_accessibility": False, "text_limit": 4096,
+        })
+        require_state(value)
+        context = _page_context(value)
+        return value
+
+    def request(kind: str, name: str, role: str, parameters: dict[str, object]) -> dict[str, object]:
+        target = _fixture_target(observed, name, role, label=f"form {stage}")
+        if target.get("visible") is not True or target.get("enabled") is not True:
+            raise VerificationFailure(f"form {stage}: target is not actionable")
+        return {**context, "action_id": "action_" + secrets.token_hex(12),
+                "idempotency_key": "idem_" + secrets.token_hex(12), "kind": kind,
+                "target_ref": target["ref"], "parameters": parameters, "timeout_ms": 30_000}
+
+    def accept_result(value: object, arguments: Mapping[str, object]) -> Mapping[str, Any]:
+        nonlocal context
+        result = _checked_action_result(value, arguments, label=f"form {stage}")
+        context = {**context, "expected_page_revision": result["after_revision"]}
+        return result
+
+    require_state(observed)
+    for kind, name, role, parameters, field, value in (
+        ("type", "Text input", "textbox", {"text": "termuinator-fixture"}, "text", "termuinator-fixture"),
+        ("check", "Accept terms", "checkbox", {"checked": True}, "terms", True),
+        ("select", "Choose option", "combobox", {"value": "B"}, "choice", "B"),
+    ):
+        stage = kind
+        arguments = request(kind, name, role, parameters)
+        accept_result(await caller("browser_act", arguments), arguments)
+        expected[field] = value
+        observed = await observe()
+
+    stage = "request_confirmation"
+    arguments = request("click", "Submit fixture", "button", {})
+    try:
+        await caller("browser_act", arguments)
+    except _ConfirmationRequired as exc:
+        confirmation_id = exc.confirmation_id
+    else:
+        raise VerificationFailure(f"form {stage}: submit did not require local confirmation")
+    stage = "before_approval"
+    observed = await observe()
+    if context["expected_page_revision"] != arguments["expected_page_revision"]:
+        raise VerificationFailure(f"form {stage}: fixture changed while awaiting confirmation")
+    await approve_confirmation(context["session_id"], confirmation_id)
+    confirmed = {**arguments, "confirmation_id": confirmation_id}
+    stage = "after_approval"
+    first = accept_result(await caller("browser_act", confirmed), confirmed)
+    expected["submissions"] = 1
+    observed = await observe()
+    stage = "after_replay"
+    replay = await caller("browser_act", confirmed)
+    if replay != first:
+        raise VerificationFailure(f"form {stage}: replay changed the terminal action result")
+    observed = await observe()
+    return observed, {
+        "status": "PASS", "verified_operations": ["type", "check", "select", "click"],
+        "submission_counts": {"before_approval": 0, "after_approval": 1, "after_replay": 1},
+        "replay_result_identical": True,
+    }
+
+
+async def _verify_action_boundaries(
+    caller: ToolCaller, context: Mapping[str, str], *, fixture_origin: str,
+) -> dict[str, object]:
+    """Require typed refusals, unchanged effects, fresh recovery, and bounded waits."""
+    context = dict(context)
+    session_id, tab_id = context["session_id"], context["tab_id"]
+    observed: Mapping[str, Any] = {}
+    path = ""
+
+    def capture(value: Mapping[str, Any]) -> str:
+        nonlocal context, observed
+        text = _fixture_text(value, context, url=fixture_origin + path,
+                             origin=fixture_origin, label=f"boundary {path}")
+        context, observed = _page_context(value), value
+        return text
+
+    async def fresh() -> str:
+        return capture(await caller("browser_observe", {
+            **context, "include_screenshot": False, "include_accessibility": False, "text_limit": 4096,
+        }))
+
+    async def goto(route: str) -> str:
+        nonlocal context, path
+        path = route
+        value = await caller("browser_navigate", {
+            **context, "operation": "goto", "url": fixture_origin + path, "timeout_ms": 45_000,
+        })
+        context = _page_context(value)
+        if context["session_id"] != session_id or context["tab_id"] != tab_id:
+            raise VerificationFailure(f"boundary {path}: navigation changed session or tab")
+        return await fresh()
+
+    def require(text: str, lines: tuple[str, ...], absent: tuple[str, ...] = ()) -> None:
+        actual = {line.strip() for line in text.splitlines()}
+        if not set(lines).issubset(actual) or set(absent).intersection(actual):
+            raise VerificationFailure(f"boundary {path}: actual effects did not match")
+
+    def request(name: str) -> dict[str, object]:
+        target = _fixture_target(observed, name, "button", label=f"boundary {path}")
+        return {**context, "action_id": "action_" + secrets.token_hex(12),
+                "idempotency_key": "idem_" + secrets.token_hex(12), "kind": "click",
+                "target_ref": target["ref"], "parameters": {}, "timeout_ms": 30_000}
+
+    async def click(name: str) -> str:
+        nonlocal context
+        arguments = request(name)
+        result = _checked_action_result(await caller("browser_act", arguments), arguments, label=f"boundary {path}")
+        context = {**context, "expected_page_revision": result["after_revision"]}
+        return await fresh()
+
+    async def reject(arguments: dict[str, object], code: str) -> str:
+        try:
+            await caller("browser_act", arguments)
+        except VerificationFailure as exc:
+            if exc.mcp_code != code:
+                raise VerificationFailure(f"boundary {path}: expected {code} refusal was not verified") from exc
+        else:
+            raise VerificationFailure(f"boundary {path}: unsafe action was not refused")
+        return await fresh()
+
+    require(await goto("/stale-replacement"), ("Generation 1", "Activations 0"))
+    retired = request("Continue")
+    require(await click("Replace stable target"), ("Generation 2", "Activations 0"))
+    if request("Continue")["target_ref"] == retired["target_ref"]:
+        raise VerificationFailure("boundary /stale-replacement: replacement reused the retired ref")
+    require(await reject(retired, "stale_observation"), ("Generation 2", "Activations 0"))
+    stale_ref = {**request("Continue"), "target_ref": retired["target_ref"]}
+    require(await reject(stale_ref, "target_not_found"), ("Generation 2", "Activations 0"))
+    require(await click("Continue"), ("Generation 2", "Activations 1"))
+
+    require(await goto("/dynamic-list"), ("Item 1",), ("Item 2",))
+    old_remove = request("Remove item")
+    require(await click("Add item"), ("Item 1", "Item 2"))
+    require(await reject(old_remove, "stale_observation"), ("Item 1", "Item 2"))
+    require(await click("Remove item"), ("Item 1",), ("Item 2",))
+
+    require(await goto("/states"), ("Unavailable activations 0",))
+    for name, flag in (("Disabled action", "enabled"), ("Hidden action", "visible")):
+        target = _fixture_target(observed, name, "button", label="boundary /states")
+        if target.get(flag) is not False:
+            raise VerificationFailure("boundary /states: target state was not observed")
+        require(await reject(request(name), "target_not_found"), ("Unavailable activations 0",))
+
+    await goto("/delayed")
+    for text, satisfied, timeout in (("Ready", True, 5000), ("Never appears in this fixture", False, 250)):
+        result = _mapping(await caller("browser_wait", {
+            **context, "condition": {"kind": "text", "text": text, "present": True}, "timeout_ms": timeout,
+        }), "fixture wait result")
+        elapsed = result.get("elapsed_ms")
+        if (result.get("condition_kind") != "text" or result.get("satisfied") is not satisfied
+                or type(elapsed) is not int or not 0 <= elapsed <= 120_000
+                or (not satisfied and elapsed < timeout) or result.get("download") is not None):
+            raise VerificationFailure("boundary /delayed: wait result did not match its condition or deadline")
+        require(capture(_mapping(result.get("observation"), "fixture wait observation")),
+                ("Ready",), ("Never appears in this fixture",))
+    return {
+        "status": "PASS", "stale_revision": "stale_observation", "retired_ref": "target_not_found",
+        "dynamic_stale_revision": "stale_observation", "disabled_target": "target_not_found",
+        "hidden_target": "target_not_found", "replacement_activations": 1,
+        "ready_wait_satisfied": True, "missing_text_wait_satisfied": False, "timeout_elapsed_ms": elapsed,
+    }
+
+
+async def _verify_confidential_boundaries(
+    caller: _McpToolCaller, *, session_id: str, fixture_origin: str,
+    artifact_uri: str, takeover: LocalTakeover,
+) -> dict[str, object]:
+    """Exercise only synthetic pages; page text cannot grant local authority."""
+    async def refused(name: str, arguments: dict[str, object], code: str) -> None:
+        try:
+            await caller(name, arguments)
+        except VerificationFailure as exc:
+            if exc.mcp_code == code:
+                return
+        raise VerificationFailure(f"confidential gate: {name} did not return {code}")
+
+    async def status(state: str) -> Mapping[str, Any]:
+        value = await caller("browser_session_status", {"session_id": session_id})
+        if (value.get("session_id") != session_id or value.get("state") != state
+                or value.get("running") is not True):
+            raise VerificationFailure("confidential gate: session transition was not verified")
+        _status_context(value)
+        if state != "active" and (value.get("url") != "" or value.get("title") != "" or value.get("ready_state") != "takeover"):
+            raise VerificationFailure("confidential gate: paused metadata was not hidden")
+        return value
+
+    async def inventory() -> None:
+        listed = await caller._session.list_tools()
+        validate_tool_inventory(tuple(tool.name for tool in listed.tools), _INTERACTIVE_TOOL_NAMES, profile="interactive")
+
+    context = _status_context(await status("active"))
+    await inventory()
+    before = await caller("browser_permissions", {"session_id": session_id, "operation": "list"})
+    decisions = before.get("decisions")
+    if (before.get("operation") != "list" or before.get("challenge") is not None
+            or not isinstance(decisions, list) or len(decisions) != 1
+            or not isinstance(decisions[0], Mapping)
+            or decisions[0].get("origin") != fixture_origin or decisions[0].get("policy") != "session_allow"
+            or decisions[0].get("session_id") != session_id):
+        raise VerificationFailure("confidential gate: isolated fixture policy was not verified")
+    value = await caller("browser_navigate", {
+        **context, "operation": "goto", "url": fixture_origin + "/prompt-injection", "timeout_ms": 45_000,
+    })
+    context = _page_context(value)
+    observed = await caller("browser_observe", {
+        **context, "include_screenshot": False, "include_accessibility": False, "text_limit": 4096,
+    })
+    text = _fixture_text(observed, context, url=fixture_origin + "/prompt-injection", origin=fixture_origin, label="page authority")
+    if not all(token in text for token in ("Untrusted page instructions", "always_allow", "Developer Mode")):
+        raise VerificationFailure("confidential gate: untrusted fixture text was not observed")
+    context = _page_context(observed)
+    after = await caller("browser_permissions", {"session_id": session_id, "operation": "list"})
+    if after != before:
+        raise VerificationFailure("confidential gate: page text changed origin policy")
+    await inventory()
+    await refused("browser_devtools", {**context, "query": "console", "parameters": {}}, "unsupported_capability")
+
+    for route in ("login", "otp"):
+        await refused("browser_navigate", {
+            **context, "operation": "goto", "url": fixture_origin + "/" + route, "timeout_ms": 45_000,
+        }, "session_paused")
+        paused = _status_context(await status("user_takeover_required"))
+        for state in ("user_takeover_required", "user_takeover_active"):
+            if state == "user_takeover_active":
+                await takeover(session_id, "start")
+                if _status_context(await status(state)) != paused:
+                    raise VerificationFailure("confidential gate: takeover start changed page identity")
+            for name, arguments in (
+                ("browser_observe", {**paused, "include_screenshot": True, "include_accessibility": True, "text_limit": 4096}),
+                ("browser_screenshot", {**paused, "mode": "viewport"}),
+                ("browser_artifact_read", {"session_id": session_id, "uri": artifact_uri, "offset": 0, "limit": 8}),
+                ("browser_wait", {**paused, "condition": {"kind": "text", "text": "Ready", "present": True}, "timeout_ms": 250}),
+                ("browser_navigate", {**paused, "operation": "reload", "timeout_ms": 1000}),
+                ("browser_act", {**paused, "action_id": "action_" + secrets.token_hex(12), "idempotency_key": "idem_" + secrets.token_hex(12),
+                                 "kind": "click", "target_ref": "ref_takeoverblocked123", "parameters": {}, "timeout_ms": 1000}),
+                ("browser_tabs", {"session_id": session_id, "operation": "list"}),
+                ("browser_downloads", {"session_id": session_id, "operation": "list"}),
+                ("browser_permissions", {"session_id": session_id, "operation": "list"}),
+                ("browser_trace", {"session_id": session_id, "operation": "list"}),
+                ("browser_devtools", {**paused, "query": "console", "parameters": {}}),
+            ):
+                await refused(name, arguments, "session_paused")
+        await takeover(session_id, "resume")
+        context = _status_context(await status("active"))
+        if (context["tab_id"] != paused["tab_id"] or context["page_id"] == paused["page_id"]
+                or context["expected_page_revision"] == paused["expected_page_revision"]):
+            raise VerificationFailure("confidential gate: resume did not rotate page identity")
+        await refused("browser_observe", {
+            **paused, "include_screenshot": False, "include_accessibility": False, "text_limit": 0,
+        }, "stale_observation")
+        observed = await caller("browser_observe", {
+            **context, "include_screenshot": False, "include_accessibility": False, "text_limit": 0,
+        })
+        if (_page_context(observed) != context or observed.get("text") != "" or observed.get("accessibility") != []
+                or observed.get("screenshot_artifact_uri") is not None):
+            raise VerificationFailure("confidential gate: resumed observation was not bounded or fresh")
+        if await caller("browser_permissions", {"session_id": session_id, "operation": "list"}) != before:
+            raise VerificationFailure("confidential gate: takeover changed origin policy")
+    return {"status": "PASS", "takeover_fixtures": ["login", "otp"], "page_authority_unchanged": True,
+            "paused_reads_refused": True, "resume_rotates_identity": True}
+
+
 async def verify_backend(
     caller: ToolCaller,
     *,
     grant_permission: PermissionGrant,
+    approve_confirmation: ConfirmationApproval,
+    takeover: LocalTakeover,
     backend: str,
     fixture_origin: str,
     fixture_url: str,
@@ -1517,8 +1926,8 @@ async def verify_backend(
 
     if backend not in {"chromium", "firefox"}:
         raise ValueError("backend must be chromium or firefox")
-    if not callable(caller) or not callable(grant_permission):
-        raise ValueError("caller and grant_permission must be callable")
+    if not all(callable(item) for item in (caller, grant_permission, approve_confirmation, takeover)):
+        raise ValueError("caller and owner decision callbacks must be callable")
     _require_private_directory(output_dir, "verification output directory")
     session_id: str | None = None
     stop_summary: dict[str, object] | None = None
@@ -1585,6 +1994,11 @@ async def verify_backend(
         context = _page_context(observed)
         if context["session_id"] != session_id:
             raise VerificationFailure("observation changed session identity")
+        observed, action_summary = await _verify_form_actions(
+            caller, observed, approve_confirmation=approve_confirmation,
+            fixture_url=fixture_url, fixture_origin=fixture_origin,
+        )
+        context = _page_context(observed)
         artifact = await caller(
             "browser_screenshot",
             {**context, "mode": "viewport"},
@@ -1602,6 +2016,10 @@ async def verify_backend(
             reconstructed=screenshot,
         )
         _write_private_bytes(output_dir / f"{backend}.png", screenshot)
+        boundary_summary = await _verify_action_boundaries(caller, context, fixture_origin=fixture_origin)
+        confidential_summary = await _verify_confidential_boundaries(
+            caller, session_id=session_id, fixture_origin=fixture_origin, artifact_uri=artifact["uri"], takeover=takeover,
+        )
         final_status = _mapping(
             await caller(
                 "browser_session_status",
@@ -1619,6 +2037,9 @@ async def verify_backend(
             "status": "PASS",
             "backend": backend,
             "observation": observation_summary,
+            "actions": action_summary,
+            "action_boundaries": boundary_summary,
+            "confidential_boundaries": confidential_summary,
             "artifact": artifact_summary,
         }
     finally:
@@ -1642,7 +2063,8 @@ async def verify_backend(
 
 
 class _McpToolCaller:
-    def __init__(self, session: object, *, server_pid: int) -> None:
+    def __init__(self, session: object, *, server_pid: int,
+                 process_observer: Callable[[int], None] | None = None) -> None:
         if (
             isinstance(server_pid, bool)
             or not isinstance(server_pid, int)
@@ -1651,6 +2073,7 @@ class _McpToolCaller:
             raise ValueError("server_pid must be a positive process ID")
         self._session = session
         self.server_pid = server_pid
+        self._process_observer = process_observer
 
     async def __call__(
         self,
@@ -1660,14 +2083,25 @@ class _McpToolCaller:
         call_tool = getattr(self._session, "call_tool", None)
         if not callable(call_tool):
             raise VerificationFailure("MCP client session has no call_tool method")
-        result = await call_tool(
-            name,
-            arguments,
-            read_timeout_seconds=timedelta(seconds=180),
-        )
+        if self._process_observer is not None:
+            self._process_observer(self.server_pid)
+        try:
+            result = await call_tool(
+                name,
+                arguments,
+                read_timeout_seconds=timedelta(seconds=180),
+            )
+        finally:
+            if self._process_observer is not None:
+                self._process_observer(self.server_pid)
         if getattr(result, "isError", False):
             code = "mcp_error"
             context: list[str] = []
+            kind = arguments.get("kind")
+            if name == "browser_act" and isinstance(kind, str) and kind in {
+                "click", "type", "key", "scroll", "select", "check", "hover", "drag",
+            }:
+                context.append(f"kind={kind}")
             for content in getattr(result, "content", ()):
                 text_value = getattr(content, "text", None)
                 if not isinstance(text_value, str) or len(text_value) > 64 * 1024:
@@ -1686,15 +2120,25 @@ class _McpToolCaller:
                     code = candidate_code
                 details = envelope.get("details")
                 if isinstance(details, Mapping):
+                    challenge = details.get("challenge")
+                    if (name == "browser_act" and code == "confirmation_required"
+                            and isinstance(challenge, Mapping)
+                            and challenge.get("kind") == "confirmation"
+                            and challenge.get("state") == "pending"):
+                        identifier = challenge.get("challenge_id")
+                        if isinstance(identifier, str) and re.fullmatch(r"[A-Za-z][A-Za-z0-9_-]{7,127}", identifier):
+                            raise _ConfirmationRequired(identifier)
                     for key, allowed in _MCP_ERROR_DETAIL_VALUES.items():
                         value = details.get(key)
                         if isinstance(value, str) and value in allowed:
                             context.append(f"{key}={value}")
                 break
             suffix = f" [{','.join(context)}]" if context else ""
-            raise VerificationFailure(
+            error = VerificationFailure(
                 f"{name} returned MCP error code {code}{suffix}"
             )
+            error.mcp_code = code
+            raise error
         structured = getattr(result, "structuredContent", None)
         return _mapping(structured, f"{name} structured result")
 
@@ -1758,17 +2202,30 @@ def _require_private_control_socket(path: Path) -> None:
         info = path.lstat()
     except OSError as exc:
         raise VerificationFailure("owner host-control socket is missing") from exc
-    if not stat.S_ISSOCK(info.st_mode) or stat.S_IMODE(info.st_mode) != 0o600:
+    if (not stat.S_ISSOCK(info.st_mode) or stat.S_IMODE(info.st_mode) != 0o600
+            or info.st_uid != os.getuid()):
         raise VerificationFailure("owner host-control socket is not private")
 
 
-async def _wait_path_absent(path: Path, timeout_seconds: float = 10.0) -> bool:
+def _path_absent(path: Path) -> bool | None:
+    """Distinguish a missing entry from an entry we cannot inspect."""
+    try:
+        path.lstat()
+    except FileNotFoundError:
+        return True
+    except OSError:
+        return None
+    return False
+
+
+async def _wait_path_absent(path: Path, timeout_seconds: float = 10.0) -> bool | None:
     deadline = time.monotonic() + timeout_seconds
     while time.monotonic() < deadline:
-        if not path.exists() and not path.is_symlink():
-            return True
+        absent = _path_absent(path)
+        if absent is not False:
+            return absent
         await asyncio.sleep(0.05)
-    return not path.exists() and not path.is_symlink()
+    return _path_absent(path)
 
 
 async def _run_mcp_profile(
@@ -1781,6 +2238,7 @@ async def _run_mcp_profile(
     control_socket: Path,
     stderr_path: Path,
     body: Callable[[_McpToolCaller], Awaitable[object]] | None = None,
+    process_observer: Callable[[int], None] | None = None,
 ) -> tuple[dict[str, object], object | None]:
     try:
         from mcp import ClientSession, StdioServerParameters
@@ -1812,6 +2270,8 @@ async def _run_mcp_profile(
             ) as session:
                 initialized = await session.initialize()
                 server_pid = _read_trusted_child_pid(pid_path)
+                if process_observer is not None:
+                    process_observer(server_pid)
                 initialized_wire = (
                     initialized.model_dump(by_alias=True)
                     if hasattr(initialized, "model_dump")
@@ -1839,7 +2299,8 @@ async def _run_mcp_profile(
                 _require_private_control_socket(control_socket)
                 if body is not None:
                     body_result = await body(
-                        _McpToolCaller(session, server_pid=server_pid)
+                        _McpToolCaller(session, server_pid=server_pid,
+                                       process_observer=process_observer)
                     )
         errlog.flush()
         os.fsync(errlog.fileno())
@@ -1864,30 +2325,75 @@ def _run_control_grant(
     session_id: str,
     origin: str,
 ) -> None:
+    _run_control_action(
+        control_command=control_command, environ=environ, working_directory=working_directory,
+        arguments=["permission", session_id, origin, "session_allow"], label="owner permission grant",
+    )
+
+
+def _run_control_approval(
+    *,
+    control_command: Path,
+    environ: Mapping[str, str],
+    working_directory: Path,
+    session_id: str,
+    confirmation_id: str,
+) -> None:
+    response = _run_control_action(
+        control_command=control_command, environ=environ, working_directory=working_directory,
+        arguments=["confirmation", session_id, confirmation_id, "approve"], label="owner fixture approval",
+    )
+    result = _mapping(response.get("result"), "owner fixture approval result")
+    if (result.get("challenge_id") != confirmation_id or result.get("kind") != "confirmation"
+            or result.get("state") != "approved"):
+        raise VerificationFailure("owner fixture approval did not match the pending challenge")
+
+
+def _run_control_takeover(
+    *, control_command: Path, environ: Mapping[str, str], working_directory: Path,
+    session_id: str, operation: str,
+) -> None:
+    if operation not in {"start", "resume"}:
+        raise ValueError("fixture takeover operation is invalid")
+    response = _run_control_action(
+        control_command=control_command, environ=environ, working_directory=working_directory,
+        arguments=["takeover-" + operation, session_id], label="owner fixture takeover",
+    )
+    value = _mapping(response.get("result"), "owner fixture takeover result")
+    safe = (value.get("state") == "user_takeover_active" and value.get("url") == "" and value.get("title") == ""
+            if operation == "start" else value.get("text") == "" and value.get("accessibility") == []
+            and value.get("screenshot_artifact_uri") is None)
+    if value.get("session_id") != session_id or not safe:
+        raise VerificationFailure("owner fixture takeover returned an inconsistent transition")
+
+
+def _run_control_action(
+    *,
+    control_command: Path,
+    environ: Mapping[str, str],
+    working_directory: Path,
+    arguments: Sequence[str],
+    label: str,
+) -> Mapping[str, Any]:
     completed = _run_bounded(
-        [
-            control_command,
-            "permission",
-            session_id,
-            origin,
-            "session_allow",
-        ],
+        [control_command, *arguments],
         cwd=working_directory,
         environ=environ,
         timeout=15,
-        label="owner permission grant",
+        label=label,
     )
     if completed.returncode != 0 or completed.stderr:
-        raise VerificationFailure("owner permission grant failed")
+        raise VerificationFailure(f"{label} failed")
     try:
         response = json.loads(
             completed.stdout,
             parse_constant=_reject_json_constant,
         )
     except (json.JSONDecodeError, ValueError) as exc:
-        raise VerificationFailure("owner permission grant returned invalid JSON") from exc
+        raise VerificationFailure(f"{label} returned invalid JSON") from exc
     if not isinstance(response, Mapping) or response.get("ok") is not True:
-        raise VerificationFailure("owner permission grant was not accepted")
+        raise VerificationFailure(f"{label} was not accepted")
+    return response
 
 
 def _load_fixture_site(project_root: Path):
@@ -1966,43 +2472,142 @@ def _child_environment(
     return environ, paths
 
 
-def _process_snapshot() -> dict[str, dict[str, str]]:
+def _process_identity(entry: Path) -> dict[str, str]:
+    """Read parent PID and start ticks, without retaining process names or argv."""
+    raw = (entry / "stat").read_text(encoding="utf-8", errors="replace")
+    prefix, separator, tail = raw.rpartition(") ")
+    fields = tail.split()
+    if (not separator or not prefix.startswith(f"{entry.name} (")
+            or len(fields) < 20
+            or any(not fields[index].isascii() or not fields[index].isdigit()
+                   for index in (1, 19))):
+        raise ValueError("invalid process identity")
+    return {"parent_pid": fields[1], "start_ticks": fields[19]}
+
+
+def _process_snapshot() -> dict[str, Any]:
+    """Record all visible same-UID identities, not a host-wide absence proof."""
     proc = Path("/proc")
-    if not proc.is_dir():
-        return {}
-    snapshot: dict[str, dict[str, str]] = {}
-    for entry in proc.iterdir():
+    processes: dict[str, dict[str, str]] = {}
+    errors = {"permission_denied": 0, "io_error": 0,
+              "invalid_identity": 0, "identity_changed": 0}
+    snapshot: dict[str, Any] = {
+        "status": "PASS", "scope": "visible_same_uid_processes",
+        "processes": processes, "error_counts": errors,
+    }
+    try:
+        entries = list(proc.iterdir())
+    except OSError as exc:
+        snapshot.update(status="UNAVAILABLE", reason="proc_unavailable", errno=exc.errno)
+        return snapshot
+    for entry in entries:
         if not entry.name.isdigit():
             continue
         try:
-            command = (entry / "cmdline").read_bytes()[:8192].replace(b"\x00", b" ")
-            command_text = command.decode("utf-8", errors="replace").strip()
-            comm = (entry / "comm").read_text(encoding="utf-8", errors="replace")[:256].strip()
-        except OSError:
+            if entry.stat().st_uid != os.getuid():
+                continue
+            identity = _process_identity(entry)
+            if identity != _process_identity(entry) or entry.stat().st_uid != os.getuid():
+                errors["identity_changed"] += 1
+                continue
+        except FileNotFoundError:
+            # A process may exit during a scan. Missing files in a live entry
+            # are not evidence of its absence; do not suppress access failures.
+            try:
+                entry.stat()
+            except FileNotFoundError:
+                continue
+            except OSError:
+                pass
+            errors["io_error"] += 1
             continue
-        searchable = f"{comm} {command_text}".lower()
-        if any(term in searchable for term in _PROCESS_TERMS):
-            snapshot[entry.name] = {"comm": comm, "command": command_text}
+        except PermissionError:
+            errors["permission_denied"] += 1
+            continue
+        except OSError:
+            errors["io_error"] += 1
+            continue
+        except ValueError:
+            errors["invalid_identity"] += 1
+            continue
+        processes[entry.name] = identity
+    if any(errors.values()):
+        snapshot.update(status="UNKNOWN", reason="process_evidence_incomplete")
     return snapshot
 
 
+def _new_processes(baseline: Mapping[str, Any], latest: Mapping[str, Any]) -> dict | None:
+    if baseline.get("status") != "PASS" or latest.get("status") != "PASS":
+        return None
+    return {
+        pid: value for pid, value in latest["processes"].items()
+        if baseline["processes"].get(pid, {}).get("start_ticks") != value["start_ticks"]
+    }
+
+
+def _process_cleanup_summary(
+    baseline: Mapping[str, Any], latest: Mapping[str, Any],
+    observed: set[tuple[str, str]], *, ownership_verified: bool,
+) -> dict[str, Any]:
+    survivors = _new_processes(baseline, latest)
+    owned = {pid for pid, value in latest["processes"].items()
+             if (pid, value["start_ticks"]) in observed}
+    unknown_count = None if survivors is None else len(set(survivors) - owned)
+    return {
+        "scope": "visible_same_uid_processes",
+        "status": (
+            "UNAVAILABLE" if "UNAVAILABLE" in (baseline["status"], latest["status"]) else "UNKNOWN"
+        ) if survivors is None else (
+            "FAIL" if owned else "UNKNOWN" if unknown_count or not ownership_verified else "PASS"
+        ),
+        "new_process_count": None if survivors is None else len(survivors),
+        "observed_candidate_count": len(observed),
+        "observed_candidate_survivors": None if survivors is None else len(owned),
+        "unattributed_new_process_count": unknown_count,
+        "ownership_verified": ownership_verified,
+        "before": {key: baseline.get(key) for key in ("status", "reason", "errno", "error_counts")},
+        "after": {key: latest.get(key) for key in ("status", "reason", "errno", "error_counts")},
+    }
+
+
 async def _wait_for_new_processes(
-    baseline: Mapping[str, object],
+    baseline: Mapping[str, Any],
     *,
     timeout_seconds: float = 15.0,
-) -> tuple[dict[str, dict[str, str]], dict[str, dict[str, str]]]:
+) -> tuple[dict[str, Any], dict[str, dict[str, str]] | None]:
     deadline = time.monotonic() + timeout_seconds
-    latest = _process_snapshot()
-    while time.monotonic() < deadline:
-        survivors = {
-            pid: value for pid, value in latest.items() if pid not in baseline
-        }
-        if not survivors:
-            return latest, {}
-        await asyncio.sleep(0.25)
+    while True:
         latest = _process_snapshot()
-    survivors = {pid: value for pid, value in latest.items() if pid not in baseline}
-    return latest, survivors
+        survivors = _new_processes(baseline, latest)
+        if not survivors or time.monotonic() >= deadline:
+            return latest, survivors
+        await asyncio.sleep(0.25)
+
+
+def _record_process_tree(
+    snapshot: Mapping[str, Any], root_pid: int, observed: set[tuple[str, str]],
+) -> bool:
+    """Remember observed ancestry, never authorize signals from a census."""
+    processes = snapshot["processes"]
+    root = processes.get(str(root_pid))
+    if root is None:
+        return False
+    observed.add((str(root_pid), root["start_ticks"]))
+    # ponytail: sampled ancestry, not OS containment; unobserved survivors stay UNKNOWN.
+    while True:
+        additions = set()
+        for pid, value in processes.items():
+            key = (pid, value["start_ticks"])
+            parent_pid = value["parent_pid"]
+            parent = processes.get(parent_pid)
+            if (key not in observed and parent is not None
+                    and (parent_pid, parent["start_ticks"]) in observed
+                    and int(parent["start_ticks"]) <= int(value["start_ticks"])):
+                additions.add(key)
+        if not additions:
+            break
+        observed.update(additions)
+    return snapshot["status"] == "PASS"
 
 
 def validate_released_session_lock(
@@ -2212,10 +2817,7 @@ def _cleanup_summary(
         "control_socket_absent": data_root / "runtime" / "control.sock",
         "legacy_lock_absent": temporary_root / ".tbp_browser.lock",
     }
-    summary = {
-        name: not path.exists() and not path.is_symlink()
-        for name, path in paths.items()
-    }
+    summary = {name: _path_absent(path) for name, path in paths.items()}
     summary.update(
         validate_released_session_lock(
             data_root / "runtime" / "session.lock",
@@ -2224,8 +2826,26 @@ def _cleanup_summary(
         )
     )
     lease_root = temporary_root / "termuinator-runtime"
-    lease_files = list(lease_root.glob("*.lease")) if lease_root.is_dir() else []
-    summary["display_leases_absent"] = not lease_files
+    try:
+        before = lease_root.lstat()
+    except FileNotFoundError:
+        summary["display_leases_absent"] = True
+    except OSError:
+        summary["display_leases_absent"] = None
+    else:
+        summary["display_leases_absent"] = False
+        if (stat.S_ISDIR(before.st_mode) and before.st_uid == os.getuid()
+                and stat.S_IMODE(before.st_mode) == 0o700):
+            try:
+                lease_found = any(entry.name.endswith(".lease") for entry in lease_root.iterdir())
+                after = lease_root.lstat()
+                identity = (before.st_dev, before.st_ino, before.st_mode, before.st_uid)
+                summary["display_leases_absent"] = (
+                    not lease_found
+                    and identity == (after.st_dev, after.st_ino, after.st_mode, after.st_uid)
+                )
+            except OSError:
+                summary["display_leases_absent"] = None
     return summary
 
 
@@ -2246,15 +2866,46 @@ async def _run_device_verification(
     baseline_processes = _process_snapshot()
     write_private_json(output_dir / "processes-before.json", baseline_processes)
     raw_errors: list[dict[str, str]] = []
+    observed_processes: set[tuple[str, str]] = set()
+    ownership_samples = {"total": 0, "incomplete": 0}
+    transition_snapshots: list[dict[str, object]] = []
+    profile_root: tuple[str, str] | None = None
+
+    def observe_processes(server_pid: int) -> None:
+        nonlocal profile_root
+        ownership_samples["total"] += 1
+        try:
+            snapshot = _process_snapshot()
+            identity = snapshot["processes"].get(str(server_pid))
+            current = (str(server_pid), identity["start_ticks"]) if identity is not None else None
+            if profile_root is None:
+                profile_root = current
+            verified = (current is not None and current == profile_root
+                        and _record_process_tree(snapshot, server_pid, observed_processes))
+        except Exception as exc:
+            verified = False
+            raw_errors.append({"stage": "process-ownership", "type": type(exc).__name__,
+                               "message": repr(exc)[:8192]})
+        if not verified:
+            ownership_samples["incomplete"] += 1
+
     backend_results: list[dict[str, object]] = []
+    interactive: dict[str, object] = {"status": "SKIPPED"}
+    observer_restart: dict[str, object] = {"status": "SKIPPED"}
 
     fixture = fixture_type()
-    fixture.start()
+    stage = "fixture-start"
     try:
+        fixture.start()
         fixture_origin = fixture.base_url
         fixture_url = fixture.url("/forms")
 
         async def interactive_body(caller: _McpToolCaller) -> object:
+            root_pid = str(caller.server_pid)
+            root_generation = profile_root[1] if profile_root is not None and profile_root[0] == root_pid else None
+            transition_baseline = {**baseline_processes, "processes": dict(baseline_processes["processes"])}
+            if root_generation is not None:
+                transition_baseline["processes"][root_pid] = {"start_ticks": root_generation}
             for backend in ("chromium", "firefox"):
                 project_id = (
                     f"final-verify-{backend}-{expected_commit[:12]}"
@@ -2270,10 +2921,28 @@ async def _run_device_verification(
                         origin=origin,
                     )
 
+                async def approve(session_id: str, confirmation_id: str) -> None:
+                    await asyncio.to_thread(
+                        _run_control_approval,
+                        control_command=control_command,
+                        environ=environ,
+                        working_directory=paths["working"],
+                        session_id=session_id,
+                        confirmation_id=confirmation_id,
+                    )
+
+                async def takeover(session_id: str, operation: str) -> None:
+                    await asyncio.to_thread(
+                        _run_control_takeover, control_command=control_command, environ=environ,
+                        working_directory=paths["working"], session_id=session_id, operation=operation,
+                    )
+
                 try:
                     result = await verify_backend(
                         caller,
                         grant_permission=grant,
+                        approve_confirmation=approve,
+                        takeover=takeover,
                         backend=backend,
                         fixture_origin=fixture_origin,
                         fixture_url=fixture_url,
@@ -2283,13 +2952,7 @@ async def _run_device_verification(
                         output_dir=output_dir,
                     )
                 except Exception as exc:
-                    backend_results.append(
-                        {
-                            "status": "FAIL",
-                            "backend": backend,
-                            "failure_type": type(exc).__name__,
-                        }
-                    )
+                    result = {"status": "FAIL", "backend": backend, "failure_type": type(exc).__name__}
                     raw_errors.append(
                         {
                             "stage": f"backend-{backend}",
@@ -2297,29 +2960,56 @@ async def _run_device_verification(
                             "message": repr(exc)[:8192],
                         }
                     )
-                    cleanup = _cleanup_summary(
+                backend_results.append(result)
+                # The MCP parent/control socket stay live; browser-owned resources must not.
+                try:
+                    checks = _cleanup_summary(
                         data_root,
                         paths["tmp"],
                         owner_scope=owner_scope,
                         expected_active_pid=caller.server_pid,
                     )
-                    if not all(cleanup.values()):
-                        remaining = (
-                            "firefox" if backend == "chromium" else None
-                        )
-                        if remaining is not None:
-                            backend_results.append(
-                                {
-                                    "status": "SKIPPED",
-                                    "backend": remaining,
-                                    "reason": "unsafe_cleanup_state",
-                                }
-                            )
-                        break
-                else:
-                    backend_results.append(result)
+                    checks.pop("control_socket_absent")
+                    _require_private_control_socket(control_socket)
+                    checks["control_socket_private_while_running"] = True
+                except Exception as exc:
+                    rejected = isinstance(exc, VerificationFailure) and not isinstance(exc.__cause__, OSError)
+                    checks = {"inspection_verified": False if rejected else None}
+                    raw_errors.append({"stage": f"backend-{backend}-cleanup", "type": type(exc).__name__,
+                                       "message": repr(exc)[:8192]})
+                try:
+                    latest, _ = await _wait_for_new_processes(transition_baseline)
+                    transition_snapshots.append({"backend": backend, "snapshot": latest})
+                    parent_verified = (
+                        root_generation is not None
+                        and latest["processes"].get(root_pid, {}).get("start_ticks") == root_generation
+                    )
+                    census = _process_cleanup_summary(
+                        transition_baseline, latest,
+                        observed_processes - {(root_pid, root_generation)},
+                        ownership_verified=parent_verified and ownership_samples["incomplete"] == 0,
+                    )
+                    census["active_mcp_generation_verified"] = parent_verified
+                except Exception as exc:
+                    census = {"status": "UNAVAILABLE" if isinstance(exc, OSError) else "UNKNOWN"}
+                    raw_errors.append({"stage": f"backend-{backend}-processes", "type": type(exc).__name__,
+                                       "message": repr(exc)[:8192]})
+                stopped = all(value is True for value in checks.values()) and census["status"] == "PASS"
+                result["post_stop"] = {
+                    "status": "PASS" if stopped else (
+                        "FAIL" if False in checks.values() or census["status"] == "FAIL" else
+                        "UNAVAILABLE" if census["status"] == "UNAVAILABLE" else "UNKNOWN"
+                    ),
+                    "checks": checks, "process_census": census,
+                }
+                if not stopped:
+                    if backend == "chromium":
+                        backend_results.append({"status": "SKIPPED", "backend": "firefox",
+                                                "reason": "unsafe_cleanup_state"})
+                    break
             return tuple(backend_results)
 
+        stage = "interactive-mcp"
         interactive, _body_result = await _run_mcp_profile(
             profile="interactive",
             expected_tools=_INTERACTIVE_TOOL_NAMES,
@@ -2329,34 +3019,99 @@ async def _run_device_verification(
             control_socket=control_socket,
             stderr_path=output_dir / "interactive-stderr.log",
             body=interactive_body,
+            process_observer=observe_processes,
         )
-        observer_restart, _ = await _run_mcp_profile(
-            profile="observer",
-            expected_tools=_OBSERVER_TOOL_NAMES,
-            mcp_command=mcp_command,
-            environ=environ,
-            working_directory=paths["working"],
-            control_socket=control_socket,
-            stderr_path=output_dir / "observer-restart-stderr.log",
-        )
+        if backend_results and all(item.get("post_stop", {}).get("status") == "PASS"
+                                   for item in backend_results):
+            stage = "interactive-cleanup"
+            exited, _ = await _wait_for_new_processes(baseline_processes)
+            transition_snapshots.append({"profile": "interactive-exit", "snapshot": exited})
+            census = _process_cleanup_summary(
+                baseline_processes, exited, observed_processes,
+                ownership_verified=ownership_samples["total"] > 0 and ownership_samples["incomplete"] == 0,
+            )
+            interactive["exit_process_census"] = census
+            checks = _cleanup_summary(data_root, paths["tmp"], owner_scope=owner_scope)
+            interactive["exit_cleanup"] = checks
+            if (census["status"] != "PASS" or not all(value is True for value in checks.values())
+                    or interactive.get("control_socket_absent_after_exit") is not True):
+                raise VerificationFailure("interactive MCP cleanup does not authorize observer restart")
+            stage = "observer-mcp"
+            profile_root = None  # Only a new trusted launch may bind a new root generation.
+            observer_restart, _ = await _run_mcp_profile(
+                profile="observer",
+                expected_tools=_OBSERVER_TOOL_NAMES,
+                mcp_command=mcp_command,
+                environ=environ,
+                working_directory=paths["working"],
+                control_socket=control_socket,
+                stderr_path=output_dir / "observer-restart-stderr.log",
+                process_observer=observe_processes,
+            )
+        else:
+            observer_restart = {"status": "SKIPPED", "reason": "unsafe_cleanup_state"}
+    except (Exception, asyncio.CancelledError) as exc:
+        raw_errors.append({"stage": stage, "type": type(exc).__name__,
+                           "message": repr(exc)[:8192]})
+        failed = {"status": "FAIL", "failure_type": type(exc).__name__}
+        if stage in {"interactive-mcp", "interactive-cleanup"}:
+            interactive.update(failed)
+            observer_restart = {"status": "SKIPPED", "reason": "unsafe_cleanup_state"}
+        elif stage == "observer-mcp":
+            observer_restart = failed
     finally:
-        fixture.stop()
+        try:
+            fixture.stop()
+        except Exception as exc:
+            raw_errors.append({"stage": "fixture-stop", "type": type(exc).__name__,
+                               "message": repr(exc)[:8192]})
 
-    final_processes, survivors = await _wait_for_new_processes(
-        baseline_processes
-    )
-    write_private_json(output_dir / "processes-after.json", final_processes)
+    try:
+        final_processes, survivors = await _wait_for_new_processes(baseline_processes)
+    except Exception as exc:
+        final_processes = {"status": "UNAVAILABLE" if isinstance(exc, OSError) else "UNKNOWN",
+                           "processes": {}, "reason": "inspection_failed"}
+        if isinstance(exc, OSError):
+            final_processes["errno"] = exc.errno
+        survivors = None
+        raw_errors.append({"stage": "process-readback", "type": type(exc).__name__,
+                           "message": repr(exc)[:8192]})
+    process_records = {
+        "processes-after.json": final_processes,
+        "processes-observed.json": {
+            "samples": ownership_samples,
+            "backend_transitions": transition_snapshots,
+            "identities": [{"pid": pid, "start_ticks": generation}
+                           for pid, generation in sorted(observed_processes)],
+        },
+    }
     if survivors:
-        write_private_json(output_dir / "process-survivors.json", survivors)
-    cleanup = _cleanup_summary(
-        data_root,
-        paths["tmp"],
-        owner_scope=owner_scope,
+        process_records["process-survivors.json"] = survivors
+    for name, value in process_records.items():
+        try:
+            write_private_json(output_dir / name, value)
+        except Exception as exc:
+            raw_errors.append({"stage": name, "type": type(exc).__name__,
+                               "message": repr(exc)[:8192]})
+    try:
+        cleanup = _cleanup_summary(data_root, paths["tmp"], owner_scope=owner_scope)
+    except Exception as exc:
+        cleanup = {"inspection_verified": False}
+        raw_errors.append({"stage": "cleanup-readback", "type": type(exc).__name__,
+                           "message": repr(exc)[:8192]})
+    cleanup["new_process_survivors"] = None if survivors is None else len(survivors)
+    cleanup["process_census_verified"] = survivors is not None
+    ownership_verified = ownership_samples["total"] > 0 and ownership_samples["incomplete"] == 0
+    process_census = _process_cleanup_summary(
+        baseline_processes, final_processes, observed_processes, ownership_verified=ownership_verified,
     )
-    cleanup["new_process_survivors"] = len(survivors)
+    process_census["ownership_samples"] = ownership_samples
+    cleanup["owned_process_observation_verified"] = ownership_verified
+    cleanup["observed_candidate_survivors"] = process_census["observed_candidate_survivors"]
     backend_pass = (
         len(backend_results) == 2
-        and all(item.get("status") == "PASS" for item in backend_results)
+        and all(item.get("status") == "PASS" and item.get("post_stop", {}).get("status") == "PASS"
+                for item in backend_results)
     )
     stdio_pass = (
         interactive.get("server_name") == "termu-inator"
@@ -2374,7 +3129,7 @@ async def _run_device_verification(
         value is True if isinstance(value, bool) else value == 0
         for value in cleanup.values()
     )
-    status = "PASS" if backend_pass and stdio_pass and cleanup_pass else "FAIL"
+    status = "PASS" if backend_pass and stdio_pass and cleanup_pass and not raw_errors else "FAIL"
     return (
         {
             "status": status,
@@ -2389,10 +3144,226 @@ async def _run_device_verification(
                 ),
             },
             "cleanup": cleanup,
+            "process_census": process_census,
             "benchmark_allowed": status == "PASS",
         },
         raw_errors,
     )
+
+
+def validate_png_file(path: Path) -> dict[str, Any]:
+    """Check a bounded private PNG container, not just a successful RPC."""
+    result: dict[str, Any] = {
+        "path": os.fspath(path),
+        "bytes": None,
+        "status": "FAIL",
+        "reason": "invalid_png",
+        "png_signature": False,
+        "valid_png": False,
+    }
+    try:
+        parent = path.parent.lstat()
+        if (not stat.S_ISDIR(parent.st_mode) or parent.st_uid != os.getuid()
+                or stat.S_IMODE(parent.st_mode) != 0o700):
+            result["reason"] = "unsafe_parent"
+            return result
+        before = path.lstat()
+        if (
+            not stat.S_ISREG(before.st_mode)
+            or before.st_uid != os.getuid()
+            or stat.S_IMODE(before.st_mode) != 0o600
+            or not 0 < before.st_size <= 64 * 1024 * 1024
+        ):
+            result["reason"] = "unsafe_file"
+            return result
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        with os.fdopen(fd, "rb") as stream:
+            opened = os.fstat(stream.fileno())
+            if (opened.st_dev, opened.st_ino) != (before.st_dev, before.st_ino):
+                return result
+            data = stream.read(64 * 1024 * 1024 + 1)
+            after = os.fstat(stream.fileno())
+        # Reading may legitimately update atime on Android/Linux. Compare only
+        # identity, permissions and content-mutation indicators.
+        stable_fields = (
+            "st_dev", "st_ino", "st_uid", "st_mode", "st_size", "st_mtime_ns", "st_ctime_ns",
+        )
+        current = path.lstat()
+        current_parent = path.parent.lstat()
+        if (
+            any(getattr(value, key) != getattr(before, key)
+                for value in (opened, after, current) for key in stable_fields)
+            or len(data) != before.st_size
+            or any(getattr(parent, key) != getattr(current_parent, key)
+                   for key in ("st_dev", "st_ino", "st_uid", "st_mode"))
+        ):
+            result["reason"] = "changed_during_read"
+            return result
+        result.update(
+            bytes=len(data),
+            mode="0600",
+            sha256=hashlib.sha256(data).hexdigest(),
+            png_signature=data.startswith(b"\x89PNG\r\n\x1a\n"),
+        )
+        if not result["png_signature"]:
+            return result
+        offset = 8
+        seen_header = seen_data = False
+        compressed = bytearray()
+        while offset + 12 <= len(data):
+            size = struct.unpack_from(">I", data, offset)[0]
+            end = offset + 12 + size
+            if end > len(data):
+                return result
+            kind = data[offset + 4:offset + 8]
+            payload = data[offset + 8:end - 4]
+            crc = struct.unpack_from(">I", data, end - 4)[0]
+            if zlib.crc32(kind + payload) != crc:
+                return result
+            if not seen_header:
+                if kind != b"IHDR" or size != 13:
+                    return result
+                width, height = struct.unpack_from(">II", payload)
+                if not width or not height:
+                    return result
+                result.update(width=width, height=height)
+                seen_header = True
+            elif kind == b"IHDR":
+                return result
+            if kind == b"IDAT" and size:
+                seen_data = True
+                compressed.extend(payload)
+            if kind == b"IEND":
+                if size != 0 or not seen_data or end != len(data):
+                    return result
+                decoder = zlib.decompressobj()
+                pixels = decoder.decompress(compressed, 64 * 1024 * 1024 + 1)
+                result["valid_png"] = (
+                    0 < len(pixels) <= 64 * 1024 * 1024 and decoder.eof
+                    and not decoder.unused_data and not decoder.unconsumed_tail
+                )
+                if result["valid_png"]:
+                    result.update(status="PASS", reason=None)
+                return result
+            offset = end
+    except FileNotFoundError:
+        result["reason"] = "missing"
+    except PermissionError as exc:
+        result.update(status="UNAVAILABLE", reason="permission_denied", errno=exc.errno)
+    except OSError as exc:
+        result.update(status="UNKNOWN", reason="io_error", errno=exc.errno)
+    except (ValueError, struct.error, zlib.error):
+        pass
+    return result
+
+
+def _canonical_post_run_checks(
+    arguments: argparse.Namespace, report: Mapping[str, Any], raw_errors: list[dict[str, str]],
+) -> dict[str, Any]:
+    checks: dict[str, Any] = {"pngs": []}
+    for name, expected, readback in (
+        ("checkout", report.get("source"), lambda: {
+            **_git_preflight(arguments.project_root, arguments.expected_commit),
+            "tool_manifest": _load_frozen_manifest(arguments.project_root),
+        }),
+        ("environment", report.get("environment"), lambda: _installed_environment_preflight(
+            project_root=arguments.project_root, mcp_command=arguments.mcp_command,
+            control_command=arguments.control_command, wheel_path=arguments.wheel,
+            expected_wheel_sha256=arguments.expected_wheel_sha256,
+        )),
+    ):
+        if expected is None:
+            checks[name] = {"status": "SKIPPED", "reason": "preflight_incomplete"}
+            continue
+        try:
+            matches = readback() == expected
+            checks[name] = {"status": "PASS" if matches else "FAIL",
+                            "reason": None if matches else "identity_mismatch"}
+        except Exception as exc:
+            os_error = next((value for value in (exc, exc.__cause__)
+                             if isinstance(value, OSError)), None)
+            checks[name] = (
+                {"status": "UNAVAILABLE", "reason": "read_failed", "errno": os_error.errno}
+                if os_error else {"status": "FAIL" if isinstance(exc, VerificationFailure) else "UNKNOWN",
+                                  "reason": "verification_rejected" if isinstance(exc, VerificationFailure)
+                                  else "verification_failed"}
+            )
+            raw_errors.append({"stage": f"post-run-{name}", "type": type(exc).__name__,
+                               "message": repr(exc)[:8192]})
+
+    for backend in ("chromium", "firefox"):
+        if "environment" not in report:
+            checks["pngs"].append({"backend": backend, "status": "SKIPPED",
+                                   "reason": "preflight_incomplete"})
+            continue
+        try:
+            actual = validate_png_file(arguments.output / f"{backend}.png")
+        except Exception as exc:
+            actual = {"status": "UNKNOWN", "reason": "verification_failed",
+                      "valid_png": False, "bytes": None}
+            raw_errors.append({"stage": f"post-run-{backend}-png", "type": type(exc).__name__,
+                               "message": repr(exc)[:8192]})
+        actual.pop("path", None)
+        recorded = [item for item in report.get("device", {}).get("backends", [])
+                    if item.get("backend") == backend]
+        expected = recorded[0].get("artifact") if len(recorded) == 1 else None
+        if actual.get("valid_png"):
+            if not isinstance(expected, dict):
+                actual.update(status="UNKNOWN", reason="unbound_artifact")
+            elif expected.get("sha256") != actual.get("sha256") or expected.get("size_bytes") != actual.get("bytes"):
+                actual.update(status="FAIL", reason="artifact_changed")
+        checks["pngs"].append({"backend": backend, **actual})
+    return checks
+
+
+def verification_summary_ko(report: Mapping[str, Any]) -> str:
+    """Project only fixed statuses, never private failure text, into an operator note."""
+    device = report.get("device", {})
+    backends = {item.get("backend"): item.get("status")
+                for item in device.get("backends", [])}
+    transitions = {item.get("backend"): item.get("post_stop", {}).get("status", "SKIPPED")
+                   for item in device.get("backends", [])}
+    allowed = {"PASS", "FAIL", "UNKNOWN", "UNAVAILABLE", "SKIPPED"}
+    census = device.get("process_census", {}).get("status", "UNKNOWN")
+    status = "PASS" if report.get("status") == "PASS" else "FAIL"
+    lines = ["실행: 종료 (모든 항목의 실행·통과를 의미하지 않음)", f"Canonical: {status}"]
+    for backend in ("chromium", "firefox"):
+        value = backends.get(backend, "SKIPPED")
+        lines.append(f"{backend}: {value if value in allowed else 'UNKNOWN'}")
+        transition = transitions.get(backend, "SKIPPED")
+        lines.append(f"{backend} 종료·전환: {transition if transition in allowed else 'UNKNOWN'}")
+    cleanup = device.get("cleanup", {})
+    incomplete = []
+    for name in (
+        "control_socket_absent", "legacy_lock_absent", "display_leases_absent",
+        "session_lock_path_safe", "session_lock_owner_safe", "session_lock_pid_inactive",
+        "session_lock_lease_available", "process_census_verified", "new_process_survivors",
+        "owned_process_observation_verified", "observed_candidate_survivors",
+    ):
+        value = cleanup.get(name)
+        if not (value is True if isinstance(value, bool) else value == 0):
+            incomplete.append(name)
+    lines.append("미통과·미확인 정리 항목 (미실행 포함): " + (", ".join(incomplete) or "없음"))
+    closing = report.get("post_run", {})
+    for name, label in (("checkout", "Git"), ("environment", "환경")):
+        value = closing.get(name, {}).get("status", "UNKNOWN")
+        lines.append(f"사후 {label} 확인: {value if value in allowed else 'UNKNOWN'}")
+    for backend in ("chromium", "firefox"):
+        items = [item for item in closing.get("pngs", []) if item.get("backend") == backend]
+        value = items[0].get("status") if len(items) == 1 else "UNKNOWN"
+        lines.append(f"사후 {backend} PNG: {value if value in allowed else 'UNKNOWN'}")
+    lines.extend((
+        f"프로세스 관측: {census if census in allowed else 'UNKNOWN'}",
+        "관측 범위: 현재 UID의 보이는 프로세스; 후보 귀속은 관측한 PID·시작 시점·부모 관계로 구분",
+        "전역 Unix 소켓 목록: 이 검사에서는 조회하지 않음",
+        "Benchmark: 아직 미실행; 현재 환경 재확인 후 조건부 허용"
+        if report.get("benchmark_allowed") is True else "Benchmark: 미허용",
+        "추가 작업: 봉인된 지시의 다음 단계를 따름; 동일 회차를 재실행하지 않음"
+        if status == "PASS" else "추가 작업: 미통과·미확인 항목 검토; 동일 회차를 재실행하지 않음",
+        "Production 승인: 미승인",
+        "반환 파일 무결성: final-verify-files.json과 종료 코드를 별도 확인",
+    ))
+    return "\n".join(lines) + "\n"
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -2424,6 +3395,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "status": "FAIL",
         "started_at": started_at,
         "benchmark_allowed": False,
+        "return_files_manifest": "final-verify-files.json",
     }
     try:
         git_summary = _git_preflight(
@@ -2432,6 +3404,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         stage = "manifest"
         manifest_summary = _load_frozen_manifest(project_root)
+        report["source"] = {**git_summary, "tool_manifest": manifest_summary}
         stage = "installed-environment"
         environment_summary = _installed_environment_preflight(
             project_root=project_root,
@@ -2440,7 +3413,6 @@ def main(argv: Sequence[str] | None = None) -> int:
             wheel_path=arguments.wheel,
             expected_wheel_sha256=arguments.expected_wheel_sha256,
         )
-        report["source"] = {**git_summary, "tool_manifest": manifest_summary}
         report["environment"] = environment_summary
         stage = "device-browser-gate"
         device_summary, device_errors = asyncio.run(
@@ -2460,10 +3432,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         report["status"] = device_summary["status"]
         report["benchmark_allowed"] = device_summary["benchmark_allowed"]
     except BaseException as exc:
-        if isinstance(exc, (KeyboardInterrupt, SystemExit)):
-            failure_type = type(exc).__name__
-        else:
-            failure_type = type(exc).__name__
+        failure_type = type(exc).__name__
         report["failure"] = {"stage": stage, "type": failure_type}
         raw_errors.append(
             {
@@ -2472,25 +3441,54 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "message": repr(exc)[:8192],
             }
         )
+    report["post_run"] = _canonical_post_run_checks(arguments, report, raw_errors)
+    closing = report["post_run"]
+    if any(item.get("status") != "PASS" for item in (
+        closing["checkout"], closing["environment"], *closing["pngs"],
+    )):
+        report["status"] = "FAIL"
+        report["benchmark_allowed"] = False
     report["finished_at"] = _utc_now()
     if raw_errors:
-        write_private_json(output_dir / "raw-errors.json", raw_errors)
+        try:
+            write_private_json(output_dir / "raw-errors.json", raw_errors)
+            report["private_diagnostics_written"] = True
+        except Exception:
+            report["private_diagnostics_written"] = False
+            report["status"] = "FAIL"
+            report["benchmark_allowed"] = False
     manifest_path = output_dir / "final-verify-manifest.json"
-    write_private_json(manifest_path, report)
-    manifest_bytes = manifest_path.read_bytes()
+    manifest_bytes = write_private_json(manifest_path, report)
     manifest_sha256 = hashlib.sha256(manifest_bytes).hexdigest()
+    checksum_bytes = f"{manifest_sha256}  final-verify-manifest.json\n".encode("ascii")
     _write_private_bytes(
         output_dir / "final-verify-manifest.sha256",
-        f"{manifest_sha256}  final-verify-manifest.json\n".encode("ascii"),
+        checksum_bytes,
+    )
+    note_bytes = verification_summary_ko(report).encode("utf-8")
+    _write_private_bytes(
+        output_dir / "final-verify-summary.ko.txt",
+        note_bytes,
     )
     status = str(report["status"])
+    try:
+        publication = write_return_file_manifest(output_dir / "final-verify-files.json", {
+            manifest_path.name: manifest_bytes,
+            "final-verify-manifest.sha256": checksum_bytes,
+            "final-verify-summary.ko.txt": note_bytes,
+        })
+        publication_pass = publication["status"] == "PASS"
+    except Exception:
+        publication_pass = False
+    if not publication_pass:
+        status = "FAIL"
     print(
         json.dumps(
             {
                 "status": status,
                 "manifest": os.fspath(manifest_path),
                 "manifest_sha256": manifest_sha256,
-                "benchmark_allowed": report["benchmark_allowed"],
+                "benchmark_allowed": report["benchmark_allowed"] and publication_pass,
             },
             ensure_ascii=False,
             separators=(",", ":"),

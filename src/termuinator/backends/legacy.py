@@ -141,6 +141,11 @@ class LegacyPilotBackend:
     async def start(
         self, profile_dir: Path, viewport: Viewport | None
     ) -> CapabilitySet:
+        if self._pilot is not None:
+            raise TermuinatorError(
+                ErrorCode.SESSION_BUSY,
+                "The owned pilot must be stopped before starting another",
+            )
         window_size = (
             f"{viewport.width},{viewport.height}" if viewport is not None else "auto"
         )
@@ -155,11 +160,12 @@ class LegacyPilotBackend:
         self._viewport = viewport
         try:
             await pilot.start()  # type: ignore[attr-defined]
-        except Exception:
+        except BaseException as start_error:
             try:
-                await pilot.stop()  # type: ignore[attr-defined]
-            finally:
-                self._pilot = None
+                await self.stop()
+            except (Exception, asyncio.CancelledError):
+                if hasattr(start_error, "add_note"):
+                    start_error.add_note("Owned startup cleanup is incomplete")
             raise
 
         self._status = BackendStatus(
@@ -272,19 +278,17 @@ class LegacyPilotBackend:
 
     async def stop(self) -> None:
         pilot = self._pilot
+        if pilot is not None:
+            await pilot.stop()  # type: ignore[attr-defined]
         self._pilot = None
-        try:
-            if pilot is not None:
-                await pilot.stop()  # type: ignore[attr-defined]
-        finally:
-            self._status = BackendStatus(
-                backend=self.backend,
-                running=False,
-                url=self._status.url,
-                title=self._status.title,
-                ready_state="closed",
-                updated_at_monotonic=time.monotonic(),
-            )
+        self._status = BackendStatus(
+            backend=self.backend,
+            running=False,
+            url=self._status.url,
+            title=self._status.title,
+            ready_state="closed",
+            updated_at_monotonic=time.monotonic(),
+        )
 
     def cached_status(self) -> BackendStatus:
         return self._status

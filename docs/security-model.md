@@ -69,8 +69,9 @@ digest, and idempotency key. Any redirect, mutation, payload change, crash, or
 replay invalidates it.
 
 MCP elicitation is preferred when supported. Otherwise the tool returns a
-challenge identifier and the user approves through a local `tbp approve`
-fallback. Form elicitation must not collect secrets; credentials, OTPs, API
+challenge identifier and the user approves through the owner-local
+`tbp-control confirmation SESSION_ID CONFIRMATION_ID approve` command.
+Form elicitation must not collect secrets; credentials, OTPs, API
 keys, access tokens, and payment data use confidential local takeover or an
 out-of-band URL flow. The agent-facing `browser_permissions` tool never grants
 itself authority, and the read-only shared view cannot approve anything.
@@ -110,6 +111,14 @@ present, agent navigation, observation, action, screenshot, artifact, trace,
 and Developer reads fail with `session_paused`; only bounded redacted session
 status is available. Resume is a local host/CLI operation, rotates the page
 epoch, invalidates refs and approvals, and requires a fresh observation.
+
+The response that first detects takeover is also blocked, including navigation,
+wait, tab switching, and action results. An action may already have completed:
+its terminal journal entry is retained before returning `session_paused`.
+After authorized resume, use the original request and idempotency key to read
+that result; do not interpret the pause as permission to repeat the effect with
+a new key. This protects publication after detection, not all backend capture
+or private artifact storage that occurred before detection.
 
 ## Artifacts and Remote View
 
@@ -173,9 +182,11 @@ are session-scoped, are never derived from page text, and are discarded when
 the session stops. Console credential patterns are redacted, and network URLs
 drop userinfo, fragments, and query values before crossing the public wire.
 
-The v0.x legacy interface cannot bypass these checks. Upload is absent from the
-compact MVP and default-disabled in legacy mode. Legacy tools are never exposed
-in the default Hermes/Codex configuration.
+These compact checks do not cover the separate v0.x legacy interface. Upload is
+absent from the compact MVP. The release target excludes legacy tools from the
+default Hermes/Codex configuration, but the current compatibility command is
+still `tbp-mcp`; existing registrations are not automatically migrated. A legacy
+registration must not be represented as carrying the compact security guarantees.
 
 ## Required Security Tests
 

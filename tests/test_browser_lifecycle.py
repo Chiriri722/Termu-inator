@@ -5,12 +5,16 @@ from __future__ import annotations
 import asyncio
 import os
 from pathlib import Path
+import sys
 import tempfile
+from types import SimpleNamespace
 import unittest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import src.browser as browser_module
+from src import _utils
 from src.browser import BrowserPilot
+from src.lock import SessionLock
 from src.pilot import Pilot
 
 
@@ -61,6 +65,161 @@ class _ManagedProcess(_Process):
 
 
 class BrowserLifecycleTests(unittest.IsolatedAsyncioTestCase):
+    async def test_startup_cleanup_does_not_require_python_311_exception_notes(self) -> None:
+        class Pre311Error(RuntimeError):
+            def __getattribute__(self, name):
+                if name == "add_note":
+                    raise AttributeError(name)
+                return super().__getattribute__(name)
+
+        with tempfile.TemporaryDirectory() as directory:
+            error = Pre311Error("startup failed")
+            pilot = Pilot(window_size="800,600")
+            pilot._lock = SessionLock(str(Path(directory) / "legacy.lock"))
+            pilot._browser.start = AsyncMock(side_effect=error)
+            pilot._browser.stop = AsyncMock(side_effect=RuntimeError("not reaped"))
+            with self.assertRaises(Pre311Error) as caught:
+                await pilot.start()
+            self.assertIs(caught.exception, error)
+            self.assertTrue(pilot._lock._acquired)
+            pilot._browser.stop.side_effect = None
+            await pilot.stop()
+    async def test_partial_session_start_cleans_session_and_preserves_original_failure(self) -> None:
+        for error in (RuntimeError("connect failed"), asyncio.CancelledError()):
+            for cleanup_fails in (False, True):
+                with self.subTest(error=type(error).__name__, cleanup_fails=cleanup_fails), \
+                        tempfile.TemporaryDirectory() as directory:
+                    pilot = Pilot(window_size="800,600")
+                    lock = Path(directory) / "legacy.lock"
+                    pilot._lock = SessionLock(str(lock))
+                    pilot._browser.start = AsyncMock(return_value=None)
+                    pilot._browser.stop = AsyncMock()
+                    session = SimpleNamespace(close=AsyncMock())
+                    if cleanup_fails:
+                        session.close.side_effect = [RuntimeError("close failed"), None]
+
+                    async def failed_init(_result):
+                        pilot._session = session
+                        raise error
+
+                    pilot._init_session = failed_init
+                    with self.assertRaises(type(error)) as caught:
+                        await pilot.start()
+                    self.assertIs(caught.exception, error)
+                    session.close.assert_awaited_once()
+                    pilot._browser.stop.assert_awaited_once()
+                    self.assertEqual(lock.exists(), cleanup_fails)
+                    if cleanup_fails:
+                        with self.assertRaises(RuntimeError):
+                            await pilot.start()
+                        await pilot.stop()
+                        self.assertFalse(lock.exists())
+
+    async def test_failed_child_stop_keeps_ownership_and_cleans_other_children(self) -> None:
+        events: list[str] = []
+        chrome = _ManagedProcess(pid=8001, returncode=None, events=events, label="chrome")
+        wm = _ManagedProcess(pid=8002, returncode=None, events=events, label="wm")
+        xvfb = _ManagedProcess(pid=8003, returncode=None, events=events, label="xvfb")
+        with (tempfile.TemporaryDirectory() as directory,
+              patch.object(browser_module, "_temp_dirs_to_clean", set())):
+            root = Path(directory)
+            profile = root / "profile"
+            profile.mkdir()
+            pilot = BrowserPilot(display="auto")
+            pilot._runtime_dir = root / "runtime"
+            pilot._claim_display(":199")
+            lease = pilot._display_lease_path
+            pilot._chrome_proc, pilot._wm_proc, pilot._xvfb_proc = chrome, wm, xvfb
+            pilot._user_data_dir = str(profile)
+            pilot._owns_user_data_dir = True
+            browser_module._temp_dirs_to_clean.add(str(profile))
+            self.addCleanup(browser_module._temp_dirs_to_clean.discard, str(profile))
+            with patch.object(chrome, "terminate", side_effect=PermissionError("denied")):
+                with self.assertRaises(RuntimeError):
+                    await pilot.stop()
+            self.assertIs(pilot._chrome_proc, chrome)
+            self.assertIsNone(pilot._wm_proc)
+            self.assertIsNone(pilot._xvfb_proc)
+            self.assertIn("process-wait:wm", events)
+            self.assertIn("process-wait:xvfb", events)
+            self.assertTrue(profile.is_dir())
+            self.assertTrue(lease.is_file())
+            browser_module._atexit_cleanup()
+            self.assertTrue(profile.is_dir())
+
+            await pilot.stop()
+            self.assertIsNone(pilot._chrome_proc)
+            self.assertFalse(profile.exists())
+            self.assertFalse(lease.exists())
+
+    async def test_pilot_stop_failure_propagates_without_releasing_its_lock(self) -> None:
+        for failed in ("session", "browser"):
+            with self.subTest(failed=failed):
+                pilot = Pilot()
+                pilot._session = SimpleNamespace(close=AsyncMock())
+                pilot._browser.stop = AsyncMock()
+                pilot._lock.release = Mock()
+                operation = (pilot._session.close if failed == "session"
+                             else pilot._browser.stop)
+                operation.side_effect = [RuntimeError("cleanup failed"), None]
+                with self.assertRaises(RuntimeError):
+                    await pilot.stop()
+                pilot._browser.stop.assert_awaited_once()
+                pilot._lock.release.assert_not_called()
+                await pilot.stop()
+                pilot._lock.release.assert_called_once()
+
+    async def test_cancelled_stop_still_cleans_independent_owned_children(self) -> None:
+        events: list[str] = []
+        pilot = BrowserPilot()
+        chrome = _ManagedProcess(pid=8101, returncode=None, events=events, label="chrome")
+        wm = _ManagedProcess(pid=8102, returncode=None, events=events, label="wm")
+        pilot._chrome_proc, pilot._wm_proc = chrome, wm
+        chrome.wait = AsyncMock(side_effect=asyncio.CancelledError())
+        with self.assertRaises(asyncio.CancelledError):
+            await pilot.stop()
+        self.assertIs(pilot._chrome_proc, chrome)
+        self.assertIsNone(pilot._wm_proc)
+        self.assertIn("process-wait:wm", events)
+
+    async def test_cancelled_network_stop_still_closes_session_and_browser(self) -> None:
+        pilot = Pilot()
+        pilot.network = SimpleNamespace(stop=AsyncMock(side_effect=asyncio.CancelledError()))
+        pilot._session = SimpleNamespace(close=AsyncMock())
+        pilot._browser.stop = AsyncMock()
+        pilot._lock.release = Mock()
+        with self.assertRaises(asyncio.CancelledError):
+            await pilot.stop()
+        pilot._session.close.assert_awaited_once()
+        pilot._browser.stop.assert_awaited_once()
+        pilot._lock.release.assert_not_called()
+
+    async def test_cancelled_cookie_save_still_closes_owned_session_and_browser(self) -> None:
+        pilot = Pilot(window_size="800,600")
+        pilot.cookies = SimpleNamespace(save=AsyncMock(side_effect=asyncio.CancelledError()))
+        pilot._session = SimpleNamespace(close=AsyncMock())
+        pilot._browser.stop = AsyncMock()
+        pilot._lock.release = Mock()
+        with self.assertRaises(asyncio.CancelledError):
+            await pilot.stop(save_session="unused-cookie-path.json")
+        pilot._session.close.assert_awaited_once()
+        pilot._browser.stop.assert_awaited_once()
+        pilot._lock.release.assert_not_called()
+
+    async def test_cancelled_stderr_drain_does_not_skip_owned_gpu_cleanup(self) -> None:
+        pilot = BrowserPilot()
+
+        async def cancelled_drain():
+            raise asyncio.CancelledError
+
+        pilot._chromium_stderr_task = asyncio.create_task(cancelled_drain())
+        gpu = SimpleNamespace(stop=AsyncMock())
+        pilot._virgl = gpu
+        with self.assertRaises(asyncio.CancelledError):
+            await pilot.stop()
+        gpu.stop.assert_awaited_once()
+        self.assertIsNone(pilot._virgl)
+
     def test_legacy_pilot_defaults_keep_fixed_v0_runtime_resources(self) -> None:
         pilot = Pilot()
 
@@ -643,3 +802,64 @@ class BrowserLifecycleTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(attempts, 2)
         self.assertEqual(result, "ws://127.0.0.1:9333/devtools/browser/owned")
+
+
+class OwnedProcessStopTests(unittest.IsolatedAsyncioTestCase):
+    def stop_function(self):
+        function = getattr(_utils, "stop_owned_process", None)
+        self.assertTrue(callable(function), "missing shared bounded owned-process stop")
+        return function
+
+    async def test_waits_for_only_the_owned_real_child(self) -> None:
+        stop = self.stop_function()
+        children = []
+        try:
+            for _ in range(2):
+                children.append(await asyncio.create_subprocess_exec(
+                    sys.executable, "-I", "-c", "import sys; sys.stdin.buffer.read()",
+                    stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.DEVNULL,
+                    stderr=asyncio.subprocess.DEVNULL,
+                ))
+            await stop(children[0], timeout=1)
+            self.assertIsNotNone(children[0].returncode)
+            self.assertIsNone(children[1].returncode)
+        finally:
+            for child in children:
+                if child.returncode is None:
+                    child.kill()
+                await child.wait()
+                child.stdin.close()
+                await child.stdin.wait_closed()
+
+    async def test_signal_exit_race_is_reaped_without_signalling_another_pid(self) -> None:
+        stop = self.stop_function()
+        process = SimpleNamespace(returncode=None, terminate=Mock(side_effect=ProcessLookupError),
+                                  kill=Mock(), wait=AsyncMock(return_value=0))
+        await stop(process, timeout=1)
+        process.wait.assert_awaited_once()
+        process.kill.assert_not_called()
+
+    async def test_wait_after_kill_is_bounded(self) -> None:
+        stop = self.stop_function()
+        process = SimpleNamespace(returncode=None, terminate=Mock(), kill=Mock(),
+                                  wait=asyncio.Event().wait)
+        task = asyncio.create_task(stop(process, timeout=0.01))
+        try:
+            await asyncio.wait({task}, timeout=0.2)
+            self.assertTrue(task.done(), "post-kill wait was not bounded")
+            self.assertIsInstance(task.exception(), TimeoutError)
+            process.kill.assert_called_once()
+        finally:
+            if not task.done():
+                task.cancel()
+                with self.assertRaises(asyncio.CancelledError):
+                    await task
+
+    async def test_exited_child_is_reaped_without_signals(self) -> None:
+        stop = self.stop_function()
+        process = SimpleNamespace(returncode=0, terminate=Mock(), kill=Mock(),
+                                  wait=AsyncMock(return_value=0))
+        await stop(process, timeout=1)
+        process.wait.assert_awaited_once()
+        process.terminate.assert_not_called()
+        process.kill.assert_not_called()

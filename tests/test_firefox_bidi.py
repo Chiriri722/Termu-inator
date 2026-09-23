@@ -7,6 +7,7 @@ from collections import deque
 import importlib
 import json
 import unittest
+from unittest.mock import AsyncMock
 
 
 def _load_bidi(testcase: unittest.TestCase):
@@ -39,6 +40,23 @@ class _Socket:
 
 
 class FirefoxBidiTests(unittest.IsolatedAsyncioTestCase):
+    async def test_transport_close_failure_keeps_socket_until_verified_closed(self) -> None:
+        bidi = _load_bidi(self)
+        for failure in (RuntimeError("private close detail"), asyncio.CancelledError()):
+            with self.subTest(failure=type(failure).__name__):
+                socket = _Socket([])
+                socket.close = AsyncMock(side_effect=[failure, None])
+                client = bidi.FirefoxBidiClient("ws://127.0.0.1:46249/session")
+                client._socket = socket
+                expected = (asyncio.CancelledError if isinstance(failure, asyncio.CancelledError)
+                            else bidi.FirefoxBidiError)
+                with self.assertRaises(expected) as caught:
+                    await client.close()
+                self.assertNotIn("private close detail", str(caught.exception))
+                self.assertIs(client._socket, socket)
+                await client.close()
+                self.assertIsNone(client._socket)
+
     def test_endpoint_parser_accepts_only_firefox_loopback_output(self) -> None:
         bidi = _load_bidi(self)
         parse = bidi.parse_firefox_bidi_endpoint

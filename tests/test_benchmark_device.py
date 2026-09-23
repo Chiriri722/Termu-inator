@@ -136,6 +136,24 @@ class CanonicalAuthorityTests(unittest.TestCase):
         self.assertEqual(summary["native_cryptography"], "50.0.0")
         self.assertTrue(summary["environment_match_verified"])
 
+    def test_declared_backend_cleanup_cannot_conflict_with_canonical_pass(self) -> None:
+        for status in ("FAIL", "UNKNOWN", "UNAVAILABLE", None, "PASS"):
+            with self.subTest(status=status):
+                manifest = self._manifest()
+                manifest["device"]["backends"][0]["post_stop"] = {"status": status}
+
+                def validate():
+                    return validate_benchmark_authority(
+                        manifest, current_identity=self._identity(), current_commit="a" * 40,
+                        clean_worktree=True,
+                    )
+
+                if status == "PASS":
+                    self.assertTrue(validate()["environment_match_verified"])
+                else:
+                    with self.assertRaises(BenchmarkAuthorityError):
+                        validate()
+
     def test_failed_backend_cannot_authorize_benchmark(self) -> None:
         manifest = self._manifest()
         manifest["device"]["backends"][1]["status"] = "FAIL"
@@ -223,6 +241,19 @@ class CanonicalAuthorityTests(unittest.TestCase):
                 "canonical manifest parent is not owner-private",
             ):
                 load_canonical_manifest(manifest_path)
+
+    def test_declared_return_file_manifest_cannot_be_missing(self) -> None:
+        from scripts.final_verify import write_private_json
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            path = root / "final-verify-manifest.json"
+            write_private_json(path, {**self._manifest(), "return_files_manifest": "final-verify-files.json"})
+            checksum = root / "final-verify-manifest.sha256"
+            checksum.write_text(f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.name}\n")
+            checksum.chmod(0o600)
+            with self.assertRaises(BenchmarkAuthorityError):
+                load_canonical_manifest(path)
 
     def test_cli_requires_canonical_manifest(self) -> None:
         with redirect_stderr(io.StringIO()):
@@ -437,7 +468,7 @@ class CanonicalAuthorityTests(unittest.TestCase):
             self.assertEqual(identity["mcp"], "1.29.0")
             self.assertEqual(identity["websockets"], "17.0.1")
 
-    def test_runtime_drift_during_measurement_rejects_report(self) -> None:
+    def test_runtime_drift_during_measurement_preserves_failed_report(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             config = BenchmarkConfig(
@@ -473,20 +504,19 @@ class CanonicalAuthorityTests(unittest.TestCase):
                     new_callable=AsyncMock,
                     return_value={"backend": "firefox"},
                 ),
-                patch("scripts.benchmark_device.stop_daemon"),
+                patch("scripts.benchmark_device.stop_daemon", return_value={
+                    "socket_absent_after_stop": True, "pidfile_absent_after_stop": True}),
                 patch.dict(os.environ, {"HOME": str(root)}),
                 patch.object(client, "SOCKET_PATH", str(config.socket_path)),
                 patch.object(client, "PID_PATH", str(config.pidfile)),
             ):
-                with self.assertRaisesRegex(
-                    BenchmarkAuthorityError,
-                    "benchmark environment changed during measurement",
-                ):
-                    asyncio.run(run_benchmark(config))
+                _, _, summary = asyncio.run(run_benchmark(config))
 
             self.assertTrue(config.output.is_dir())
-            self.assertFalse((config.output / "baseline-report.json").exists())
-            self.assertFalse((config.output / "baseline-summary.json").exists())
+            self.assertTrue((config.output / "baseline-report.json").exists())
+            self.assertTrue((config.output / "baseline-summary.json").exists())
+            self.assertEqual(summary["quality"]["status"], "FAIL")
+            self.assertEqual(summary["post_run"]["environment"], "FAIL")
 
 
 class SanitizedReportTests(unittest.TestCase):
@@ -591,34 +621,56 @@ class BenchmarkQualityTests(unittest.TestCase):
             self.addCleanup(manager.stop)
 
     @staticmethod
-    def png() -> bytes:
+    def png(pixel: bytes = b"\xff\xff\xff") -> bytes:
         def chunk(kind: bytes, data: bytes) -> bytes:
             return (struct.pack(">I", len(data)) + kind + data
                     + struct.pack(">I", zlib.crc32(kind + data)))
         return (b"\x89PNG\r\n\x1a\n"
                 + chunk(b"IHDR", struct.pack(">IIBBBBB", 1, 1, 8, 2, 0, 0, 0))
-                + chunk(b"IDAT", zlib.compress(b"\x00\xff\xff\xff"))
+                + chunk(b"IDAT", zlib.compress(b"\x00" + pixel))
                 + chunk(b"IEND", b""))
 
     def backend_result(self) -> dict:
         return {
             "backend": "firefox", "cold_start_stats": stats([10.0], 0),
-            "warm_start": {"returncode": 0, "socket_ready_verified": True},
+            "cold_start_samples": [{"returncode": 0, "socket_ready_verified": True,
+                                    "daemon_identity_verified": True,
+                                    "process_observation_verified": True}],
+            "warm_start": {"returncode": 0, "socket_ready_verified": True,
+                           "daemon_identity_verified": True, "process_observation_verified": True},
             "page_load": {"response": {"success": True, "data": {}}, "error": None},
             "operations": {name: stats([10.0], 0)
                            for name in ("status", "text", "screenshot")},
-            "screenshots": [{"valid_png": True, "png_signature": True, "bytes": 69}],
+            "screenshots": [{"sample": 1, "valid_png": True, "png_signature": True,
+                             "bytes": len(self.png()), "mode": "0600", "width": 1, "height": 1,
+                             "sha256": hashlib.sha256(self.png()).hexdigest()}],
             "operation_errors": {name: [] for name in ("status", "text", "screenshot")},
         }
 
-    def run_report(self, backend: dict, *, clean: bool = True):
+    def run_report(self, backend: dict, *, clean: bool = True, changed_png: bool = False,
+                   process_status: str | None = "PASS"):
+        async def measured(*_args):
+            folder = self.config.output / "firefox"
+            folder.mkdir(mode=0o700)
+            path = folder / "screenshot-1.png"
+            path.write_bytes(self.png())
+            path.chmod(0o600)
+            return backend
+
+        def stop(*_args):
+            if changed_png:
+                path = self.config.output / "firefox/screenshot-1.png"
+                path.write_bytes(self.png(b"\xff\x00\x00"))
+            return {"socket_absent_after_stop": clean, "pidfile_absent_after_stop": clean,
+                    "process_cleanup": {"status": process_status}}
+
         with (
             patch("scripts.benchmark_device.authorize_benchmark", return_value={"commit": "a"}),
+            patch("scripts.final_verify._git_preflight", return_value={"clean_worktree": True}),
             patch("scripts.benchmark_device.environment", return_value={"python": "3.14"}),
             patch("scripts.benchmark_device.benchmark_backend", new_callable=AsyncMock,
-                  return_value=backend),
-            patch("scripts.benchmark_device.stop_daemon", return_value={
-                "socket_absent_after_stop": clean, "pidfile_absent_after_stop": clean}),
+                  side_effect=measured),
+            patch("scripts.benchmark_device.stop_daemon", side_effect=stop),
         ):
             return asyncio.run(run_benchmark(self.config))
 
@@ -640,6 +692,78 @@ class BenchmarkQualityTests(unittest.TestCase):
         self.assertEqual(summary.get("quality", {}).get("status"), "PASS")
         self.assertEqual(json.loads(raw.read_text())["quality"], summary["quality"])
         self.assertEqual(summary_path.stat().st_mode & 0o777, 0o600)
+
+    def test_unverified_process_cleanup_closes_quality_without_file_residue(self) -> None:
+        from dataclasses import replace
+
+        for status in ("FAIL", "UNKNOWN", "UNAVAILABLE", None):
+            with self.subTest(status=status):
+                self.config = replace(self.config, output=self.home / str(status))
+                _, _, summary = self.run_report(self.backend_result(), process_status=status)
+                self.assertEqual(summary["quality"]["status"], "FAIL")
+
+    def test_unverified_launch_identity_cannot_publish_quality_pass(self) -> None:
+        from dataclasses import replace
+
+        for launch in ("cold", "warm"):
+            with self.subTest(launch=launch):
+                backend = self.backend_result()
+                record = backend["warm_start"] if launch == "warm" else backend["cold_start_samples"][0]
+                record["daemon_identity_verified"] = False
+                self.config = replace(self.config, output=self.home / launch)
+                _, _, summary = self.run_report(backend)
+                self.assertEqual(summary["quality"]["status"], "FAIL")
+
+    def test_benchmark_returns_bound_summary_integrity_evidence(self) -> None:
+        _, summary_path, summary = self.run_report(self.backend_result())
+        self.assertEqual(summary.get("return_files_manifest"), "baseline-files.json")
+        receipt = json.loads((summary_path.parent / "baseline-files.json").read_text())
+        self.assertEqual(receipt["status"], "PASS")
+        self.assertEqual(set(receipt["files"]), {"baseline-summary.json", "baseline-summary.ko.txt"})
+        self.assertEqual(receipt["files"][summary_path.name]["sha256"],
+                         hashlib.sha256(summary_path.read_bytes()).hexdigest())
+
+    def test_publication_failure_preserves_quality_but_exits_unsuccessfully(self) -> None:
+        from scripts import final_verify
+
+        reader = final_verify._read_private_regular
+
+        def denied(path, *args):
+            if path.name == "baseline-summary.json":
+                raise PermissionError("PRIVATE return file")
+            return reader(path, *args)
+
+        with patch.object(final_verify, "_read_private_regular", side_effect=denied):
+            with self.assertRaises(final_verify.VerificationFailure):
+                self.run_report(self.backend_result())
+        report = json.loads((self.config.output / "baseline-summary.json").read_text())
+        self.assertEqual(report["quality"]["status"], "PASS")
+        receipt = json.loads((self.config.output / "baseline-files.json").read_text())
+        self.assertEqual(receipt["files"]["baseline-summary.json"]["status"], "UNAVAILABLE")
+        self.assertEqual(receipt["files"]["baseline-summary.ko.txt"]["status"], "PASS")
+        with (patch("scripts.benchmark_device.parse_args", return_value=self.config),
+              patch("scripts.benchmark_device.run_benchmark", new_callable=AsyncMock,
+                    side_effect=final_verify.VerificationFailure("PRIVATE failure")),
+              redirect_stdout(io.StringIO()) as output, redirect_stderr(io.StringIO()) as stderr):
+            self.assertEqual(main([]), 1)
+        self.assertIn("report_publication=FAIL", output.getvalue())
+        self.assertNotIn("PRIVATE", output.getvalue())
+        self.assertEqual(stderr.getvalue(), "")
+
+    def test_post_run_rejects_changed_but_valid_png(self) -> None:
+        raw, _, summary = self.run_report(self.backend_result(), changed_png=True)
+        self.assertEqual(summary["quality"]["status"], "FAIL")
+        item = json.loads(raw.read_text())["post_run"]["pngs"][0]
+        self.assertIs(item["valid_png"], True)
+        self.assertEqual(item["reason"], "artifact_changed")
+
+    def test_post_run_cannot_promote_an_unrecorded_png_to_a_bound_sample(self) -> None:
+        backend = self.backend_result()
+        backend["screenshots"] = []
+        raw, _, _summary = self.run_report(backend)
+        item = json.loads(raw.read_text())["post_run"]["pngs"][0]
+        self.assertEqual(item["status"], "UNKNOWN")
+        self.assertEqual(item["reason"], "unbound_sample")
 
     def test_operation_failure_publishes_failed_quality_not_success(self) -> None:
         backend = self.backend_result()
@@ -706,6 +830,17 @@ class BenchmarkQualityTests(unittest.TestCase):
         path = self.home / "shot.png"
         path.symlink_to(target)
         self.assertIs(file_check(path).get("valid_png"), False)
+
+    def test_symlinked_png_parent_is_not_a_private_artifact_directory(self) -> None:
+        target = self.home / "target"
+        target.mkdir(mode=0o700)
+        (target / "shot.png").write_bytes(self.png())
+        (target / "shot.png").chmod(0o600)
+        link = self.home / "linked"
+        link.symlink_to(target, target_is_directory=True)
+        result = file_check(link / "shot.png")
+        self.assertIs(result["valid_png"], False)
+        self.assertEqual(result.get("reason"), "unsafe_parent")
 
     def test_read_access_time_change_does_not_invalidate_png(self) -> None:
         path = self.home / "shot.png"
@@ -789,9 +924,12 @@ class BenchmarkQualityTests(unittest.TestCase):
         with (
             patch("scripts.benchmark_device.start_daemon", return_value={
                 "returncode": 0, "socket_ready_verified": True,
+                "daemon_identity_verified": True,
+                "process_observation_verified": True,
                 "start_to_socket_ready_ms": 1.0}),
             patch("scripts.benchmark_device.stop_daemon", return_value={
-                "socket_absent_after_stop": True, "pidfile_absent_after_stop": True}),
+                "socket_absent_after_stop": True, "pidfile_absent_after_stop": True,
+                "process_cleanup": {"status": "PASS"}}),
             patch("scripts.benchmark_device.ps_snapshot", return_value=ps),
             patch("scripts.benchmark_device.measured_command", new_callable=AsyncMock,
                   return_value=(1.0, {"success": True}, None)),

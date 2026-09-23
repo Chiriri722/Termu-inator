@@ -1,8 +1,27 @@
 """Shared utility functions for Termux Browser Pilot."""
 
+import asyncio
 import json
 import os
 import shutil
+
+
+async def stop_owned_process(process, *, timeout=5.0):
+    """Reap an owned child with bounded TERM/KILL waits, never a PID lookup."""
+    if process.returncode is None:
+        try:
+            process.terminate()
+        except ProcessLookupError:
+            pass  # The child may have exited between returncode and the signal.
+    try:
+        await asyncio.wait_for(process.wait(), timeout=timeout)
+    except asyncio.TimeoutError:
+        if process.returncode is None:
+            try:
+                process.kill()
+            except ProcessLookupError:
+                pass
+        await asyncio.wait_for(process.wait(), timeout=timeout)
 
 
 def escape_js_string(value):

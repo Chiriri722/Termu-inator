@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import base64
+import asyncio
+from dataclasses import replace
 import json
 from pathlib import Path
 import tempfile
@@ -125,13 +127,15 @@ class BrowserServiceActionTests(unittest.IsolatedAsyncioTestCase):
     async def _start_and_observe(
         self,
         service: BrowserService,
+        *,
+        expect_takeover: bool = False,
     ) -> tuple[str, object]:
         started = await service.session_start(
             project_id="project-actions",
             viewport=self.viewport,
         )
         status = started.status
-        observation = await service.observe(
+        attempt = service.observe(
             session_id=started.session_id,
             tab_id=status.active_tab_id,
             page_id=status.active_page_id,
@@ -140,6 +144,13 @@ class BrowserServiceActionTests(unittest.IsolatedAsyncioTestCase):
             include_accessibility=False,
             text_limit=1_000,
         )
+        if expect_takeover:
+            with self.assertRaises(TermuinatorError) as paused:
+                await attempt
+            self.assertEqual(paused.exception.code, ErrorCode.SESSION_PAUSED)
+            observation = service._active.observation.last_observation
+        else:
+            observation = await attempt
         return started.session_id, observation
 
     @staticmethod
@@ -252,10 +263,46 @@ class BrowserServiceActionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(replay, result)
         self.assertEqual(len(backend.action_calls), 1)
 
+    async def test_known_unactionable_target_is_rejected_before_dispatch_or_confirmation(self) -> None:
+        for index, changes in enumerate(({"enabled": False}, {"visible": False},
+                                         {"bounds": Bounds(x=1, y=1, width=0, height=40)})):
+            with self.subTest(changes=changes):
+                original = self._snapshot(accessible_name="Submit fixture", role="button", element_type="submit")
+                snapshot = replace(original, interactive_elements=(replace(original.interactive_elements[0], **changes),))
+                service, backend = self._service(snapshot=snapshot)
+                session_id, observation = await self._start_and_observe(service)
+                self._allow(session_id)
+                request = self._request(session_id=session_id, observation=observation,
+                                        kind=ActionKind.CLICK, parameters={})
+                request = replace(request, idempotency_key=f"idempotency_disabled{index}")
+                for _ in range(2):
+                    with self.assertRaises(TermuinatorError) as rejected:
+                        await service.act(request)
+                    self.assertEqual(rejected.exception.code, ErrorCode.TARGET_NOT_FOUND)
+                self.assertEqual(backend.action_calls, [])
+                await service.session_stop(session_id)
+
+    async def test_disabled_drag_destination_is_rejected_before_dispatch(self) -> None:
+        original = self._snapshot(accessible_name="Source", role="button", element_type="button")
+        source = original.interactive_elements[0]
+        snapshot = replace(original, interactive_elements=(source, replace(
+            source, backend_node_id="node-destination", accessible_name="Destination", enabled=False,
+        )))
+        service, backend = self._service(snapshot=snapshot)
+        session_id, observation = await self._start_and_observe(service)
+        self._allow(session_id)
+        request = self._request(session_id=session_id, observation=observation, kind=ActionKind.DRAG,
+                                parameters={"destination_ref": observation.interactive_elements[1].ref})
+        with self.assertRaises(TermuinatorError) as rejected:
+            await service.act(request)
+        self.assertEqual(rejected.exception.code, ErrorCode.TARGET_NOT_FOUND)
+        self.assertEqual(backend.action_calls, [])
+        await service.session_stop(session_id)
+
     async def test_sensitive_type_pauses_for_takeover_without_dispatch(self) -> None:
         snapshot = self._snapshot(element_type="password")
         service, backend = self._service(snapshot=snapshot)
-        session_id, observation = await self._start_and_observe(service)
+        session_id, observation = await self._start_and_observe(service, expect_takeover=True)
         self._allow(session_id)
         request = self._request(
             session_id=session_id,
@@ -296,6 +343,84 @@ class BrowserServiceActionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(first.exception.code, ErrorCode.OUTCOME_UNKNOWN)
         self.assertEqual(replay.exception.code, ErrorCode.OUTCOME_UNKNOWN)
         self.assertEqual(len(backend.action_calls), 1)
+
+    async def test_cancelled_dispatch_and_restart_never_repeat_or_rebind_the_effect(self) -> None:
+        for cancellation in ("task", "deadline"):
+            with self.subTest(cancellation=cancellation):
+                snapshot = self._snapshot()
+                outcome = BackendActionOutcome(
+                    executed_method="dom-input",
+                    snapshot=snapshot,
+                    evidence=BackendActionEvidence(
+                        target_event_dispatched=True, before_value="",
+                        after_value="hello", dom_changed=True,
+                    ),
+                )
+                service, backend = self._service(snapshot=snapshot, outcome=outcome)
+                session_id, observation = await self._start_and_observe(service)
+                self._allow(session_id)
+                request = replace(
+                    self._request(
+                        session_id=session_id, observation=observation,
+                        kind=ActionKind.TYPE, parameters={"text": "hello"},
+                    ),
+                    idempotency_key="idempotency_cancel_" + cancellation,
+                )
+                entered = asyncio.Event()
+                original_act = backend.act
+
+                async def interrupted_act(action):
+                    await original_act(action)
+                    entered.set()
+                    await asyncio.Future()
+
+                backend.act = interrupted_act
+                task = asyncio.create_task(service.act(request))
+                try:
+                    await asyncio.wait_for(entered.wait(), timeout=2)
+                    if cancellation == "task":
+                        task.cancel()
+                        with self.assertRaises(asyncio.CancelledError):
+                            await task
+                    else:
+                        with self.assertRaises(asyncio.TimeoutError):
+                            await asyncio.wait_for(task, timeout=0.01)
+                    with self.assertRaises(TermuinatorError) as replay:
+                        await service.act(request)
+                    self.assertEqual(
+                        replay.exception.code, ErrorCode.OUTCOME_UNKNOWN,
+                    )
+                    self.assertFalse(replay.exception.retryable)
+                    self.assertEqual(len(backend.action_calls), 1)
+                finally:
+                    if not task.done():
+                        task.cancel()
+                    await asyncio.gather(task, return_exceptions=True)
+                    await service.close()
+
+                restarted, replacement = self._service(snapshot=snapshot, outcome=outcome)
+                try:
+                    new_session, fresh = await self._start_and_observe(restarted)
+                    self._allow(new_session)
+                    with self.assertRaises(TermuinatorError) as old_session:
+                        await restarted.act(request)
+                    self.assertEqual(
+                        old_session.exception.code, ErrorCode.SESSION_NOT_FOUND,
+                    )
+                    rebound = replace(
+                        request, session_id=new_session,
+                        tab_id=fresh.tab_id, page_id=fresh.page_id,
+                        expected_page_revision=fresh.page_revision,
+                        target_ref=fresh.interactive_elements[0].ref,
+                    )
+                    with self.assertRaises(TermuinatorError) as conflict:
+                        await restarted.act(rebound)
+                    self.assertEqual(
+                        conflict.exception.code, ErrorCode.IDEMPOTENCY_CONFLICT,
+                    )
+                    self.assertEqual(replacement.action_calls, [])
+                finally:
+                    await restarted.close()
 
     async def test_trace_persistence_failure_after_dispatch_is_outcome_unknown(self) -> None:
         snapshot = self._snapshot()

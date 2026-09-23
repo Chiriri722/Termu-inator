@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import asyncio
 import importlib
 import inspect
 import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import AsyncMock
 
 from src import commands
 from src.commands import JavascriptExecutionTimeout
@@ -498,6 +500,41 @@ class LegacyBackendLifecycleTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(pilot.calls, ["start", "stop"])
         self.assertFalse(adapter.cached_status().running)
         self.assertEqual(adapter.cached_status().ready_state, "closed")
+
+    async def test_stop_failure_keeps_pilot_for_owned_cleanup_retry(self) -> None:
+        pilot = _RecordingPilot()
+        pilot.stop = AsyncMock(side_effect=[RuntimeError("owned child still live"), None])
+        adapter = LegacyPilotBackend(Backend.FIREFOX, pilot_factory=lambda **_: pilot)
+        with tempfile.TemporaryDirectory() as temp_dir:
+            await adapter.start(Path(temp_dir), Viewport(width=1000, height=700))
+            with self.assertRaises(RuntimeError):
+                await adapter.stop()
+            self.assertIs(adapter._pilot, pilot)
+            self.assertNotEqual(adapter.cached_status().ready_state, "closed")
+            await adapter.stop()
+        self.assertEqual(pilot.stop.await_count, 2)
+        self.assertIsNone(adapter._pilot)
+        self.assertEqual(adapter.cached_status().ready_state, "closed")
+
+    async def test_partial_start_keeps_unclosed_pilot_and_rejects_replacement(self) -> None:
+        for error in (RuntimeError("connect failed"), asyncio.CancelledError()):
+            with self.subTest(error=type(error).__name__), tempfile.TemporaryDirectory() as directory:
+                pilot = _RecordingPilot()
+                pilot.start = AsyncMock(side_effect=error)
+                pilot.stop = AsyncMock(side_effect=RuntimeError("not closed"))
+                adapter = LegacyPilotBackend(Backend.FIREFOX, pilot_factory=lambda **_: pilot)
+                with self.assertRaises(type(error)) as caught:
+                    await adapter.start(Path(directory), None)
+                self.assertIs(caught.exception, error)
+                self.assertIs(adapter._pilot, pilot)
+                pilot.stop.assert_awaited_once()
+                with self.assertRaises(TermuinatorError) as busy:
+                    await adapter.start(Path(directory), None)
+                self.assertEqual(busy.exception.code, ErrorCode.SESSION_BUSY)
+                pilot.start.assert_awaited_once()
+                pilot.stop.side_effect = None
+                await adapter.stop()
+                self.assertIsNone(adapter._pilot)
 
     async def test_typed_goto_and_text_observation_wrap_public_pilot_methods(self) -> None:
         pilot = _RecordingPilot()
@@ -1199,15 +1236,18 @@ class LegacyBackendLifecycleTests(unittest.IsolatedAsyncioTestCase):
                         viewport=Viewport(width=1000, height=700),
                     )
                     status = started.status
-                    observation = await service.observe(
-                        session_id=started.session_id,
-                        tab_id=status.active_tab_id or "",
-                        page_id=status.active_page_id or "",
-                        expected_revision=status.page_revision,
-                        include_screenshot=False,
-                        include_accessibility=False,
-                        text_limit=100,
-                    )
+                    with self.assertRaises(TermuinatorError) as first_paused:
+                        await service.observe(
+                            session_id=started.session_id,
+                            tab_id=status.active_tab_id or "",
+                            page_id=status.active_page_id or "",
+                            expected_revision=status.page_revision,
+                            include_screenshot=False,
+                            include_accessibility=False,
+                            text_limit=100,
+                        )
+                    self.assertEqual(first_paused.exception.code, ErrorCode.SESSION_PAUSED)
+                    observation = service._active.observation.last_observation
                     paused = await service.session_status(started.session_id)
                     await service.session_stop(started.session_id)
 
@@ -1221,7 +1261,7 @@ class LegacyBackendLifecycleTests(unittest.IsolatedAsyncioTestCase):
                     observation.challenges[0].state,
                     ChallengeState.PENDING,
                 )
-                wire = json.dumps(to_wire(observation), sort_keys=True)
+                wire = json.dumps(to_wire(first_paused.exception.to_envelope()), sort_keys=True)
                 self.assertNotIn("must-never-cross-the-adapter", wire)
                 self.assertNotIn("private-sensitive-node", wire)
                 self.assertNotIn(adapter._dom_registry_key, wire)

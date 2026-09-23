@@ -33,7 +33,6 @@ import sys
 import sysconfig
 import time
 from typing import Any, Sequence
-import zlib
 
 
 @dataclass(frozen=True)
@@ -94,6 +93,7 @@ def _string_mapping(value: object, label: str) -> dict[str, Any]:
 
 def load_canonical_manifest(path: Path) -> tuple[dict[str, Any], str]:
     """Load a private canonical manifest only when its sidecar still matches."""
+    from scripts.final_verify import VerificationFailure, _read_private_regular, _verify_return_file_manifest
 
     if path.name != "final-verify-manifest.json":
         raise BenchmarkAuthorityError("canonical manifest name is invalid")
@@ -113,36 +113,32 @@ def load_canonical_manifest(path: Path) -> tuple[dict[str, Any], str]:
             "canonical manifest parent is not owner-private"
         )
     checksum_path = path.with_name("final-verify-manifest.sha256")
-    for candidate, label in (
-        (path, "canonical manifest"),
-        (checksum_path, "canonical manifest checksum"),
-    ):
-        try:
-            info = candidate.lstat()
-        except OSError as exc:
-            raise BenchmarkAuthorityError(f"{label} is missing or unsafe") from exc
-        if candidate.is_symlink() or not candidate.is_file():
-            raise BenchmarkAuthorityError(f"{label} is missing or unsafe")
-        if info.st_uid != os.getuid() or info.st_mode & 0o777 != 0o600:
-            raise BenchmarkAuthorityError(f"{label} is not owner-private")
-    data = path.read_bytes()
-    if len(data) > 1_000_000:
-        raise BenchmarkAuthorityError("canonical manifest is unbounded")
+    try:
+        data = _read_private_regular(path, "canonical manifest", 1_000_000)
+        checksum = _read_private_regular(checksum_path, "canonical manifest checksum", 256).decode("ascii")
+    except (VerificationFailure, UnicodeError) as exc:
+        raise BenchmarkAuthorityError("canonical manifest or checksum is missing or unsafe") from exc
     observed = hashlib.sha256(data).hexdigest()
     expected_line = f"{observed}  final-verify-manifest.json\n"
-    try:
-        checksum = checksum_path.read_text(encoding="ascii")
-    except (OSError, UnicodeError) as exc:
-        raise BenchmarkAuthorityError(
-            "canonical manifest checksum is invalid"
-        ) from exc
     if checksum != expected_line:
         raise BenchmarkAuthorityError("canonical manifest checksum differs")
     try:
         manifest = json.loads(data)
     except (UnicodeError, json.JSONDecodeError) as exc:
         raise BenchmarkAuthorityError("canonical manifest is invalid JSON") from exc
-    return _string_mapping(manifest, "canonical manifest"), observed
+    manifest = _string_mapping(manifest, "canonical manifest")
+    if "return_files_manifest" in manifest:
+        try:
+            if manifest["return_files_manifest"] != "final-verify-files.json":
+                raise VerificationFailure("canonical return-file manifest name is invalid")
+            files = _verify_return_file_manifest(path.parent / "final-verify-files.json", {
+                "final-verify-manifest.json", "final-verify-manifest.sha256", "final-verify-summary.ko.txt",
+            })
+            if files[path.name]["sha256"] != observed:
+                raise VerificationFailure("canonical manifest changed during verification")
+        except (VerificationFailure, OSError) as exc:
+            raise BenchmarkAuthorityError("canonical return-file integrity is unverified") from exc
+    return manifest, observed
 
 
 def validate_benchmark_authority(
@@ -176,6 +172,10 @@ def validate_benchmark_authority(
             raise BenchmarkAuthorityError(
                 "canonical backend status does not authorize benchmark"
             )
+        if "post_stop" in entry:
+            stopped = _string_mapping(entry["post_stop"], "canonical backend cleanup")
+            if stopped.get("status") != "PASS":
+                raise BenchmarkAuthorityError("canonical backend cleanup does not authorize benchmark")
         backends[name] = entry.get("status")
     if backends != {"chromium": "PASS", "firefox": "PASS"}:
         raise BenchmarkAuthorityError(
@@ -445,26 +445,137 @@ def stats(samples: list[float], errors: int) -> dict[str, Any]:
     }
 
 
-def stop_daemon(config: BenchmarkConfig) -> dict[str, Any]:
-    result = run_capture([config.tbp, "stop", "--json"], timeout=45)
+def _observe_daemon(launched: dict[str, Any], *, allow_exited: bool = False) -> dict[str, Any]:
+    from scripts.final_verify import _process_snapshot, _record_process_tree
+
+    try:
+        latest = _process_snapshot()
+        identity = launched.get("daemon_identity", {})
+        pid = identity.get("pid")
+        current = latest["processes"].get(pid)
+        observed = {tuple(item) for item in launched.get("observed_processes", [])}
+        verified = latest["status"] == "PASS" and launched.get("daemon_identity_verified") is True
+        if current is not None and current["start_ticks"] == identity.get("start_ticks"):
+            verified = _record_process_tree(latest, int(pid), observed) and verified
+        elif not allow_exited:
+            verified = False
+        launched["observed_processes"] = sorted(observed)
+    except Exception as exc:
+        latest = {"status": "UNAVAILABLE" if isinstance(exc, OSError) else "UNKNOWN",
+                  "processes": {}, "reason": "inspection_failed"}
+        if isinstance(exc, OSError):
+            latest["errno"] = exc.errno
+        launched["process_observation_error"] = {"type": type(exc).__name__, "message": repr(exc)[:8192]}
+        verified = False
+    if not verified:
+        launched["process_observation_verified"] = False
+    launched["process_latest"] = latest
+    return latest
+
+
+def stop_daemon(config: BenchmarkConfig, launched: dict[str, Any] | None = None) -> dict[str, Any]:
+    from scripts.final_verify import VerificationFailure, _path_absent, _process_cleanup_summary
+
+    states = (_path_absent(config.socket_path), _path_absent(config.pidfile))
+    result: dict[str, Any] = {"shutdown_sent": False}
+    if launched is None:
+        # No recorded launch means no authority to stop anything at this path.
+        result.update(socket_absent_after_stop=states[0], pidfile_absent_after_stop=states[1],
+                      process_cleanup={"scope": "no_recorded_launch", "status": (
+                          "PASS" if all(value is True for value in states) else "UNKNOWN"
+                      )})
+        return result
+
+    _observe_daemon(launched, allow_exited=True)
+    if (launched.get("daemon_identity_verified") is True
+            and not launched.get("shutdown_attempted") and all(value is False for value in states)):
+        launched["shutdown_attempted"] = True
+        peer = None
+        try:
+            peer = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            peer.settimeout(10)
+            peer.connect(os.fspath(config.socket_path))
+            if _daemon_peer_identity(config, peer) != launched["daemon_identity"]:
+                raise VerificationFailure("benchmark daemon generation differs from launch")
+            # Keep the authenticated connection: reconnecting through the CLI would lose this binding.
+            peer.sendall(b'{"action":"shutdown","params":{}}\n')
+            result["shutdown_sent"] = True
+            with peer.makefile("rb") as reader:
+                reply = reader.readline(65_537)
+            result["shutdown_acknowledged"] = (
+                len(reply) <= 65_536 and reply.endswith(b"\n") and is_success(json.loads(reply))
+            )
+        except Exception as exc:
+            result["shutdown_error"] = {"type": type(exc).__name__, "message": repr(exc)[:8192]}
+        finally:
+            if peer is not None:
+                peer.close()
+
     deadline = time.monotonic() + 15
-    while time.monotonic() < deadline:
-        if not os.path.lexists(config.socket_path) and not os.path.lexists(config.pidfile):
+    while True:
+        states = tuple(
+            None if previous is None else _path_absent(path)
+            for previous, path in zip(states, (config.socket_path, config.pidfile))
+        )
+        latest = _observe_daemon(launched, allow_exited=True)
+        census = _process_cleanup_summary(
+            launched.get("process_baseline", {"status": "UNKNOWN", "processes": {}}), latest,
+            {tuple(item) for item in launched.get("observed_processes", [])},
+            ownership_verified=launched.get("process_observation_verified") is True,
+        )
+        if (all(value is True for value in states) and census["status"] == "PASS"
+                or None in states or census["status"] in {"UNKNOWN", "UNAVAILABLE"}
+                or time.monotonic() >= deadline):
             break
         time.sleep(0.1)
-    result["socket_absent_after_stop"] = not os.path.lexists(config.socket_path)
-    result["pidfile_absent_after_stop"] = not os.path.lexists(config.pidfile)
+    result["socket_absent_after_stop"], result["pidfile_absent_after_stop"] = states
+    result["process_cleanup"] = census
+    launched["cleanup"] = result
     return result
 
 
-def require_stopped(config: BenchmarkConfig) -> None:
-    result = stop_daemon(config)
+def require_stopped(config: BenchmarkConfig, launched: dict[str, Any] | None = None) -> None:
+    result = stop_daemon(config, launched)
     if (result.get("socket_absent_after_stop") is not True
-            or result.get("pidfile_absent_after_stop") is not True):
+            or result.get("pidfile_absent_after_stop") is not True
+            or result.get("process_cleanup", {}).get("status") != "PASS"):
         raise BenchmarkExecutionError("unsafe_cleanup_state", {"cleanup": result})
 
 
+def _daemon_peer_identity(config: BenchmarkConfig, peer: socket.socket) -> dict[str, str]:
+    """Bind an already connected Unix peer to private state and proc generation."""
+    from scripts.final_verify import VerificationFailure, _process_identity, _read_private_regular
+
+    before = config.socket_path.lstat()
+    if (not stat.S_ISSOCK(before.st_mode) or stat.S_IMODE(before.st_mode) != 0o600
+            or before.st_uid != os.getuid()):
+        raise VerificationFailure("benchmark daemon socket is unsafe")
+    option = getattr(socket, "SO_PEERCRED", None)
+    if option is None:
+        raise VerificationFailure("benchmark daemon peer credentials unavailable")
+    pid, uid, _gid = struct.unpack("3i", peer.getsockopt(socket.SOL_SOCKET, option, 12))
+    payload = _read_private_regular(config.pidfile, "benchmark daemon PID", 32)
+    if (not 1 <= pid < 2**31 or uid != os.getuid()
+            or re.fullmatch(rb"[1-9][0-9]{0,9}\n?", payload) is None
+            or int(payload) != pid):
+        raise VerificationFailure("benchmark daemon peer identity differs")
+    entry = Path("/proc") / str(pid)
+    identity = _process_identity(entry)
+    after = config.socket_path.lstat()
+    if (identity != _process_identity(entry)
+            or (before.st_dev, before.st_ino, before.st_uid, before.st_mode)
+            != (after.st_dev, after.st_ino, after.st_uid, after.st_mode)
+            or payload != _read_private_regular(config.pidfile, "benchmark daemon PID", 32)):
+        raise VerificationFailure("benchmark daemon identity changed")
+    return {"pid": str(pid), "start_ticks": identity["start_ticks"]}
+
+
 def start_daemon(config: BenchmarkConfig, backend: str) -> dict[str, Any]:
+    from scripts.final_verify import VerificationFailure, _process_snapshot, _record_process_tree
+
+    baseline = _process_snapshot()
+    if baseline["status"] != "PASS":
+        raise BenchmarkExecutionError("process_evidence_unavailable", {"process_baseline": baseline})
     started = time.perf_counter()
     result = run_capture(
         [config.tbp, "start", "--browser", backend, "--json"], timeout=120
@@ -474,6 +585,7 @@ def start_daemon(config: BenchmarkConfig, backend: str) -> dict[str, Any]:
     )
     ready = False
     ready_ms = None
+    result.update(daemon_identity_verified=False, process_baseline=baseline)
     deadline = time.monotonic() + 45
     while time.monotonic() < deadline:
         if config.socket_path.exists():
@@ -486,6 +598,20 @@ def start_daemon(config: BenchmarkConfig, backend: str) -> dict[str, Any]:
             else:
                 ready = True
                 ready_ms = (time.perf_counter() - started) * 1000
+                try:
+                    identity = _daemon_peer_identity(config, probe)
+                    live = _process_snapshot()
+                    observed: set[tuple[str, str]] = set()
+                    pid = identity["pid"]
+                    if (baseline["processes"].get(pid, {}).get("start_ticks") == identity["start_ticks"]
+                            or live["processes"].get(pid, {}).get("start_ticks") != identity["start_ticks"]):
+                        raise VerificationFailure("benchmark daemon launch ownership unverified")
+                    ancestry_verified = _record_process_tree(live, int(pid), observed)
+                    result.update(daemon_identity_verified=True, daemon_identity=identity,
+                                  observed_processes=sorted(observed), process_ready=live,
+                                  process_observation_verified=ancestry_verified)
+                except (VerificationFailure, OSError, ValueError, struct.error) as exc:
+                    result["identity_failure"] = {"type": type(exc).__name__, "message": repr(exc)[:8192]}
                 break
             finally:
                 probe.close()
@@ -494,11 +620,7 @@ def start_daemon(config: BenchmarkConfig, backend: str) -> dict[str, Any]:
         round(ready_ms, 3) if ready_ms is not None else None
     )
     result["socket_ready_verified"] = ready
-    result["pid"] = (
-        config.pidfile.read_text(encoding="utf-8").strip()
-        if config.pidfile.exists()
-        else None
-    )
+    result["pid"] = result.get("daemon_identity", {}).get("pid")
     return result
 
 
@@ -511,9 +633,13 @@ async def measured_command(
     params: dict[str, Any],
     backend: str,
     timeout: int = 120,
+    *,
+    launched: dict[str, Any] | None = None,
 ) -> tuple[float, dict[str, Any] | None, str | None]:
     from src.client import send_command
 
+    if launched is not None:
+        _observe_daemon(launched)
     started = time.perf_counter()
     try:
         response = await send_command(
@@ -525,6 +651,9 @@ async def measured_command(
     except Exception as exc:
         elapsed = (time.perf_counter() - started) * 1000
         return elapsed, None, repr(exc)
+    finally:
+        if launched is not None:
+            _observe_daemon(launched)
 
 
 def ps_snapshot() -> dict[str, Any]:
@@ -598,89 +727,64 @@ def parse_ps(raw: str, backend: str, daemon_pid: str | None) -> dict[str, Any]:
 
 
 def file_check(path: Path) -> dict[str, Any]:
-    """Check a bounded private PNG container, not just a successful RPC."""
-    result: dict[str, Any] = {
-        "path": os.fspath(path),
-        "bytes": 0,
-        "png_signature": False,
-        "valid_png": False,
-    }
-    try:
-        before = path.lstat()
-        if (
-            not stat.S_ISREG(before.st_mode)
-            or before.st_uid != os.getuid()
-            or stat.S_IMODE(before.st_mode) != 0o600
-            or not 0 < before.st_size <= 64 * 1024 * 1024
-        ):
-            return result
-        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
-        with os.fdopen(fd, "rb") as stream:
-            opened = os.fstat(stream.fileno())
-            if (opened.st_dev, opened.st_ino) != (before.st_dev, before.st_ino):
-                return result
-            data = stream.read(64 * 1024 * 1024 + 1)
-            after = os.fstat(stream.fileno())
-        # Reading may legitimately update atime on Android/Linux. Compare only
-        # identity, permissions and content-mutation indicators.
-        stable_fields = (
-            "st_dev", "st_ino", "st_uid", "st_mode", "st_size", "st_mtime_ns", "st_ctime_ns",
-        )
-        current = path.lstat()
-        if (
-            any(getattr(value, key) != getattr(before, key)
-                for value in (opened, after, current) for key in stable_fields)
-            or len(data) != before.st_size
-        ):
-            return result
-        result.update(
-            bytes=len(data),
-            mode="0600",
-            sha256=hashlib.sha256(data).hexdigest(),
-            png_signature=data.startswith(b"\x89PNG\r\n\x1a\n"),
-        )
-        if not result["png_signature"]:
-            return result
-        offset = 8
-        seen_header = seen_data = False
-        compressed = bytearray()
-        while offset + 12 <= len(data):
-            size = struct.unpack_from(">I", data, offset)[0]
-            end = offset + 12 + size
-            if end > len(data):
-                return result
-            kind = data[offset + 4:offset + 8]
-            payload = data[offset + 8:end - 4]
-            crc = struct.unpack_from(">I", data, end - 4)[0]
-            if zlib.crc32(kind + payload) != crc:
-                return result
-            if not seen_header:
-                if kind != b"IHDR" or size != 13:
-                    return result
-                width, height = struct.unpack_from(">II", payload)
-                if not width or not height:
-                    return result
-                result.update(width=width, height=height)
-                seen_header = True
-            elif kind == b"IHDR":
-                return result
-            if kind == b"IDAT" and size:
-                seen_data = True
-                compressed.extend(payload)
-            if kind == b"IEND":
-                if size != 0 or not seen_data or end != len(data):
-                    return result
-                decoder = zlib.decompressobj()
-                pixels = decoder.decompress(compressed, 64 * 1024 * 1024 + 1)
-                result["valid_png"] = (
-                    0 < len(pixels) <= 64 * 1024 * 1024 and decoder.eof
-                    and not decoder.unused_data and not decoder.unconsumed_tail
-                )
-                return result
-            offset = end
-    except (OSError, ValueError, struct.error, zlib.error):
-        pass
-    return result
+    from scripts.final_verify import validate_png_file
+
+    return validate_png_file(path)
+
+
+def post_run_checks(
+    config: BenchmarkConfig, report: dict[str, Any], authority: dict[str, Any],
+) -> dict[str, Any]:
+    """Read each independent checkpoint once, even if an earlier one failed."""
+    from scripts.final_verify import VerificationFailure, _git_preflight
+
+    checks: dict[str, Any] = {"pngs": []}
+    for name, readback in (
+        ("environment", lambda: authorize_benchmark(config) == authority),
+        ("checkout", lambda: _git_preflight(config.project_root, authority["commit"])),
+    ):
+        try:
+            verified = bool(readback())
+            checks[name] = {"status": "PASS" if verified else "FAIL",
+                            "reason": None if verified else "identity_mismatch"}
+        except Exception as exc:
+            os_error = next((error for error in (exc, exc.__cause__)
+                             if isinstance(error, OSError)), None)
+            if os_error is not None:
+                checks[name] = {"status": "UNAVAILABLE", "reason": "read_failed",
+                                "errno": os_error.errno}
+            else:
+                rejected = isinstance(exc, (BenchmarkAuthorityError, VerificationFailure))
+                checks[name] = {"status": "FAIL" if rejected else "UNKNOWN",
+                                "reason": "verification_rejected" if rejected else "verification_failed"}
+            report.setdefault("post_run_errors", []).append({
+                "stage": name, "type": type(exc).__name__, "message": repr(exc)[:8192],
+            })
+
+    for backend in config.backends:
+        recorded = [item for item in report["backends"] if item.get("backend") == backend]
+        screenshots = recorded[0].get("screenshots", []) if len(recorded) == 1 else []
+        for sample in range(1, config.screenshot_samples + 1):
+            # Never follow a path supplied by a daemon response or raw report.
+            try:
+                actual = file_check(config.output / backend / f"screenshot-{sample}.png")
+            except Exception as exc:
+                actual = {"status": "UNKNOWN", "reason": "verification_failed",
+                          "valid_png": False, "bytes": None}
+                report.setdefault("post_run_errors", []).append({
+                    "stage": f"{backend}.png.{sample}",
+                    "type": type(exc).__name__, "message": repr(exc)[:8192],
+                })
+            actual.pop("path", None)
+            expected = [item for item in screenshots if item.get("sample") == sample]
+            if actual["valid_png"]:
+                if len(expected) != 1:
+                    actual.update(status="UNKNOWN", reason="unbound_sample")
+                elif any(expected[0].get(key) != actual.get(key)
+                         for key in ("sha256", "bytes", "width", "height", "mode")):
+                    actual.update(status="FAIL", reason="artifact_changed")
+            checks["pngs"].append({"backend": backend, "sample": sample, **actual})
+    return checks
 
 
 def environment(config: BenchmarkConfig) -> dict[str, Any]:
@@ -730,34 +834,39 @@ def _write_ps_capture(path: Path, capture: dict[str, Any]) -> None:
     path.chmod(0o600)
 
 
-async def benchmark_backend(config: BenchmarkConfig, backend: str) -> dict[str, Any]:
+async def benchmark_backend(
+    config: BenchmarkConfig, backend: str, launches: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    launches = [] if launches is None else launches
     backend_dir = config.output / backend
     backend_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
     cold: list[dict[str, Any]] = []
     for sample in range(config.cold_samples):
-        require_stopped(config)
+        require_stopped(config, launches[-1] if launches else None)
         result = start_daemon(config, backend)
+        launches.append(result)
         result["sample"] = sample + 1
         cold.append(result)
-        require_stopped(config)
-        if result.get("returncode") != 0 or result.get("socket_ready_verified") is not True:
+        require_stopped(config, result)
+        if (result.get("returncode") != 0 or result.get("socket_ready_verified") is not True
+                or result.get("daemon_identity_verified") is not True
+                or result.get("process_observation_verified") is not True):
             raise BenchmarkExecutionError("cold_start_failed", {"cold_start_samples": cold})
 
-    require_stopped(config)
+    require_stopped(config, launches[-1] if launches else None)
     warm_start = start_daemon(config, backend)
-    if warm_start.get("returncode") != 0 or warm_start.get("socket_ready_verified") is not True:
+    launches.append(warm_start)
+    if (warm_start.get("returncode") != 0 or warm_start.get("socket_ready_verified") is not True
+            or warm_start.get("daemon_identity_verified") is not True
+            or warm_start.get("process_observation_verified") is not True):
         raise BenchmarkExecutionError(
             "warm_start_failed", {"cold_start_samples": cold, "warm_start": warm_start}
         )
     load_ms, load_response, load_error = await measured_command(
-        "goto", {"url": config.url, "timeout": 45}, backend, timeout=60
+        "goto", {"url": config.url, "timeout": 45}, backend, timeout=60, launched=warm_start,
     )
     await asyncio.sleep(config.settle_seconds)
-    daemon_pid = (
-        config.pidfile.read_text(encoding="utf-8").strip()
-        if config.pidfile.exists()
-        else None
-    )
+    daemon_pid = warm_start.get("pid")
     ps_info = ps_snapshot()
     ps_path = backend_dir / "ps-after-settle.txt"
     _write_ps_capture(ps_path, ps_info)
@@ -787,7 +896,7 @@ async def benchmark_backend(config: BenchmarkConfig, backend: str) -> dict[str, 
                 params = {"path": os.fspath(path)}
                 timeout = 45
             elapsed, response, error = await measured_command(
-                name, params, backend, timeout=timeout
+                name, params, backend, timeout=timeout, launched=warm_start,
             )
             if error is None and name == "screenshot":
                 details = file_check(Path(params["path"]))
@@ -858,6 +967,14 @@ def evaluate_quality(report: dict[str, Any], config: BenchmarkConfig) -> dict[st
     budgets = {"status": 300.0, "text": 2000.0, "screenshot": 4000.0}
     checks: dict[str, bool] = {}
     checks["execution_completed"] = report.get("execution_failure") is None
+    post_run = report.get("post_run", {})
+    checks["environment_after_run"] = post_run.get("environment", {}).get("status") == "PASS"
+    checks["checkout_after_run"] = post_run.get("checkout", {}).get("status") == "PASS"
+    pngs = post_run.get("pngs", [])
+    checks["artifacts_after_run"] = (
+        len(pngs) == len(config.backends) * config.screenshot_samples
+        and all(item.get("status") == "PASS" for item in pngs)
+    )
     backends = report["backends"]
     checks["requested_backends"] = (
         len(backends) == len(config.backends) == len(set(config.backends))
@@ -872,9 +989,17 @@ def evaluate_quality(report: dict[str, Any], config: BenchmarkConfig) -> dict[st
         checks[f"{name}.cold_samples"] = (
             cold.get("success_count") == config.cold_samples and cold.get("error_count") == 0
         )
+        launches = backend.get("cold_start_samples", [])
+        checks[f"{name}.cold_identity"] = (
+            len(launches) == config.cold_samples
+            and all(item.get("daemon_identity_verified") is True
+                    and item.get("process_observation_verified") is True for item in launches)
+        )
         warm = backend.get("warm_start", {})
         checks[f"{name}.warm_start"] = (
             warm.get("returncode") == 0 and warm.get("socket_ready_verified") is True
+            and warm.get("daemon_identity_verified") is True
+            and warm.get("process_observation_verified") is True
         )
         page = backend.get("page_load", {})
         checks[f"{name}.page_load"] = (
@@ -902,6 +1027,7 @@ def evaluate_quality(report: dict[str, Any], config: BenchmarkConfig) -> dict[st
         cleanup.get("socket_absent_after_stop") is True
         and cleanup.get("pidfile_absent_after_stop") is True
     )
+    checks["process_cleanup"] = cleanup.get("process_cleanup", {}).get("status") == "PASS"
     return {
         "status": "PASS" if all(checks.values()) else "FAIL",
         "checks": checks,
@@ -913,6 +1039,17 @@ def evaluate_quality(report: dict[str, Any], config: BenchmarkConfig) -> dict[st
 def sanitize_report(report: dict[str, Any]) -> dict[str, Any]:
     """Remove local paths, PIDs, process arguments, and raw command output."""
 
+    raw_cleanup = report.get("cleanup", {})
+    if not isinstance(raw_cleanup, dict):
+        raw_cleanup = {}
+    cleanup = {
+        key: raw_cleanup.get(key) if type(raw_cleanup.get(key)) is bool else None
+        for key in ("socket_absent_after_stop", "pidfile_absent_after_stop")
+    }
+    cleanup_status = (
+        "FAIL" if any(value is False for value in cleanup.values())
+        else "UNKNOWN" if None in cleanup.values() else "PASS"
+    )
     failure = report.get("execution_failure")
     public_failure = None
     if isinstance(failure, dict):
@@ -921,7 +1058,8 @@ def sanitize_report(report: dict[str, Any]) -> dict[str, Any]:
         public_failure = {
             "backend": backend if backend in ("firefox", "chromium") else None,
             "reason": reason if reason in (
-                "unsafe_cleanup_state", "cold_start_failed", "warm_start_failed"
+                "unsafe_cleanup_state", "cold_start_failed", "warm_start_failed",
+                "process_evidence_unavailable",
             ) else "execution_failed",
         }
     raw_environment = report.get("environment", {})
@@ -1020,9 +1158,38 @@ def sanitize_report(report: dict[str, Any]) -> dict[str, Any]:
                 },
             }
         )
+    post_run = report.get("post_run", {})
+    allowed_statuses = {"PASS", "FAIL", "UNKNOWN", "UNAVAILABLE"}
+    raw_processes = raw_cleanup.get("process_cleanup", {})
+    if not isinstance(raw_processes, dict):
+        raw_processes = {}
+    process_summary = {
+        "scope": raw_processes.get("scope") if raw_processes.get("scope") in {
+            "visible_same_uid_processes", "no_recorded_launch",
+        } else "unknown",
+        "status": raw_processes.get("status")
+        if raw_processes.get("status") in allowed_statuses else "UNKNOWN",
+        **{key: raw_processes.get(key) if type(raw_processes.get(key)) is int
+           and raw_processes[key] >= 0 else None for key in (
+               "new_process_count", "observed_candidate_count", "observed_candidate_survivors",
+               "unattributed_new_process_count",
+           )},
+    }
+    post_summary = {
+        name: post_run.get(name, {}).get("status")
+        if post_run.get(name, {}).get("status") in allowed_statuses else "UNKNOWN"
+        for name in ("environment", "checkout")
+    }
+    post_summary["png_counts"] = {status: 0 for status in sorted(allowed_statuses)}
+    for item in post_run.get("pngs", []):
+        status = item.get("status")
+        post_summary["png_counts"][status if status in allowed_statuses else "UNKNOWN"] += 1
     return {
         "schema_version": 2,
         "quality": report.get("quality", {"status": "NOT_EVALUATED"}),
+        "post_run": post_summary,
+        "cleanup": {"scope": "daemon_files_only", "status": cleanup_status, **cleanup},
+        "process_cleanup": process_summary,
         "execution_failure": public_failure,
         "environment": environment_summary,
         "backends": backend_summaries,
@@ -1034,11 +1201,34 @@ def sanitize_report(report: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def write_private_json(path: Path, value: object) -> None:
-    path.write_text(
-        json.dumps(value, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
-    )
-    path.chmod(0o600)
+def benchmark_summary_ko(summary: dict[str, Any]) -> str:
+    """Describe the completed run without promoting file absence into process proof."""
+    quality = summary.get("quality", {}).get("status")
+    quality = quality if quality in {"PASS", "FAIL"} else "UNKNOWN"
+    cleanup = summary["cleanup"]["status"]
+    return "\n".join((
+        "실행: 종료 (일부 측정이 미실행일 수 있음)",
+        f"Benchmark 품질: {quality}",
+        f"Daemon socket·pidfile 확인: {cleanup}",
+        f"후보 프로세스 관측: {summary['process_cleanup']['status']} "
+        f"(범위: {summary['process_cleanup']['scope']})",
+        f"사후 환경 확인: {summary['post_run']['environment']}",
+        f"사후 Git 확인: {summary['post_run']['checkout']}",
+        f"사후 PNG 확인: {summary['post_run']['png_counts']}",
+        "프로세스·display lease·session lock: 별도 확인 필요",
+        "전역 Unix 소켓 목록: 이 검사에서는 조회하지 않음",
+        "추가 작업: 소유 자원의 종료 증거 검토; 동일 회차를 재실행하지 않음",
+        "Production 승인: 미승인",
+        "",
+    ))
+
+
+def write_private_json(path: Path, value: object) -> bytes:
+    from scripts.final_verify import _write_private_bytes
+
+    encoded = (json.dumps(value, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
+    _write_private_bytes(path, encoded)
+    return encoded
 
 
 def parse_args(argv: Sequence[str] | None = None) -> BenchmarkConfig:
@@ -1130,18 +1320,21 @@ def parse_args(argv: Sequence[str] | None = None) -> BenchmarkConfig:
 def validate_daemon_paths(config: BenchmarkConfig) -> None:
     """CLI, cached client constants and probes must select the same daemon."""
     from src import client
+    from scripts.final_verify import _path_absent
 
     runtime = Path.home() / ".tbp"
     expected = (runtime / "daemon.sock", runtime / "daemon.pid")
     if (
         (config.socket_path, config.pidfile) != expected
         or (Path(client.SOCKET_PATH), Path(client.PID_PATH)) != expected
-        or runtime.is_symlink()
-        or any(path.is_symlink() for path in expected)
     ):
         raise BenchmarkAuthorityError("benchmark daemon paths differ from current HOME")
-    if os.path.lexists(runtime):
-        raise BenchmarkAuthorityError("benchmark runtime already exists; use a fresh isolated HOME")
+    # An absent runtime cannot contain sockets or symlinks. lstat also rejects
+    # a dangling runtime link and preserves access errors on every Python version.
+    if _path_absent(runtime) is not True:
+        raise BenchmarkAuthorityError(
+            "benchmark runtime already exists or is unreadable; use a fresh isolated HOME"
+        )
 
 
 def run_isolated_benchmark(config: BenchmarkConfig) -> int:
@@ -1181,36 +1374,65 @@ def run_isolated_benchmark(config: BenchmarkConfig) -> int:
 
 
 async def run_benchmark(config: BenchmarkConfig) -> tuple[Path, Path, dict[str, Any]]:
+    from scripts.final_verify import (
+        VerificationFailure, _path_absent, _write_private_bytes, write_return_file_manifest,
+    )
+
     authority = authorize_benchmark(config)
     validate_daemon_paths(config)
     prepare_benchmark_output(config.output)
     report: dict[str, Any] = {
         "environment": {
-            **environment(config),
+            "python": sys.version,
             "canonical_authority": authority,
         },
         "backends": [],
+        "process_launches": [],
     }
+    backend = None
     try:
+        report["environment"].update(environment(config))
         for backend in config.backends:
-            report["backends"].append(await benchmark_backend(config, backend))
+            report["backends"].append(await benchmark_backend(config, backend, report["process_launches"]))
     except BenchmarkExecutionError as exc:
         report["execution_failure"] = {
             "backend": backend, "reason": str(exc), "evidence": exc.evidence,
         }
+    except (Exception, asyncio.CancelledError) as exc:
+        report["execution_failure"] = {
+            "backend": backend, "reason": "execution_failed",
+            "evidence": {"type": type(exc).__name__, "message": repr(exc)[:8192]},
+        }
     finally:
-        report["cleanup"] = stop_daemon(config)
-    closing_authority = authorize_benchmark(config)
-    if closing_authority != authority:
-        raise BenchmarkAuthorityError(
-            "benchmark environment changed during measurement"
-        )
+        try:
+            report["cleanup"] = stop_daemon(
+                config, report["process_launches"][-1] if report["process_launches"] else None,
+            ) if backend is not None else {
+                "socket_absent_after_stop": _path_absent(config.socket_path),
+                "pidfile_absent_after_stop": _path_absent(config.pidfile),
+            }
+        except Exception as exc:
+            report["cleanup"] = {
+                "socket_absent_after_stop": None, "pidfile_absent_after_stop": None,
+                "type": type(exc).__name__, "message": repr(exc)[:8192],
+            }
+    report["post_run"] = post_run_checks(config, report, authority)
     raw_path = config.output / "baseline-report.json"
     summary_path = config.output / "baseline-summary.json"
     report["quality"] = evaluate_quality(report, config)
     summary = sanitize_report(report)
+    summary["return_files_manifest"] = "baseline-files.json"
     write_private_json(raw_path, report)
-    write_private_json(summary_path, summary)
+    summary_bytes = write_private_json(summary_path, summary)
+    note_bytes = benchmark_summary_ko(summary).encode("utf-8")
+    _write_private_bytes(
+        config.output / "baseline-summary.ko.txt", note_bytes,
+    )
+    publication = write_return_file_manifest(config.output / "baseline-files.json", {
+        summary_path.name: summary_bytes, "baseline-summary.ko.txt": note_bytes,
+    })
+    if publication["status"] != "PASS":
+        raise VerificationFailure("benchmark return-file verification failed")
     return raw_path, summary_path, summary
 
 
@@ -1218,6 +1440,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     config = parse_args(argv)
     sys.path.insert(0, os.fspath(config.project_root))
     os.chdir(config.project_root)
+    from scripts.final_verify import VerificationFailure
+
     try:
         if config.isolated_runtime is not None:
             return run_isolated_benchmark(config)
@@ -1225,6 +1449,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     except BenchmarkAuthorityError as exc:
         print(f"benchmark_authority_error={exc}", file=sys.stderr)
         return 2
+    except VerificationFailure:
+        print("report_publication=FAIL; preserve reports and inspect baseline-files.json")
+        return 1
     print(f"raw_report={raw_path}")
     print(f"sanitized_summary={summary_path}")
     print(json.dumps(summary, ensure_ascii=False, indent=2))

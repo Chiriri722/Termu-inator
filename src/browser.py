@@ -14,6 +14,8 @@ import tempfile
 import urllib.error
 import urllib.request
 
+from ._utils import stop_owned_process
+
 # Track temp dirs for crash cleanup
 _temp_dirs_to_clean = set()
 
@@ -518,15 +520,7 @@ class BrowserPilot:
         """Stop a failed attempt and persist its bounded private stderr tail."""
         proc = self._chrome_proc
         if proc is not None:
-            if proc.returncode is None:
-                proc.terminate()
-                try:
-                    await asyncio.wait_for(proc.wait(), timeout=5.0)
-                except asyncio.TimeoutError:
-                    proc.kill()
-                    await proc.wait()
-            else:
-                await proc.wait()
+            await stop_owned_process(proc)
 
         task = self._chromium_stderr_task
         if task is not None:
@@ -613,23 +607,27 @@ class BrowserPilot:
         Uses SIGTERM first, gives processes time to flush state, then SIGKILL.
         Cleans up temporary user-data-dir afterward.
         """
-        for proc in (self._chrome_proc, self._wm_proc, self._xvfb_proc):
-            if proc and proc.returncode is None:
-                try:
-                    proc.terminate()
-                    await asyncio.wait_for(proc.wait(), timeout=5.0)
-                except asyncio.TimeoutError:
-                    proc.kill()
-                    await proc.wait()
-                except Exception as e:
-                    logger.warning("Error stopping process: %s", e)
-        self._chrome_proc = None
-        self._wm_proc = None
-        self._xvfb_proc = None
+        stop_error = None
+        cancelled = False
+        for name in ("_chrome_proc", "_wm_proc", "_xvfb_proc"):
+            proc = getattr(self, name)
+            if proc is None:
+                continue
+            try:
+                await stop_owned_process(proc)
+            except asyncio.CancelledError:
+                cancelled = True
+            except Exception as exc:
+                stop_error = stop_error or exc
+            else:
+                # Only discard an owned handle after its wait has completed.
+                setattr(self, name, None)
 
-        if self._chromium_stderr_task is not None:
+        if self._chrome_proc is None and self._chromium_stderr_task is not None:
             try:
                 await asyncio.wait_for(self._chromium_stderr_task, timeout=2.0)
+            except asyncio.CancelledError:
+                cancelled = True
             except asyncio.TimeoutError:
                 self._chromium_stderr_task.cancel()
             except Exception:
@@ -640,9 +638,19 @@ class BrowserPilot:
         if self._virgl:
             try:
                 await self._virgl.stop()
-            except Exception as e:
-                logger.debug("Error stopping virgl: %s", e)
-            self._virgl = None
+            except asyncio.CancelledError:
+                cancelled = True
+            except Exception as exc:
+                stop_error = stop_error or exc
+            else:
+                self._virgl = None
+
+        if cancelled or stop_error is not None:
+            # Preserve the profile and lease while an owned child may still use them.
+            _temp_dirs_to_clean.discard(self._user_data_dir)
+            if cancelled:
+                raise asyncio.CancelledError
+            raise RuntimeError("Owned browser cleanup is incomplete") from stop_error
 
         # Clean up temp profile (not persistent ones)
         if self._owns_user_data_dir and self._user_data_dir and \

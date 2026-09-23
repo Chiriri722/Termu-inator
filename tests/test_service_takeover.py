@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 import tempfile
 import unittest
@@ -99,6 +100,7 @@ class BrowserServiceTakeoverTests(unittest.IsolatedAsyncioTestCase):
         self,
         *,
         failing_resume: bool = False,
+        initial_snapshot: BackendPageSnapshot | None = None,
     ) -> tuple[BrowserService, FakeBackend]:
         snapshot = self._snapshot()
         outcome = BackendActionOutcome(
@@ -114,8 +116,10 @@ class BrowserServiceTakeoverTests(unittest.IsolatedAsyncioTestCase):
         backend_type = _FailingResumeBackend if failing_resume else FakeBackend
         backend = backend_type(
             Backend.CHROMIUM,
-            snapshot=snapshot,
+            snapshot=initial_snapshot or snapshot,
             action_outcome=outcome,
+            navigation_results={("goto", snapshot.url): snapshot},
+            tabs_supported=True,
         )
 
         def permission_factory(project_id: str) -> InMemoryPermissionEngine:
@@ -133,9 +137,52 @@ class BrowserServiceTakeoverTests(unittest.IsolatedAsyncioTestCase):
         )
         return service, backend
 
+    async def test_first_sensitive_response_is_not_published_by_any_capture_path(self) -> None:
+        sensitive = self._snapshot()
+        normal = replace(sensitive, text="Ready", accessibility=(), interactive_elements=(
+            RawInteractiveElement(backend_node_id="private-continue", role="button", accessible_name="Continue",
+                                  tag="button", type="button", bounds=Bounds(x=10, y=20, width=120, height=40)),
+        ))
+        for operation in ("observe", "navigate", "wait", "tabs", "act"):
+            with self.subTest(operation=operation):
+                service, backend = self._service(initial_snapshot=normal)
+                session_id, before = await self._start_and_observe(service, expect_takeover=False)
+                context = {"session_id": session_id, "tab_id": before.tab_id, "page_id": before.page_id,
+                           "expected_revision": before.page_revision}
+                backend._snapshot = sensitive
+                request = ActionRequest(
+                    action_id="action_transition" + operation, idempotency_key="idem_transition" + operation,
+                    session_id=session_id, tab_id=before.tab_id, page_id=before.page_id,
+                    expected_page_revision=before.page_revision, kind=ActionKind.CLICK,
+                    target_ref=before.interactive_elements[0].ref, parameters={},
+                )
+                with self.assertRaises(TermuinatorError) as paused:
+                    if operation == "observe":
+                        await service.observe(**context, include_screenshot=True, include_accessibility=True, text_limit=1000)
+                    elif operation == "navigate":
+                        await service.navigate(**context, operation="goto", url=sensitive.url)
+                    elif operation == "wait":
+                        await service.wait(**context, condition=WaitTextCondition(kind="text", text="secret", present=True), timeout_ms=100)
+                    elif operation == "tabs":
+                        backend._tab_snapshots[backend._active_backend_tab_id] = sensitive
+                        await service.tabs(session_id=session_id, operation="switch", tab_id=before.tab_id)
+                    else:
+                        await service.act(request)
+                self.assertEqual(paused.exception.code, ErrorCode.SESSION_PAUSED)
+                self.assertNotIn("secret", str(paused.exception))
+                self.assertEqual((await service.session_status(session_id)).state, SessionState.USER_TAKEOVER_REQUIRED)
+                if operation == "act":
+                    await service.local_takeover_start(session_id)
+                    await service.local_takeover_resume(session_id)
+                    await service.act(request)
+                    self.assertEqual(len(backend.action_calls), 1, "hidden terminal action must not be replayed")
+                await service.session_stop(session_id)
+
     async def _start_and_observe(
         self,
         service: BrowserService,
+        *,
+        expect_takeover: bool = True,
     ) -> tuple[str, object]:
         started = await service.session_start(
             project_id="project-takeover",
@@ -145,7 +192,7 @@ class BrowserServiceTakeoverTests(unittest.IsolatedAsyncioTestCase):
         assert status.active_tab_id is not None
         assert status.active_page_id is not None
         assert status.page_revision is not None
-        observation = await service.observe(
+        attempt = service.observe(
             session_id=started.session_id,
             tab_id=status.active_tab_id,
             page_id=status.active_page_id,
@@ -154,6 +201,15 @@ class BrowserServiceTakeoverTests(unittest.IsolatedAsyncioTestCase):
             include_accessibility=False,
             text_limit=1_000,
         )
+        if expect_takeover:
+            with self.assertRaises(TermuinatorError) as paused:
+                await attempt
+            self.assertEqual(paused.exception.code, ErrorCode.SESSION_PAUSED)
+            # Internal identity is used only to probe subsequent blocked calls;
+            # the first confidential observation was not returned to the caller.
+            observation = service._active.observation.last_observation
+        else:
+            observation = await attempt
         assert self.permissions is not None
         self.permissions.record(
             origin="https://example.com",
@@ -288,15 +344,18 @@ class BrowserServiceTakeoverTests(unittest.IsolatedAsyncioTestCase):
             expected_revision=status.page_revision,
             mode="viewport",
         )
-        before = await service.observe(
-            session_id=started.session_id,
-            tab_id=status.active_tab_id,
-            page_id=status.active_page_id,
-            expected_revision=status.page_revision,
-            include_screenshot=False,
-            include_accessibility=False,
-            text_limit=1_000,
-        )
+        with self.assertRaises(TermuinatorError) as first_paused:
+            await service.observe(
+                session_id=started.session_id,
+                tab_id=status.active_tab_id,
+                page_id=status.active_page_id,
+                expected_revision=status.page_revision,
+                include_screenshot=False,
+                include_accessibility=False,
+                text_limit=1_000,
+            )
+        self.assertEqual(first_paused.exception.code, ErrorCode.SESSION_PAUSED)
+        before = service._active.observation.last_observation
         session_id = started.session_id
         await self._require_takeover(service, session_id, before)
 

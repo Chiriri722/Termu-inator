@@ -94,8 +94,12 @@ def _pages(port: int) -> dict[str, tuple[str, bytes]]:
 <label><input id="terms" name="terms" type="checkbox">Accept terms</label>
 <label>Choose option <select id="choice" name="choice"><option>A</option><option>B</option></select></label>
 <button id="submit" type="submit">Submit fixture</button>
-<output id="form-result"></output></form></main>
-<script>document.querySelector('#fixture-form').addEventListener('submit',event=>{event.preventDefault();document.querySelector('#form-result').textContent='submitted';});</script>""",
+<output id="form-result" style="display:block">Fixture state: {"text":"","terms":false,"choice":"A","submissions":0}</output></form></main>
+<script>const form=document.querySelector('#fixture-form');let submissions=0;
+const render=()=>{document.querySelector('#form-result').textContent='Fixture state: '+JSON.stringify({
+text:form.elements.text.value,terms:form.elements.terms.checked,choice:form.elements.choice.value,submissions});};
+form.addEventListener('input',render);form.addEventListener('change',render);
+form.addEventListener('submit',event=>{event.preventDefault();submissions++;render();});</script>""",
             ),
         ),
         "/spa": (
@@ -130,8 +134,12 @@ document.querySelector('#remove').onclick=()=>{if(items.lastElementChild)items.l
                 """<main data-fixture="stale-replacement">
 <button id="replace-node">Replace stable target</button>
 <button id="replaceable-target" data-generation="1">Continue</button>
-<output id="replacement-generation">Generation 1</output></main>
-<script>let generation=1;document.querySelector('#replace-node').onclick=()=>{
+<output id="replacement-generation" style="display:block">Generation 1</output>
+<output id="activation-count" style="display:block">Activations 0</output></main>
+<script>let generation=1,activations=0;
+document.querySelector('main').addEventListener('click',event=>{if(event.target.id==='replaceable-target'){
+document.querySelector('#activation-count').textContent='Activations '+(++activations);}});
+document.querySelector('#replace-node').onclick=()=>{
 const current=document.querySelector('#replaceable-target');
 const replacement=document.createElement('button');replacement.id='replaceable-target';
 replacement.dataset.generation=String(++generation);replacement.textContent='Continue';
@@ -240,7 +248,12 @@ document.querySelector('#prompt').onclick=()=>dialogResult.textContent=window.pr
             "text/html; charset=utf-8",
             _html(
                 "States",
-                '<main data-fixture="states"><button id="disabled" disabled>Disabled action</button><button id="hidden" hidden>Hidden action</button></main>',
+                """<main data-fixture="states"><button id="disabled" disabled>Disabled action</button>
+<button id="hidden" hidden>Hidden action</button>
+<output id="unavailable-count" style="display:block">Unavailable activations 0</output></main>
+<script>let activations=0;document.querySelector('main').addEventListener('click',event=>{
+if(event.target.id==='disabled'||event.target.id==='hidden'){
+document.querySelector('#unavailable-count').textContent='Unavailable activations '+(++activations);}});</script>""",
             ),
         ),
         "/prompt-injection": (

@@ -9,6 +9,8 @@ import asyncio
 import logging
 import shutil
 
+from ._utils import stop_owned_process
+
 logger = logging.getLogger(__name__)
 
 
@@ -65,13 +67,8 @@ class VirglManager:
 
     async def stop(self):
         """Stop the virgl server."""
-        if self._proc and self._proc.returncode is None:
-            self._proc.terminate()
-            try:
-                await asyncio.wait_for(self._proc.wait(), timeout=3)
-            except asyncio.TimeoutError:
-                self._proc.kill()
-                await self._proc.wait()
+        if self._proc is not None:
+            await stop_owned_process(self._proc, timeout=3)
         self._proc = None
 
     def get_env(self):

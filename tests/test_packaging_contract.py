@@ -103,6 +103,12 @@ class InstallerContractTests(unittest.TestCase):
 
 
 class InstallationDocumentationTests(unittest.TestCase):
+    def test_mcp_version_diagnostic_uses_distribution_metadata(self) -> None:
+        guide = (ROOT / "docs" / "troubleshooting.md").read_text(encoding="utf-8")
+        diagnostic = guide.split("## First Evidence to Collect", 1)[1].split("\n## ", 1)[0]
+        self.assertNotIn("mcp.__version__", diagnostic)
+        self.assertIn('metadata.version("mcp")', diagnostic)
+
     def test_termux_guide_matches_the_installer_contract(self) -> None:
         guide = (ROOT / "docs" / "termux-install.md").read_text(encoding="utf-8")
         for expected in (

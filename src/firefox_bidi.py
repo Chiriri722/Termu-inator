@@ -378,6 +378,7 @@ class FirefoxBidiClient:
         if socket is None:
             return
         cancelled = False
+        close_error = None
         try:
             if self._session_id is not None:
                 try:
@@ -389,12 +390,15 @@ class FirefoxBidiClient:
         finally:
             self._session_id = None
             self._context_id = None
-            self._socket = None
             try:
                 await asyncio.wait_for(socket.close(), timeout=2)
             except asyncio.CancelledError:
                 cancelled = True
-            except Exception:
-                pass
+            except Exception as exc:
+                close_error = exc
+            else:
+                self._socket = None
         if cancelled:
             raise asyncio.CancelledError
+        if close_error is not None:
+            raise FirefoxBidiError() from close_error

@@ -1,5 +1,313 @@
 # Findings: Termu-inator Modernization
 
+## 2026-09-23 — Do not confuse operational instructions with acceptance
+
+- The pinned MCP package has no mcp.__version__; its documented diagnostic
+  actually failed. Distribution metadata fixes it without package changes.
+- setup.sh installs native packages/upgrades pip and is not a sealed-candidate
+  updater. A successful smoke does not authorize a registration switch. Keep
+  old command/arguments and data identity, not only the old venv, for rollback.
+- A three-second idle timeout is not an MCP handshake. Existing fixed-output
+  probes could overwrite evidence or collide with a live compact data root;
+  current docs direct candidate acceptance to the existing isolated gate.
+- Legacy and compact entrypoints have different authority guarantees. Current
+  pre-follow redirect/DNS-peer gaps still restrict evaluation to controlled
+  fixtures; neither local tests nor old device PASS grant general deployment.
+
+## 2026-09-23 — Retire CDP requests on every interrupted path
+
+- CDPClient.send only removed callbacks on timeout. Task cancellation retained
+  a cancelled Future; an error/cancellation during socket.send retained a
+  pending Future. A reply that never arrives could keep these entries alive
+  for the entire connection lifetime. Loopback and real-Chrome REDs confirmed it.
+- One finally now owns cleanup across send and response wait without changing
+  uncertain-outcome semantics or retrying. In the real fixture a submission
+  occurred despite cancellation; reconnect readback still showed exactly one.
+- Initialized observer MCP stdio EOF exits cleanly and permits same-root
+  restart. This proves transport/control-socket lifecycle with no active
+  browser, not combined active-backend shutdown or S22U recovery/soak.
+
+## 2026-09-23 — Cancellation does not authorize replay
+
+- Existing durable DISPATCHED state survives asyncio task cancellation and
+  deadline expiry after backend acceptance. Cancellation is not evidence of
+  no effect: the same request remains outcome_unknown and non-retryable.
+- Restart does not transfer authority. The old session is gone; rebinding its
+  key to a new session/page/ref changes the digest and conflicts before dispatch.
+- An actual owned child exit confirms kernel lease release without deleting the
+  persistent lock inode, plus DISPATCHED/TERMINAL journal readback. The effect is
+  a synthetic marker, not a browser submission. No runtime repair was needed;
+  real backend interruption, Android lifecycle, and soak remain separate checks.
+
+## 2026-09-23 — Suppress the response that first detects takeover
+
+- A pre-call active-state guard was insufficient: navigate/observe/wait/tab
+  reconciliation and action post-observation could detect a credential/OTP or
+  open dialog, mark takeover required, and then return page data anyway. All
+  five paths now recheck before publishing. Shared-view and later-read guards
+  remain intact; no alternate public response or bypass was added.
+- Action publication happens after durable trace/terminal storage. A paused
+  response is not evidence of no effect; the same request/key after authorized
+  resume must reuse the terminal result, never dispatch again. True interrupted
+  dispatch remains outcome_unknown under the existing journal contract.
+- Canonical uses owner-local takeover start/resume only on synthetic fixtures.
+  Both paused states must refuse page-sensitive tools, hide metadata, and keep
+  policy unchanged. Resume must rotate page identity and reject old context.
+- Reading the inert prompt-injection fixture must leave site policy and exact
+  tool inventory unchanged with Developer Mode still off. This tests bounded
+  runtime authority, not arbitrary-LLM prompt-injection immunity.
+- Local evidence includes the actual service/router and durable state, plus
+  real Chrome DOM probes and empty-field detection. Full S22U MCP action gates
+  are still unrun. The patch prevents disclosure after detection; it does not
+  erase earlier backend snapshots or promise no private screenshot was stored.
+
+## 2026-09-23 — Reject known unavailable targets before dispatch
+
+- BrowserService resolved refs but did not reject already-observed disabled,
+  hidden, or zero-area targets before risk assessment and journal dispatch.
+  A disabled submit could incorrectly request approval; disabled drag targets
+  could reach the executor and become outcome_unknown. The smallest shared
+  fix is in action binding, not ElementRefRegistry (also used by reads/waits).
+- Backend live target revalidation remains necessary for races after observe.
+  Its failures after journal dispatch still conservatively retain uncertainty;
+  the new guard does not assert that an unobserved page change is safe to retry.
+- The existing fixtures now expose activation counts. Canonical requires
+  stale_observation for old revisions, target_not_found for retired/unavailable
+  refs, unchanged effects after refusals, and fresh-ref recovery. MCP codes are
+  bounded structured evidence, not extracted from human error messages.
+- Positive and unsatisfied waits require same-page/origin complete observation
+  evidence and valid elapsed milliseconds; an unsatisfied early return cannot
+  masquerade as a completed timeout. Existing wait polling needed no runtime
+  change in this slice. Its timeout result is satisfied=false, not backend crash.
+- Real isolated Chrome executed the production DOM probe and fixture handlers.
+  Replacement changes private handles, disabled/hidden state is observable,
+  and the fixture detects a direct hidden JS click. This is not proof that
+  either S22U backend passed the new canonical action boundary gate.
+
+## 2026-09-23 — Form effects and owner-confirmed replay gate
+
+- The existing service already implements consequential-action confirmation
+  and idempotent terminal replay. Reused those interfaces; no new backend,
+  approval engine, runtime bypass, or external form submission was introduced.
+- Canonical now resolves one visible/enabled named ref for type/check/select/
+  click and checks actual fixture values after every action. A fresh same-page,
+  same-origin complete observation must show submission counts 0 before local
+  approval, 1 after approval, and 1 after replay of the identical confirmed
+  request. Replay must also return the identical terminal result.
+- Only a valid pending browser_act confirmation ID crosses the MCP-error
+  boundary in memory; raw messages, preview, and ID never enter its exception
+  text. The owner-local CLI must acknowledge the exact approved challenge.
+  Effect failures retain fixed stage labels; MCP action errors also retain an
+  allowlisted action kind, never arbitrary page content or input parameters.
+- An opt-in test used the installed macOS Chrome in a new headless profile with
+  the repository CDP client and loopback fixture. It checked live input/change
+  handlers, actual DOM fields, and distinct submit counts 0/1/2. This validates
+  the fixture, not the full Termux/MCP/backend action or exactly-once path.
+  Both S22U backend action results and the remaining Stage 2 boundaries are open.
+
+## 2026-09-23 — Completed intake and bounded next work
+
+- Downloaded socket-r1 JSON still matches the preserved 5,729-byte copy and
+  SHA-256 `0885d9ff85393b49b18a0fbb5ecfc39e72d31383d76ea1e82c7b49ea3243be8e`.
+  It has a completion timestamp, 21 PASS and one UNAVAILABLE. No additional
+  Hermes message is required; global socket ownership/cleanup remains UNKNOWN.
+- Re-read current `verify_backend()` and `/forms`: the gate does not call
+  browser_act, and the fixed submitted message cannot count duplicate effects.
+  The next bounded unit is form-state/effect evidence and the existing compact
+  action/owner-confirmation/idempotency flow, not another diagnostic framework.
+
+## 2026-09-23 — Canonical transition contracts and action-test gap
+
+- Canonical previously checked files only after a backend exception, not after
+  success, and required absence of the still-live MCP control socket. The shared
+  transition path now records both outcomes and permits only the bound MCP
+  generation/private socket to stay live. It reuses the process cleanup helper;
+  observer restart requires a second check after the interactive root exits.
+- A later census could otherwise adopt a reused root PID as newly owned.
+  Root generation is now fixed per trusted MCP launch; the observed ancestry
+  set never gains an unrelated replacement through repeated sampling. A later
+  verified observer launch may bind its own new generation, including PID reuse.
+- Transition failure does not erase a successful browser observation. Its
+  post_stop result separately blocks benchmark permission and later starts;
+  the Korean summary and benchmark consumer recognize that distinction.
+- Stage 1 is locally covered by 574 tests, real temporary sockets/files/leases,
+  owned dummy children, and synthetic proc transitions. This is not real
+  Termux process-tree evidence or a host-wide cleanup guarantee.
+- Stage 2 source inspection: canonical still has no browser_act calls. Existing
+  /forms has four interactive controls but its submit handler always writes
+  the same submitted text. Effect counts and form-state evidence must be added
+  to that fixture before claiming no duplicate submission on real backends.
+
+## 2026-09-23 — Benchmark peer-bound shutdown and sampled descendants
+
+- The CLI starter double-forks; its launcher PID is not a trusted daemon
+  identity. Linux Unix-stream SO_PEERCRED provides the connected peer PID/UID:
+  [Unix socket manual](https://man7.org/linux/man-pages/man7/unix.7.html).
+  Benchmark now checks that peer against the private pidfile and proc start
+  ticks and keeps the authenticated connection for shutdown, avoiding a
+  check-then-reconnect gap. Unsupported peer credentials fail closed.
+- Shared process cleanup separates known observed descendants from unattributed
+  new processes. Missing census blocks startup. A later observation failure
+  stays incomplete but does not discard an authenticated daemon's safe shutdown
+  path. No guessed PID or process-name match authorizes termination.
+- Before/finally warm-command observations survive failures/cancellation and
+  do not enter latency samples. File absence alone cannot pass quality or allow
+  the next launch. Public process scope/counts stay separate from file cleanup;
+  raw numeric ancestry remains private. All this is local regression evidence,
+  not a new device result or proof of unseen descendants. Canonical transition
+  handling is the remaining ownership integration step before Stage 1 review.
+
+## 2026-09-23 — Name-independent census and observed candidate ancestry
+
+- REDs demonstrate that the name allowlist omitted an unlisted helper, while
+  cmdline/comm reads made identity-only inspection unnecessarily unavailable.
+  The census now reads same-UID proc stat identities only: PID, parent PID, and
+  start ticks. It retains the existing two-read race and visibility guards.
+- Linux documents parent/start fields and PID reuse independently of an open
+  proc descriptor: [proc documentation](https://docs.kernel.org/filesystems/proc.html).
+  An observed parent must not have started after its alleged child. PID and
+  start ticks, not names or final parent alone, identify observed descendants.
+- Canonical records ancestry at trusted MCP initialization and around each tool
+  call, including failures/cancellation. Confirmed observed survivors are FAIL;
+  new processes without observed ancestry are UNKNOWN. Reparenting does not
+  erase earlier evidence and PID reuse does not transfer ownership. The numeric
+  observation set is private; public output contains bounded counts/statuses.
+- This is sampled visible-process evidence, not continuous supervision or proof
+  of invisible/never-observed descendants. No census issues signals. Benchmark
+  trusted-daemon integration and safe between-backend transitions remain open.
+
+## 2026-09-23 — Completed Hermes result and planning boundary
+
+- Re-read the downloaded socket-r1 JSON: completed_at_utc is present, 21 checks
+  PASS and one is UNAVAILABLE. The socket read failed with PermissionError,
+  errno 13; match counts are null and cleanup_assessment is UNKNOWN. This is a
+  completed diagnostic result, not evidence that Hermes is still running.
+- Its SHA-256 matches the preserved copy. The downloaded canonical manifest and
+  benchmark summary hashes also match the returned-file records; both retain
+  their original PASS. The original readback actual remains unrecoverable from
+  these records, and production_approval remains false.
+- HEAD is v0.2.20; the existing 30-path dirty worktree contains later local work.
+  That work has no new device authority. Current source still uses a browser-name
+  process census and direct-child waits, while verify_backend does not call
+  browser_act. Those bounded gaps determine the next implementation order.
+- This request updates the plan only. Preserve existing code, avoid another
+  global socket query, and finish a bounded ownership review before broadening
+  validation to real fixture actions and recovery. No new framework is planned.
+
+## 2026-09-23 — Canonical finalization and returned-file integrity
+
+- Shared private-file reads could block opening a FIFO before checking its type,
+  and accepted symlink parents, foreign file ownership, or replacement during
+  reading. Real FIFO/replacement negative controls reproduce those gaps; the
+  bounded nonblocking reader now checks parent/file ownership and stable identity.
+  Benchmark manifest/checksum reading reuses it instead of check-then-read copies.
+- Canonical now independently rechecks source/installed environment and both PNGs.
+  PNG content must match the captured artifact, not merely be a valid later image.
+  Moving the existing PNG validator into final_verify avoids importing a sibling
+  package from the standalone verifier under Python -I. The benchmark keeps its
+  existing file_check API as a delegate; the validation logic is not duplicated.
+- Returned-file manifests bind the writer's intended bytes to observed private
+  files. Publication failure and execution quality remain separate: original
+  reports are not overwritten, but exit/next-stage authorization stays closed.
+  New canonical manifests declare their integrity record; the benchmark verifies
+  that record and its files before allowing execution. Legacy records are not
+  rewritten or granted new device authority by this additive format.
+- Cancellation, post-process census/write failure, cleanup-reader failure, and
+  private diagnostic-write failure no longer discard otherwise collectable
+  independent results. Unavailable evidence remains null/UNKNOWN/UNAVAILABLE.
+  This is local fault-injection evidence, not observed S22U cleanup or new
+  descendant coverage. Owned-descendant proof and action/recovery gates remain open.
+
+## 2026-09-22 — v0.2.20 results and next-work planning
+
+- Benchmark finalization previously raised before writing reports when closing
+  authority or cleanup failed. It now preserves completed samples and a FAIL
+  result, independently rechecks environment/Git/PNGs, and never relaunches a
+  browser for those checks. A missing, unreadable, changed, and unbound PNG are
+  different results. Public status counts omit raw private failure strings.
+- Reusing the exclusive canonical output writer prevents overwriting a report
+  or symlink target. The current package metadata declares Python >=3.10, so
+  added exception notes must remain optional; local 3.11+ coverage does not prove
+  a 3.10 runtime. Report-file integrity collection and canonical integration
+  remain unfinished alongside descendant evidence.
+- Partial-start regressions reproduced a separate ownership gap: Pilot closed
+  only BrowserPilot on session-init failure, adapters discarded failed pilots,
+  and service startup released its lease or bypassed cleanup on cancellation.
+  Pending backend ownership now survives failed cleanup, blocks replacement,
+  and is cleaned through owner close. No active session is published until its
+  metadata/result is constructed. Pending cleanup cannot report an idle viewer.
+- Native Firefox now owns its BiDi client before connecting, including when
+  connection and transport close both fail. Daemon startup exceptions reach the
+  same cleanup path; file removal checks recorded identities and listener drain
+  is bounded. A real owned dummy child cancellation test proves direct-child
+  and two-lock retention/release, not termination of all browser descendants.
+- Owned shutdown regressions now reproduce and fix an additional runtime gap:
+  Browser/Pilot errors could be swallowed, adapter references discarded, and
+  service leases released even when stopping failed. STOPPING now blocks new
+  work, hides page content, and retains ownership until an explicit cleanup
+  succeeds. Completed direct child waits, not PID-name matching, discard handles.
+- Firefox callback shutdown previously left its listening socket open; a real
+  local HTTPServer reproduced the missing server_close(). BiDi/native cleanup
+  failures now retain unresolved resources and propagate fixed errors. MCP
+  transport teardown also calls service cleanup; legacy daemon failure preserves
+  its socket/pidfile evidence and CLI stop cannot silently auto-start a new daemon.
+- These tests use owned local dummy processes/listeners and real orchestration
+  where possible. They do not establish historical device leaks or Termux browser
+  success. Descendant coverage and the independent result collector remain open.
+- Stage 1 implementation: nine RED tests reproduce missing procfs/read-denial
+  evidence and PID-generation ambiguity. The first local GREEN records a
+  visible-same-UID scope, fixed error counts, and proc stat start ticks, with
+  incomplete survivor counts remaining null. Canonical report integration and
+  ordinary MCP-failure continuation now have local coverage; candidate-owned
+  descendant tracking and the full independent result collector remain open.
+  This is not a device cleanup PASS.
+- Linux's process documentation confirms stat field 22 is start time and that a
+  PID can be reused even while proc descriptors exist:
+  <https://docs.kernel.org/filesystems/proc.html>. The implementation reads
+  generation on both sides of command/comm acquisition to reject mixed evidence.
+- Further RED/GREEN closes metadata-error-as-absence in both cleanup callers,
+  unreadable/symlinked display-lease directories, and benchmark preflight paths.
+  The first unavailable stop observation is retained instead of being silently
+  resampled into success. Removing duplicate symlink probes also avoids raw
+  PermissionError escape on Python 3.11/3.12.
+- Canonical and benchmark now write mode-0600 Korean summaries from their JSON
+  results. The canonical note names incomplete fixed cleanup checks without
+  copying private exception strings. The benchmark's additive public cleanup
+  record explicitly covers daemon files only, not process/lease termination.
+- Planning baseline is clean commit `22155ee1d7536dbf7f1fcd1d98507323b6db96ce`
+  (`v.0.2.20`), tree `d19f826879fe487ed39c5a9a3b00d4e5547d62f8`.
+  The earlier v0.2.19/uncommitted handoff entries below are historical.
+- Preserved device evidence reports canonical PASS and benchmark quality PASS,
+  with zero operation errors and both backends within the warm latency budgets.
+  The canonical manifest SHA-256 is
+  `a465b1a2bacbed7506606453377f60ad7e23c87283effab62e6760ad913b572f`.
+- The completed `22155ee1d753-socket-r1` report records 21 PASS and one
+  UNAVAILABLE: `/proc/net/unix` raised `PermissionError`, errno 13. Its ten PNG
+  checks, returned-file integrity, and Git checks passed as reported. Empty
+  entries with null counts are not proof of zero sockets. The original readback
+  actual is not restored, and production approval remains false.
+- Evidence is preserved outside Git under
+  `../Termu-inator-device-artifacts/s22u-v0220-22155ee1d753-results/`.
+  Mac review checks report identities and hashes; the PNG bytes and diagnostic
+  scripts were not supplied, so their execution remains device-reported evidence.
+- At the v0.2.20 baseline, `_process_snapshot()` returned an empty mapping when `/proc`
+  is absent and skips unreadable entries; `_wait_for_new_processes()` compares
+  PID keys only. This can omit visibility/generation uncertainty. It is a
+  verification gap, not proof of a device process leak. Benchmark `stop_daemon()`
+  checks socket/pidfile absence, not browser-descendant termination.
+- Reuse `_cleanup_summary()`, `validate_released_session_lock()`, the existing
+  process handles/display-lease identities, and benchmark `file_check()` rather
+  than creating a second cleanup/PNG framework. Global socket visibility must
+  stay distinct from evidence about resources owned by this run.
+- `verify_backend()` currently exercises start, navigation, observation,
+  screenshot/artifact retrieval, status, and stop, but does not call
+  `browser_act`. Existing fixture routes and service/adapter action tests support
+  a bounded next step: real observe–act–verify scenarios, then crash/idle recovery.
+- Tabs/dialogs/completed downloads and pre-follow redirect/DNS enforcement remain
+  documented gaps. Existing fake/local tests are not device proof. No new engine,
+  automatic legacy migration, remote access layer, or production switch is needed
+  to plan these next steps.
+
 ## 2026-09-22 — Evidence scope and execution follow-up
 
 - Clean HEAD is `0a295fe4cdf94bc185e7f75f932043b017beac78` (`v.0.2.19`); its nine paths match the previous local repair. The supplied S22U v0.2.18 report is historical canonical PASS / benchmark screenshot FAIL, not a new v0.2.19 device result.
