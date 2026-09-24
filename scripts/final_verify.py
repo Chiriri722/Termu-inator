@@ -188,6 +188,19 @@ _MCP_ERROR_DETAIL_VALUES = {
         }
     ),
 }
+_FAILURE_CONTEXT_VALUES = {
+    "verification_stage": frozenset({
+        "session_start", "permission_grant", "navigation", "observation", "form_actions",
+        "form_initial", "form_type", "form_check", "form_select", "form_request_confirmation",
+        "form_before_approval", "form_after_approval", "form_after_replay",
+        "screenshot", "artifact_read", "artifact_store", "artifact_write",
+        "action_boundaries", "confidential_boundaries", "session_status", "session_stop",
+    }),
+    "tool": frozenset(_INTERACTIVE_TOOL_NAMES),
+    "kind": frozenset({"click", "type", "key", "scroll", "select", "check", "hover", "drag"}),
+    "code": _MCP_ERROR_CODES | {"mcp_error"},
+    **_MCP_ERROR_DETAIL_VALUES,
+}
 _MAX_CONTROL_SOCKET_PATH_BYTES = 100
 _MCP_EXEC_LAUNCHER = "\n".join(
     (
@@ -213,6 +226,35 @@ class VerificationFailure(RuntimeError):
     """A bounded, page-data-free release-gate failure."""
 
     mcp_code: str | None = None
+    verification_context: Mapping[str, object] | None = None
+
+
+def _safe_failure_context(value: object) -> dict[str, str]:
+    """Public labels only; never infer context from exception or page text."""
+    if not isinstance(value, Mapping):
+        return {}
+    return {key: item for key, allowed in _FAILURE_CONTEXT_VALUES.items()
+            if isinstance(item := value.get(key), str) and item in allowed}
+
+
+def _verification_failure_evidence(
+    exc: BaseException, stage: str, raw_errors: list[dict[str, str]],
+) -> dict[str, object]:
+    evidence: dict[str, object] = {}
+    # One body failure and one stop failure; do not traverse arbitrary exception chains.
+    for key, error in ((None, exc), ("additional_failure", getattr(exc, "additional_verification_failure", None))):
+        if not isinstance(error, (Exception, asyncio.CancelledError)):
+            continue
+        summary = {"failure_type": type(error).__name__,
+                   "failure_context": _safe_failure_context(getattr(error, "verification_context", None))}
+        if key is None:
+            evidence.update(summary)
+        else:
+            evidence[key] = summary
+        raw_errors.append({"stage": stage if key is None else stage + "-additional",
+                           "type": type(error).__name__, "message": repr(error)[:8192]})
+    return evidence
+
 
 class _ConfirmationRequired(VerificationFailure):
     def __init__(self, confirmation_id: str) -> None:
@@ -1664,41 +1706,46 @@ async def _verify_form_actions(
         context = {**context, "expected_page_revision": result["after_revision"]}
         return result
 
-    require_state(observed)
-    for kind, name, role, parameters, field, value in (
-        ("type", "Text input", "textbox", {"text": "termuinator-fixture"}, "text", "termuinator-fixture"),
-        ("check", "Accept terms", "checkbox", {"checked": True}, "terms", True),
-        ("select", "Choose option", "combobox", {"value": "B"}, "choice", "B"),
-    ):
-        stage = kind
-        arguments = request(kind, name, role, parameters)
-        accept_result(await caller("browser_act", arguments), arguments)
-        expected[field] = value
-        observed = await observe()
-
-    stage = "request_confirmation"
-    arguments = request("click", "Submit fixture", "button", {})
     try:
-        await caller("browser_act", arguments)
-    except _ConfirmationRequired as exc:
-        confirmation_id = exc.confirmation_id
-    else:
-        raise VerificationFailure(f"form {stage}: submit did not require local confirmation")
-    stage = "before_approval"
-    observed = await observe()
-    if context["expected_page_revision"] != arguments["expected_page_revision"]:
-        raise VerificationFailure(f"form {stage}: fixture changed while awaiting confirmation")
-    await approve_confirmation(context["session_id"], confirmation_id)
-    confirmed = {**arguments, "confirmation_id": confirmation_id}
-    stage = "after_approval"
-    first = accept_result(await caller("browser_act", confirmed), confirmed)
-    expected["submissions"] = 1
-    observed = await observe()
-    stage = "after_replay"
-    replay = await caller("browser_act", confirmed)
-    if replay != first:
-        raise VerificationFailure(f"form {stage}: replay changed the terminal action result")
-    observed = await observe()
+        require_state(observed)
+        for kind, name, role, parameters, field, value in (
+            ("type", "Text input", "textbox", {"text": "termuinator-fixture"}, "text", "termuinator-fixture"),
+            ("check", "Accept terms", "checkbox", {"checked": True}, "terms", True),
+            ("select", "Choose option", "combobox", {"value": "B"}, "choice", "B"),
+        ):
+            stage = kind
+            arguments = request(kind, name, role, parameters)
+            accept_result(await caller("browser_act", arguments), arguments)
+            expected[field] = value
+            observed = await observe()
+
+        stage = "request_confirmation"
+        arguments = request("click", "Submit fixture", "button", {})
+        try:
+            await caller("browser_act", arguments)
+        except _ConfirmationRequired as exc:
+            confirmation_id = exc.confirmation_id
+        else:
+            raise VerificationFailure(f"form {stage}: submit did not require local confirmation")
+        stage = "before_approval"
+        observed = await observe()
+        if context["expected_page_revision"] != arguments["expected_page_revision"]:
+            raise VerificationFailure(f"form {stage}: fixture changed while awaiting confirmation")
+        await approve_confirmation(context["session_id"], confirmation_id)
+        confirmed = {**arguments, "confirmation_id": confirmation_id}
+        stage = "after_approval"
+        first = accept_result(await caller("browser_act", confirmed), confirmed)
+        expected["submissions"] = 1
+        observed = await observe()
+        stage = "after_replay"
+        replay = await caller("browser_act", confirmed)
+        if replay != first:
+            raise VerificationFailure(f"form {stage}: replay changed the terminal action result")
+        observed = await observe()
+    except (Exception, asyncio.CancelledError) as exc:
+        exc.verification_context = {**_safe_failure_context(getattr(exc, "verification_context", None)),
+                                    "verification_stage": "form_" + stage}
+        raise
     return observed, {
         "status": "PASS", "verified_operations": ["type", "check", "select", "click"],
         "submission_counts": {"before_approval": 0, "after_approval": 1, "after_replay": 1},
@@ -1931,6 +1978,8 @@ async def verify_backend(
     _require_private_directory(output_dir, "verification output directory")
     session_id: str | None = None
     stop_summary: dict[str, object] | None = None
+    failure: BaseException | None = None
+    stage = "session_start"
     try:
         started = _mapping(
             await caller(
@@ -1957,8 +2006,10 @@ async def verify_backend(
         context = _status_context(start_status)
         if context["session_id"] != session_id:
             raise VerificationFailure("session start context is inconsistent")
+        stage = "permission_grant"
         await grant_permission(session_id, fixture_origin)
 
+        stage = "navigation"
         navigated = await caller(
             "browser_navigate",
             {
@@ -1971,6 +2022,7 @@ async def verify_backend(
         context = _page_context(navigated)
         if context["session_id"] != session_id:
             raise VerificationFailure("navigation changed session identity")
+        stage = "observation"
         observed = await caller(
             "browser_observe",
             {
@@ -1994,20 +2046,24 @@ async def verify_backend(
         context = _page_context(observed)
         if context["session_id"] != session_id:
             raise VerificationFailure("observation changed session identity")
+        stage = "form_actions"
         observed, action_summary = await _verify_form_actions(
             caller, observed, approve_confirmation=approve_confirmation,
             fixture_url=fixture_url, fixture_origin=fixture_origin,
         )
         context = _page_context(observed)
+        stage = "screenshot"
         artifact = await caller(
             "browser_screenshot",
             {**context, "mode": "viewport"},
         )
+        stage = "artifact_read"
         screenshot = await _retrieve_artifact(
             caller,
             session_id=session_id,
             artifact=artifact,
         )
+        stage = "artifact_store"
         artifact_summary = validate_artifact_store(
             data_root / "state",
             owner_scope=owner_scope,
@@ -2015,11 +2071,15 @@ async def verify_backend(
             artifact=artifact,
             reconstructed=screenshot,
         )
+        stage = "artifact_write"
         _write_private_bytes(output_dir / f"{backend}.png", screenshot)
+        stage = "action_boundaries"
         boundary_summary = await _verify_action_boundaries(caller, context, fixture_origin=fixture_origin)
+        stage = "confidential_boundaries"
         confidential_summary = await _verify_confidential_boundaries(
             caller, session_id=session_id, fixture_origin=fixture_origin, artifact_uri=artifact["uri"], takeover=takeover,
         )
+        stage = "session_status"
         final_status = _mapping(
             await caller(
                 "browser_session_status",
@@ -2042,22 +2102,38 @@ async def verify_backend(
             "confidential_boundaries": confidential_summary,
             "artifact": artifact_summary,
         }
+    except (Exception, asyncio.CancelledError) as exc:
+        failure = exc
+        exc.verification_context = {"verification_stage": stage,
+                                    **_safe_failure_context(getattr(exc, "verification_context", None))}
+        raise
     finally:
         if session_id is not None:
-            stopped = _mapping(
-                await caller(
-                    "browser_session_stop",
-                    {"session_id": session_id},
-                ),
-                "session stop result",
-            )
-            if (
-                stopped.get("session_id") != session_id
-                or stopped.get("state") != "stopped"
-                or not isinstance(stopped.get("stopped_at"), str)
-            ):
-                raise VerificationFailure("browser session did not stop cleanly")
-            stop_summary = {"state": "stopped", "verified": True}
+            try:
+                stopped = _mapping(
+                    await caller(
+                        "browser_session_stop",
+                        {"session_id": session_id},
+                    ),
+                    "session stop result",
+                )
+                if (
+                    stopped.get("session_id") != session_id
+                    or stopped.get("state") != "stopped"
+                    or not isinstance(stopped.get("stopped_at"), str)
+                ):
+                    raise VerificationFailure("browser session did not stop cleanly")
+            except (Exception, asyncio.CancelledError) as exc:
+                exc.verification_context = {**_safe_failure_context(getattr(exc, "verification_context", None)),
+                                            "verification_stage": "session_stop"}
+                if failure is None:
+                    raise
+                if isinstance(exc, asyncio.CancelledError) and not isinstance(failure, asyncio.CancelledError):
+                    exc.additional_verification_failure = failure
+                    raise
+                failure.additional_verification_failure = exc
+            else:
+                stop_summary = {"state": "stopped", "verified": True}
     result["cleanup"] = stop_summary
     return result
 
@@ -2096,12 +2172,8 @@ class _McpToolCaller:
                 self._process_observer(self.server_pid)
         if getattr(result, "isError", False):
             code = "mcp_error"
-            context: list[str] = []
-            kind = arguments.get("kind")
-            if name == "browser_act" and isinstance(kind, str) and kind in {
-                "click", "type", "key", "scroll", "select", "check", "hover", "drag",
-            }:
-                context.append(f"kind={kind}")
+            context = _safe_failure_context({"tool": name,
+                                            "kind": arguments.get("kind") if name == "browser_act" else None})
             for content in getattr(result, "content", ()):
                 text_value = getattr(content, "text", None)
                 if not isinstance(text_value, str) or len(text_value) > 64 * 1024:
@@ -2116,7 +2188,7 @@ class _McpToolCaller:
                 if not isinstance(envelope, Mapping):
                     continue
                 candidate_code = envelope.get("code")
-                if candidate_code in _MCP_ERROR_CODES:
+                if isinstance(candidate_code, str) and candidate_code in _MCP_ERROR_CODES:
                     code = candidate_code
                 details = envelope.get("details")
                 if isinstance(details, Mapping):
@@ -2131,13 +2203,15 @@ class _McpToolCaller:
                     for key, allowed in _MCP_ERROR_DETAIL_VALUES.items():
                         value = details.get(key)
                         if isinstance(value, str) and value in allowed:
-                            context.append(f"{key}={value}")
+                            context[key] = value
                 break
-            suffix = f" [{','.join(context)}]" if context else ""
+            labels = [f"{key}={value}" for key, value in context.items() if key != "tool"]
+            suffix = f" [{','.join(labels)}]" if labels else ""
             error = VerificationFailure(
                 f"{name} returned MCP error code {code}{suffix}"
             )
             error.mcp_code = code
+            error.verification_context = {**context, "code": code}
             raise error
         structured = getattr(result, "structuredContent", None)
         return _mapping(structured, f"{name} structured result")
@@ -2952,14 +3026,8 @@ async def _run_device_verification(
                         output_dir=output_dir,
                     )
                 except Exception as exc:
-                    result = {"status": "FAIL", "backend": backend, "failure_type": type(exc).__name__}
-                    raw_errors.append(
-                        {
-                            "stage": f"backend-{backend}",
-                            "type": type(exc).__name__,
-                            "message": repr(exc)[:8192],
-                        }
-                    )
+                    result = {"status": "FAIL", "backend": backend,
+                              **_verification_failure_evidence(exc, f"backend-{backend}", raw_errors)}
                 backend_results.append(result)
                 # The MCP parent/control socket stay live; browser-owned resources must not.
                 try:
@@ -3051,9 +3119,7 @@ async def _run_device_verification(
         else:
             observer_restart = {"status": "SKIPPED", "reason": "unsafe_cleanup_state"}
     except (Exception, asyncio.CancelledError) as exc:
-        raw_errors.append({"stage": stage, "type": type(exc).__name__,
-                           "message": repr(exc)[:8192]})
-        failed = {"status": "FAIL", "failure_type": type(exc).__name__}
+        failed = {"status": "FAIL", **_verification_failure_evidence(exc, stage, raw_errors)}
         if stage in {"interactive-mcp", "interactive-cleanup"}:
             interactive.update(failed)
             observer_restart = {"status": "SKIPPED", "reason": "unsafe_cleanup_state"}
@@ -3319,19 +3385,35 @@ def _canonical_post_run_checks(
 def verification_summary_ko(report: Mapping[str, Any]) -> str:
     """Project only fixed statuses, never private failure text, into an operator note."""
     device = report.get("device", {})
-    backends = {item.get("backend"): item.get("status")
+    backends = {item.get("backend"): item
                 for item in device.get("backends", [])}
-    transitions = {item.get("backend"): item.get("post_stop", {}).get("status", "SKIPPED")
-                   for item in device.get("backends", [])}
     allowed = {"PASS", "FAIL", "UNKNOWN", "UNAVAILABLE", "SKIPPED"}
     census = device.get("process_census", {}).get("status", "UNKNOWN")
     status = "PASS" if report.get("status") == "PASS" else "FAIL"
     lines = ["실행: 종료 (모든 항목의 실행·통과를 의미하지 않음)", f"Canonical: {status}"]
+
+    def append_failure(label: str, result: Mapping[str, Any]) -> None:
+        context = _safe_failure_context(result.get("failure_context"))
+        labels = ", ".join(f"{key}={item}" for key, item in context.items())
+        lines.append(f"{label} 실패 위치: {labels or 'UNKNOWN'}")
+        additional = result.get("additional_failure")
+        if isinstance(additional, Mapping):
+            context = _safe_failure_context(additional.get("failure_context"))
+            labels = ", ".join(f"{key}={item}" for key, item in context.items())
+            lines.append(f"{label} 추가 실패: {labels or 'UNKNOWN'}")
+
     for backend in ("chromium", "firefox"):
-        value = backends.get(backend, "SKIPPED")
+        result = backends.get(backend, {})
+        value = result.get("status", "SKIPPED")
         lines.append(f"{backend}: {value if value in allowed else 'UNKNOWN'}")
-        transition = transitions.get(backend, "SKIPPED")
+        if value == "FAIL":
+            append_failure(backend, result)
+        transition = result.get("post_stop", {}).get("status", "SKIPPED")
         lines.append(f"{backend} 종료·전환: {transition if transition in allowed else 'UNKNOWN'}")
+    for profile in ("interactive", "observer_restart"):
+        result = device.get("stdio", {}).get(profile, {})
+        if result.get("status") == "FAIL":
+            append_failure(profile, result)
     cleanup = device.get("cleanup", {})
     incomplete = []
     for name in (

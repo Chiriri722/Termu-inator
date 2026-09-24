@@ -317,7 +317,18 @@ Socket metadata or display-lease lookup failure also stays `null` in cleanup,
 not successful absence. Display leases must be in a real owner-private directory.
 The verifier does not query `/proc/net/unix` or claim host-wide socket cleanup.
 It writes `final-verify-summary.ko.txt` alongside the canonical JSON/checksum:
-a mode-0600 Korean completion note containing only fixed public statuses.
+a mode-0600 Korean completion note containing only fixed public statuses and
+allowlisted failure labels. Failed backends include `failure_context` in the
+manifest: the verifier stage and, when available, the MCP tool, action kind,
+error code, and bounded backend diagnostic labels. Missing labels remain
+unknown; no exception message, page content, path, or session ID is published.
+These labels identify the failed check, not proof of a browser process crash.
+If both a check and session stop fail, `failure_context` and `additional_failure`
+preserve both contexts with the same public-label restrictions. Cancellation takes
+precedence and aborts the remaining backend/restart work; it is not converted to
+a retryable check error.
+Profile failures also carry these labels. Neither failure suppresses the
+independent final cleanup readback, and neither authorizes a rerun.
 This note is derived from the manifest, not a separate approval or evidence source.
 Closing Git/environment and PNG checks run independently, including after a
 recorded failure or cancellation. PNGs must still match the captured artifact.

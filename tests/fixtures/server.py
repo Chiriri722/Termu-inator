@@ -92,7 +92,7 @@ def _pages(port: int) -> dict[str, tuple[str, bytes]]:
                 """<main data-fixture="forms"><form id="fixture-form">
 <label>Text input <input id="text-input" name="text" type="text"></label>
 <label><input id="terms" name="terms" type="checkbox">Accept terms</label>
-<label>Choose option <select id="choice" name="choice"><option>A</option><option>B</option></select></label>
+<label for="choice">Choose option</label> <select id="choice" name="choice"><option>A</option><option>B</option></select>
 <button id="submit" type="submit">Submit fixture</button>
 <output id="form-result" style="display:block">Fixture state: {"text":"","terms":false,"choice":"A","submissions":0}</output></form></main>
 <script>const form=document.querySelector('#fixture-form');let submissions=0;

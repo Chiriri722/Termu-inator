@@ -1,5 +1,80 @@
 # Progress: Termu-inator Modernization
 
+## 2026-09-24 — Preserve overlapping action/stop failures and cancellation
+
+- Revalidated HEAD `98f4174e827c` and the preceding eight modified paths; kept
+  that work intact. The previous goal turn was verified implementation progress.
+- Traced the shared verifier's two production collectors and existing cleanup
+  tests. A test-first double-failure regression failed in all three cases:
+  ordinary action error + stop error, cancelled action + stop error, and
+  action error + cancellation during stop. The first two lost the original
+  exception; the third lost its additional failure evidence.
+- Retained the pending failure across `finally`, kept cancellation propagation,
+  and captured the other exception as one bounded additional failure. Both
+  contexts now reach the existing public/profile reporting and Korean note;
+  both raw entries remain private. No general exception traversal or new retry.
+- A second RED confirmed lost additional context in both backend and cancelled
+  profile reports. GREEN verifies private text exclusion, cancellation stopping
+  subsequent work, final socket readback, and continued benchmark denial.
+- Python 3.14.7 focused verifier/benchmark/packaging: 171/171 PASS (2.366s).
+  Python 3.11.15 / 3.12.13: each 171/171 PASS (1.915s / 1.955s).
+  Warning-as-error full suite: 602 tests OK (10.100s), with the existing opt-in
+  real-browser test skipped once. No actual browser was started in this slice;
+  the preceding actual Chrome test evidence remains separate.
+- The two edited Python files pass Python 3.10 grammar and diff whitespace
+  checks. No dependency/runtime-source change, package installation, commit/
+  push, new wheel/seal, S22U execution, or production activation occurred.
+- Remaining authority is unchanged: obtain the requested existing S22U error
+  labels and a new user-owned clean candidate commit before a new sealed gate.
+  Actual active-backend interruption, soak, and clean-Termux installation are
+  still incomplete and are not claimed by these local control-flow tests.
+
+The docs-write shared style reference is still absent; existing Markdown style
+was retained without installing a formatter. Both regression REDs were expected
+and preserved in the work log, not device errors or reasons to rerun the device.
+
+## 2026-09-24 — v0.2.39 follow-up: fixture name and bounded failure context
+
+- Continued from the verified public device evidence at commit
+  `98f4174e827c86efca419bf067b2035103c28d3a`, not from an assumed browser crash.
+  Both device backend failures remain unresolved; the narrow request for labels
+  from existing private records is separate from this local work.
+- Extended the existing isolated Chrome test to run the real shared DOM probe
+  and check all four form target names throughout the existing effect sequence.
+  RED: `Choose option AB` did not match `Choose option` (1 test, 47.931s).
+  Changed only the fixture's select label to an explicit `for` association.
+  GREEN: the same test passed (2.952s), including real values/submissions and
+  the existing cancellation/reconnection check. No general AccName claim.
+- Added diagnostic REDs before implementation: missing structured stage/tool/
+  kind/code labels, lost public failure context, unsafe label omission, and
+  list/dict MCP codes raising TypeError. Fixed verifier stages and one shared
+  allowlist now feed public JSON and its Korean note. Raw data remains private;
+  unknown labels stay unknown, and failures still suppress benchmark authority.
+- Python 3.14.7 focused verifier/benchmark/packaging: 169/169 PASS (12.377s).
+  Full warning-as-error suite with opt-in isolated Chrome: 600/600 PASS,
+  skip 0 (23.955s). This is Mac-local coverage, not Termux/MCP device acceptance.
+  Python 3.12.13 / 3.11.15 focused suites: each 169/169 PASS (7.252s / 7.070s).
+- The four edited Python files parse with Python 3.10 grammar; diff whitespace
+  checks pass. Runtime sources, dependencies, original Downloads evidence,
+  sealed v0.2.39 artifacts, device identities and Hermes configuration are
+  unchanged. No package install, new wheel, commit/push, device run or cutover.
+- Next: obtain the already-requested existing device error labels, review any
+  demonstrated remaining fault, then use a new user-owned clean commit and new
+  sealed identity for any authorized device run. Do not replay v0.2.39. Active-
+  backend fault/100-action/idle and clean-Termux acceptance remain open.
+
+### Invocation and environment notes
+
+- The first combined focused command mistyped `tests.test_packaging` (module
+  absent); its 146 real tests completed but discovery reported one error.
+  Corrected to the existing `tests.test_packaging_contract`; no test was removed.
+- One documentation lookup used an unmatched uppercase glob; corrected to
+  `rg --files` and the actual lowercase path. An unprivileged process check was
+  denied by the sandbox; no process was killed or cleanup bypassed.
+- The docs-write shared style reference remains absent. Existing Markdown style
+  was retained without installing a formatter. The planning/TDD skills kept the
+  fix grounded in a real failing probe and the existing plan/test harness.
+
 ## 2026-09-23 — Operational documentation and candidate authority checkpoint
 
 - Classified the preceding CDP repair as verified progress. Current HEAD is

@@ -1327,7 +1327,7 @@ class ProcessCensusEvidenceTests(unittest.TestCase):
 class ProcessCensusGateTests(unittest.IsolatedAsyncioTestCase):
     async def gate(self, baseline: dict, latest: dict, *, profile_failure: bool | str = False,
                    readback_failure: bool = False, observed: dict | None = None,
-                   transition: dict | BaseException | None = None, backend_failure: bool = False,
+                   transition: dict | BaseException | None = None, backend_failure: bool | BaseException = False,
                    control_mode: int = 0o600, post_profile: dict | None = None,
                    later_observed: dict | None = None, restart_observed: dict | None = None):
         fixture = SimpleNamespace(
@@ -1351,7 +1351,7 @@ class ProcessCensusGateTests(unittest.IsolatedAsyncioTestCase):
                 with patch.object(final_verify_module, "_process_snapshot", return_value=later_observed):
                     active_observer(12345)
             if backend_failure and name == "chromium":
-                raise VerificationFailure("private backend failure")
+                raise backend_failure if isinstance(backend_failure, BaseException) else VerificationFailure("private backend failure")
             return {"status": "PASS", "backend": name}
 
         async def profile(**kwargs):
@@ -1475,6 +1475,60 @@ class ProcessCensusGateTests(unittest.IsolatedAsyncioTestCase):
         summary, _ = await self.gate(complete, complete, backend_failure=True)
         self.assertEqual(self.backend_calls, ["chromium", "firefox"])
         self.assertEqual([item["status"] for item in summary["backends"]], ["FAIL", "PASS"])
+
+    async def test_public_failure_context_is_allowlisted_and_does_not_open_gate(self) -> None:
+        complete = {"status": "PASS", "processes": {}, "error_counts": {}}
+        failure = VerificationFailure("PRIVATE page and path")
+        failure.verification_context = {
+            "verification_stage": "form_type", "tool": "browser_act", "kind": "type",
+            "code": "backend_crashed", "operation": ["PRIVATE"], "stage": "PRIVATE stage",
+            "reason": "read_failed", "session_id": "PRIVATE session", "message": "PRIVATE text",
+        }
+        summary, raw_errors = await self.gate(complete, complete, backend_failure=failure)
+        self.assertEqual(summary["backends"][0].get("failure_context"), {
+            "verification_stage": "form_type", "tool": "browser_act", "kind": "type",
+            "code": "backend_crashed", "reason": "read_failed",
+        })
+        self.assertNotIn("PRIVATE", json.dumps(summary))
+        self.assertIn("PRIVATE", json.dumps(raw_errors))
+        self.assertFalse(summary["benchmark_allowed"])
+        note = final_verify_module.verification_summary_ko({"status": "FAIL", "device": summary})
+        self.assertIn("verification_stage=form_type", note)
+        self.assertIn("code=backend_crashed", note)
+        self.assertNotIn("PRIVATE", note)
+
+    async def test_additional_stop_failure_is_publicly_bounded_and_privately_preserved(self) -> None:
+        complete = {"status": "PASS", "processes": {}, "error_counts": {}}
+        for error_type in (VerificationFailure, asyncio.CancelledError):
+            with self.subTest(error_type=error_type):
+                failure = error_type("PRIVATE action detail")
+                failure.verification_context = {"verification_stage": "form_type", "message": "PRIVATE"}
+                failure.additional_verification_failure = RuntimeError("PRIVATE stop detail")
+                failure.additional_verification_failure.verification_context = {
+                    "verification_stage": "session_stop", "tool": "browser_session_stop", "reason": "PRIVATE",
+                }
+                summary, errors = await self.gate(complete, complete, backend_failure=failure)
+                if error_type is asyncio.CancelledError:
+                    result = summary["stdio"]["interactive"]
+                    self.assertEqual(self.backend_calls, ["chromium"])
+                    self.assertEqual(self.profile_calls, ["interactive"])
+                else:
+                    result = summary["backends"][0]
+                self.assertEqual(result.get("failure_context"), {"verification_stage": "form_type"})
+                self.assertEqual(result.get("additional_failure"), {
+                    "failure_type": "RuntimeError", "failure_context": {
+                        "verification_stage": "session_stop", "tool": "browser_session_stop",
+                    },
+                })
+                self.assertNotIn("PRIVATE", json.dumps(summary))
+                self.assertIn("PRIVATE action detail", json.dumps(errors))
+                self.assertIn("PRIVATE stop detail", json.dumps(errors))
+                self.assertTrue(summary["cleanup"]["control_socket_absent"])
+                self.assertFalse(summary["benchmark_allowed"])
+                note = final_verify_module.verification_summary_ko({"status": "FAIL", "device": summary})
+                self.assertIn("verification_stage=form_type", note)
+                self.assertIn("추가 실패: verification_stage=session_stop", note)
+                self.assertNotIn("PRIVATE", note)
 
     async def test_transition_census_failure_does_not_start_more_work_or_discard_results(self) -> None:
         complete = {"status": "PASS", "processes": {}, "error_counts": {}}
@@ -1780,6 +1834,25 @@ class McpFailureEvidenceTests(unittest.IsolatedAsyncioTestCase):
             self.assertNotIn("PRIVATE", str(caught.exception))
             if kind == "type":
                 self.assertIn("kind=type", str(caught.exception))
+            self.assertEqual(getattr(caught.exception, "verification_context", None), {
+                "tool": "browser_act", "code": "backend_crashed", "backend": "firefox",
+                **({"kind": "type"} if kind == "type" else {}),
+            })
+
+    async def test_malformed_error_code_is_not_an_unhashable_exception_or_private_context(self) -> None:
+        for code in ([], {}, None):
+            with self.subTest(code=code):
+                result = SimpleNamespace(isError=True, content=[SimpleNamespace(text=json.dumps({
+                    "code": code, "message": "PRIVATE", "details": {"stage": ["PRIVATE"]},
+                }))])
+                caller = final_verify_module._McpToolCaller(
+                    SimpleNamespace(call_tool=AsyncMock(return_value=result)), server_pid=os.getpid(),
+                )
+                with self.assertRaises(VerificationFailure) as caught:
+                    await caller("browser_navigate", {"url": "PRIVATE"})
+                self.assertEqual(getattr(caught.exception, "verification_context", None), {
+                    "tool": "browser_navigate", "code": "mcp_error",
+                })
 
     def test_owner_confirmation_requires_matching_approved_result(self) -> None:
         approve = getattr(final_verify_module, "_run_control_approval", None)
@@ -2160,6 +2233,19 @@ class FinalVerifyCliContractTests(unittest.TestCase):
         self.assertIn("firefox 종료·전환: UNKNOWN", note)
         self.assertNotIn("PRIVATE", note)
 
+    def test_korean_note_rechecks_failure_allowlist_and_marks_missing_context_unknown(self) -> None:
+        note = final_verify_module.verification_summary_ko({
+            "status": "FAIL", "device": {"backends": [
+                {"backend": "chromium", "status": "FAIL", "failure_context": {
+                    "verification_stage": "form_select", "code": "PRIVATE code", "message": "PRIVATE text",
+                }},
+                {"backend": "firefox", "status": "FAIL"},
+            ]},
+        })
+        self.assertIn("chromium 실패 위치: verification_stage=form_select", note)
+        self.assertIn("firefox 실패 위치: UNKNOWN", note)
+        self.assertNotIn("PRIVATE", note)
+
     def test_cli_writes_private_korean_summary_without_changing_stdout_contract(self) -> None:
         for status, census in (("PASS", "PASS"), ("FAIL", "UNAVAILABLE")):
             with self.subTest(status=status), tempfile.TemporaryDirectory() as temp_dir:
@@ -2488,19 +2574,62 @@ class BackendReleaseFlowTests(unittest.IsolatedAsyncioTestCase):
         await self._run_form_gate()
 
     async def test_stops_session_when_action_boundary_gate_fails(self) -> None:
-        with self.assertRaisesRegex(VerificationFailure, "boundary test refusal"):
+        with self.assertRaisesRegex(VerificationFailure, "boundary test refusal") as caught:
             await self._run_form_gate(fault="boundary_failure")
         self.assertEqual(self.last_calls[-1][0], "browser_session_stop")
+        self.assertEqual(getattr(caught.exception, "verification_context", None), {
+            "verification_stage": "action_boundaries",
+        })
 
     async def test_rejects_success_without_actual_effect_and_duplicate_submission(self) -> None:
         for fault, stage in (("no_type_effect", "type"), ("early_submit", "before_approval"),
-                             ("duplicate_submit", "after_replay"), ("wrong_origin", "type"), ("failed_action", "type")):
+                             ("duplicate_submit", "after_replay"), ("wrong_origin", "type"),
+                             ("failed_action", "type"), ("select_name_mismatch", "select")):
             with self.subTest(fault=fault):
-                with self.assertRaisesRegex(VerificationFailure, f"form {stage}:"):
+                with self.assertRaisesRegex(VerificationFailure, f"form {stage}:") as caught:
                     await self._run_form_gate(fault=fault)
                 self.assertEqual(self.last_calls[-1][0], "browser_session_stop")
+                self.assertEqual(getattr(caught.exception, "verification_context", None), {
+                    "verification_stage": "form_" + stage,
+                })
 
-    async def _run_form_gate(self, *, fault: str | None = None) -> None:
+    async def test_stop_failure_is_not_reported_as_the_preceding_successful_status(self) -> None:
+        with self.assertRaises(VerificationFailure) as caught:
+            await self._run_form_gate(fault="stop_failure")
+        self.assertEqual(getattr(caught.exception, "verification_context", None), {
+            "verification_stage": "session_stop",
+        })
+
+    async def test_action_error_and_cancellation_survive_a_second_stop_failure(self) -> None:
+        for action_type, stop_type in (
+            (VerificationFailure, RuntimeError),
+            (asyncio.CancelledError, RuntimeError),
+            (VerificationFailure, asyncio.CancelledError),
+        ):
+            with self.subTest(action_type=action_type, stop_type=stop_type):
+                action_error = action_type("PRIVATE action detail")
+                stop_error = stop_type("PRIVATE stop detail")
+                expected = stop_error if stop_type is asyncio.CancelledError else action_error
+                additional = action_error if expected is stop_error else stop_error
+                try:
+                    await self._run_form_gate(action_error=action_error, stop_error=stop_error)
+                except (Exception, asyncio.CancelledError) as caught:
+                    self.assertIs(caught, expected)
+                    self.assertIs(getattr(caught, "additional_verification_failure", None), additional)
+                else:
+                    self.fail("double failure must not return success")
+                self.assertEqual(getattr(action_error, "verification_context", None), {
+                    "verification_stage": "form_type",
+                })
+                self.assertEqual(getattr(stop_error, "verification_context", None), {
+                    "verification_stage": "session_stop",
+                })
+                self.assertEqual([name for name, _ in self.last_calls].count("browser_act"), 1)
+                self.assertEqual([name for name, _ in self.last_calls].count("browser_session_stop"), 1)
+
+    async def _run_form_gate(self, *, fault: str | None = None,
+                             action_error: BaseException | None = None,
+                             stop_error: BaseException | None = None) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             data_root = root / "termuinator"
@@ -2574,6 +2703,8 @@ class BackendReleaseFlowTests(unittest.IsolatedAsyncioTestCase):
                     ]
                     if fault == "wrong_origin" and self.revision > 1:
                         value["origin"] = "https://example.com"
+                    if fault == "select_name_mismatch":
+                        value["interactive_elements"][2]["accessible_name"] = "Choose option AB"
                     return value
 
                 async def __call__(
@@ -2611,6 +2742,8 @@ class BackendReleaseFlowTests(unittest.IsolatedAsyncioTestCase):
                     if name in {"browser_navigate", "browser_observe"}:
                         return self.observed()
                     if name == "browser_act":
+                        if action_error is not None:
+                            raise action_error
                         key = arguments["idempotency_key"]
                         if key in self.terminal:
                             if fault == "duplicate_submit" and arguments["kind"] == "click":
@@ -2651,9 +2784,11 @@ class BackendReleaseFlowTests(unittest.IsolatedAsyncioTestCase):
                     if name == "browser_session_status":
                         return status
                     if name == "browser_session_stop":
+                        if stop_error is not None:
+                            raise stop_error
                         return {
                             "session_id": "session_abcdefgh",
-                            "state": "stopped",
+                            "state": "active" if fault == "stop_failure" else "stopped",
                             "stopped_at": "2026-08-26T01:02:05+00:00",
                         }
                     raise AssertionError(name)
@@ -2772,7 +2907,7 @@ class BackendReleaseFlowTests(unittest.IsolatedAsyncioTestCase):
             data_root.mkdir(mode=0o700)
             output = root / "output"
             output.mkdir(mode=0o700)
-            with self.assertRaisesRegex(VerificationFailure, "observe failed"):
+            with self.assertRaisesRegex(VerificationFailure, "observe failed") as caught:
                 await verify_backend(
                     caller,
                     grant_permission=grant,
@@ -2788,6 +2923,9 @@ class BackendReleaseFlowTests(unittest.IsolatedAsyncioTestCase):
                 )
 
         self.assertEqual(calls[-1], "browser_session_stop")
+        self.assertEqual(getattr(caught.exception, "verification_context", None), {
+            "verification_stage": "observation",
+        })
 
 
 if __name__ == "__main__":

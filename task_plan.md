@@ -197,7 +197,18 @@ benchmark나 RC 승인을 진행하지 않는다.
 
 ## Current Phase
 
-2026-09-23 — Local 보강·운영 문서 확인, 새 candidate commit 확정 필요
+2026-09-24 — v0.2.39 기기 FAIL 증거 확인, 독립 재현 결함과 공개 진단 보강
+
+- [x] `98f4174e827c86efca419bf067b2035103c28d3a`의 공개 반환 파일 4개 무결성 확인.
+  양 backend는 `VerificationFailure`, PNG는 미생성이다. 실제 첫 실패 action은 공개되지
+  않았으므로 근본 원인으로 단정하지 않는다. Canonical FAIL, benchmark 미실행을 유지한다.
+- [x] 실제 `/forms`와 공용 DOM probe의 선택 상자 이름 불일치를 Chrome에서 RED→GREEN.
+- [x] 비공개 원문 없이 고정 검수 단계·MCP 오류 코드가 공개 결과에 남도록 보강.
+- [x] Python 3.14 전체 600 tests PASS, skip 0(격리 Chrome 포함). 기기 PASS로 승격하지 않는다.
+- [x] 같은 verifier에서 작업 실패·취소와 session stop 실패가 겹치는 경로 RED→GREEN.
+  두 실패 정보와 취소 전파를 보존하며 원문 로그를 공개하지 않는다. 새 local 전체 suite는
+  602 tests OK, 기존 opt-in browser 1 skip이다. 원격 실행·활성 backend fault 증거는 아니다.
+- [ ] Hermes의 기존 private 오류 기록에서 최소 허용 label만 받기. 새 기기 실행은 없음.
 
 - [x] v0.2.20 clean commit과 완료된 socket-r1 결과 확인.
 - [x] 기존 코드·fixture·계획을 대조하고 최소 보강 순서와 완료 조건 작성.
@@ -233,9 +244,10 @@ benchmark나 RC 승인을 진행하지 않는다.
   - [x] 격리 업데이트·원래 설정 복구·제거 범위·비공개 증거·운영 제한 문서 정리.
   - [ ] 별도 안전한 환경의 clean Termux 설치, 양 backend 기기 인수, 운영 전환 승인.
 
-**다음 실행 경계:** 새 사용자 commit과 정확한 변경 범위가 확인되기 전에는 기기 지시서를
-실행 가능 상태로 만들지 않는다. `tests/test_cdp.py`는 아직 untracked이므로 커밋 검토에
-포함해야 한다. Canonical/benchmark와 별개인 fault·100-action·1시간 idle 검사는
+**다음 실행 경계:** v0.2.39는 clean commit이며 해당 canonical identity는 이미 소비됐다.
+`tests/test_cdp.py`도 이 commit에 포함됐다. 이번 보강 후 새 사용자 commit과 정확한 변경
+범위가 확인되기 전에는 새 기기 지시서를 실행 가능 상태로 만들지 않는다.
+Canonical/benchmark와 별개인 fault·100-action·1시간 idle 검사는
 소유 자원·횟수·새 output identity·승인 범위를 먼저 확정한다. 전체 목표는 아직 미완료다.
 
 ## Post-v0.2.20 보강 계획

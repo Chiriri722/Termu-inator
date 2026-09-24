@@ -1,5 +1,53 @@
 # Findings: Termu-inator Modernization
 
+## 2026-09-24 — Do not replace cancellation with a stop exception
+
+- `verify_backend` raised from its `finally` block when session stop failed.
+  A preceding action failure or CancelledError was then replaced by the stop
+  RuntimeError. Only that later exception reached the raw/public collector.
+  In the cancelled-body case, the per-backend ordinary-Exception handler could
+  treat it as an ordinary failure and continue if independent cleanup passed.
+- New regressions reproduce ordinary-error/stop-error, cancellation/stop-error,
+  and ordinary-error/stop-cancellation. The pending failure is now preserved,
+  cancellation takes precedence, and the other failure is retained explicitly.
+  The action and stop are each attempted once, without retry or fallback.
+- The existing backend/profile collector publishes both bounded contexts and
+  preserves two raw private entries. It only follows the explicitly attached
+  additional failure once, not arbitrary exception causes or context chains.
+  The Korean note filters both contexts again. Profile cancellation prevents
+  further backend/restart work while final cleanup evidence is still collected.
+- This reproduces a verifier control-flow defect locally; it does not establish
+  that v0.2.39 encountered a stop error. That device's declared cleanup passed,
+  and its first backend errors still require the requested existing-record labels.
+
+## 2026-09-24 — v0.2.39 FAIL evidence and independently reproduced fixture mismatch
+
+- The four returned public files bind the consumed `98f4174e827c` candidate.
+  Manifest SHA-256 is `822ac0f72975add110a86c68026e83d7a2bd9d0345203317bb27b24eb93c2e7c`.
+  Both backends failed with VerificationFailure; missing PNGs are downstream
+  evidence, not a demonstrated root cause. Cleanup/transition and zero-stderr
+  checks passed within their declared scope. Benchmark was not run.
+- Existing canonical/benchmark identities and sealed files remain unchanged.
+  The separate evidence review requests only allowlisted labels from the two
+  existing private backend errors. Those labels have not been received; the
+  actual first failing device action remains unknown.
+- The existing real Chrome fixture test checked effects but not target names.
+  Running the actual shared `observe_script` against `/forms` reproduced
+  `Choose option AB`, while canonical requires exactly `Choose option`.
+  A standard explicit `label for="choice"` separates the label from option
+  contents. The same real test now checks all four names before and after
+  edits/submits/reconnection. Exact target matching is not weakened.
+- This is a fixture/probe contract repair, not a claim of a complete accessible-
+  name algorithm or proof that the mismatch caused the S22U failure. No runtime
+  browser fallback, selector guessing, retry, or dependency was introduced.
+- Backend errors now preserve fixed verifier stages and allowlisted MCP tool,
+  kind, code, and diagnostic labels as structured `failure_context`. The JSON
+  boundary and Korean note independently apply the same allowlist. Raw messages,
+  paths, IDs, and page/input values remain private; absent labels stay unknown.
+- A malformed MCP error code of list/dict previously raised TypeError during
+  allowlist lookup. The regression fails before the string guard and passes
+  afterward with bounded `mcp_error`. Failure evidence still closes the gate.
+
 ## 2026-09-23 — Do not confuse operational instructions with acceptance
 
 - The pinned MCP package has no mcp.__version__; its documented diagnostic

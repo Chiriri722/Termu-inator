@@ -140,6 +140,13 @@ class FixtureSiteTests(unittest.TestCase):
                         self.assertEqual(lines, ["Fixture state: " + json.dumps(expected, separators=(",", ":"))])
                         actual = await evaluate("({text:document.querySelector('#text-input').value,terms:document.querySelector('#terms').checked,choice:document.querySelector('#choice').value})")
                         self.assertEqual(actual, {key: expected[key] for key in ("text", "terms", "choice")})
+                        # Check the real shared probe, not names invented by a fake caller.
+                        targets = normalize_observation(await evaluate(observe_script("fixture_registry")))[2]
+                        self.assertEqual(
+                            [(item.role, item.accessible_name) for item in targets],
+                            [("textbox", "Text input"), ("checkbox", "Accept terms"),
+                             ("combobox", "Choose option"), ("button", "Submit fixture")],
+                        )
 
                     await assert_state()
                     await evaluate("document.querySelector('#text-input').focus()")
