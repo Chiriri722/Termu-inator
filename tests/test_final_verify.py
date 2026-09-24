@@ -8,6 +8,7 @@ import base64
 from contextlib import redirect_stderr, redirect_stdout
 import errno
 import hashlib
+import importlib.util
 import inspect
 import io
 import json
@@ -92,6 +93,50 @@ def _observation() -> dict[str, object]:
         "downloads_delta": [],
         "screenshot_artifact_uri": "artifact://sha256/" + ("a" * 64),
     }
+
+
+async def _assert_action_wire_inputs(test: unittest.TestCase, calls: list) -> None:
+    """Validate generated requests through the real SDK, stopping before effects."""
+    from mcp import types
+    from src.mcp_v1_server import build_compact_server
+    from src.termuinator.contracts import ErrorCode
+    from src.termuinator.errors import TermuinatorError
+    from src.termuinator.mcp_v1 import CompactV1Router
+
+    dispatched = []
+
+    class Service:
+        async def act(self, request):
+            dispatched.append(request)
+            raise TermuinatorError(ErrorCode.SESSION_PAUSED, "Input reached typed service")
+
+    server = build_compact_server(CompactV1Router(Service()))
+
+    async def call_tool(name, arguments, **_kwargs):
+        result = await server.request_handlers[types.CallToolRequest](
+            types.CallToolRequest(params=types.CallToolRequestParams(name=name, arguments=arguments))
+        )
+        return result.root
+
+    caller = final_verify_module._McpToolCaller(
+        SimpleNamespace(call_tool=call_tool), server_pid=os.getpid(),
+    )
+    actions = [(name, arguments) for name, arguments in calls if name == "browser_act"]
+    test.assertTrue(actions, "the gate must generate action requests")
+    for name, arguments in actions:
+        with test.assertRaises(VerificationFailure) as caught:
+            await caller(name, arguments)
+        test.assertEqual(caught.exception.mcp_code, "session_paused")
+        test.assertEqual(dispatched[-1].confirmation_id, arguments["confirmation_id"])
+    test.assertEqual(len(dispatched), len(actions))
+
+    # Nullable is not optional: keep the published input boundary strict.
+    missing = dict(actions[0][1])
+    missing.pop("confirmation_id")
+    with test.assertRaises(VerificationFailure) as caught:
+        await caller("browser_act", missing)
+    test.assertEqual(caught.exception.mcp_code, "mcp_error")
+    test.assertEqual(len(dispatched), len(actions))
 
 
 class ObservationEvidenceTests(unittest.TestCase):
@@ -2344,6 +2389,7 @@ class ActionBoundaryGateTests(unittest.IsolatedAsyncioTestCase):
         check = getattr(final_verify_module, "_verify_action_boundaries", None)
         self.assertTrue(callable(check), "canonical must exercise stale, disabled and wait boundaries")
         queue = []
+        self.last_calls = []
 
         def snapshot(path, text, names, revision=0):
             value = _observation()
@@ -2432,6 +2478,7 @@ class ActionBoundaryGateTests(unittest.IsolatedAsyncioTestCase):
              "condition": {"kind": "text", "text": "Never appears in this fixture", "present": True}})
 
         async def call_tool(name, arguments, **kwargs):
+            self.last_calls.append((name, arguments))
             self.assertTrue(queue, "boundary gate sent an extra operation")
             expected_name, result, expected = queue.pop(0)
             self.assertEqual(name, expected_name)
@@ -2458,6 +2505,11 @@ class ActionBoundaryGateTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["replacement_activations"], 1)
         self.assertEqual(result["timeout_elapsed_ms"], 250)
 
+    @unittest.skipUnless(importlib.util.find_spec("mcp"), "requires the pinned MCP dependency")
+    async def test_boundary_actions_pass_actual_mcp_input_validation(self) -> None:
+        await self._run()
+        await _assert_action_wire_inputs(self, self.last_calls)
+
     async def test_rejects_wrong_error_unexpected_effect_and_invalid_wait_evidence(self) -> None:
         for fault in ("wrong_rejection", "unexpected_success", "effect_despite_rejection",
                       "false_timeout", "invalid_elapsed", "foreign_wait_page"):
@@ -2474,6 +2526,7 @@ class ConfidentialBoundaryGateTests(unittest.IsolatedAsyncioTestCase):
         from src.termuinator.errors import TermuinatorError
         from src.termuinator.mcp_v1 import CompactV1Router
 
+        self.last_calls = []
         gate = getattr(final_verify_module, "_verify_confidential_boundaries", None)
         self.assertTrue(callable(gate), "canonical must verify takeover and inert page authority")
         origin = "http://127.0.0.1:43123"
@@ -2517,6 +2570,7 @@ class ConfidentialBoundaryGateTests(unittest.IsolatedAsyncioTestCase):
 
             async def call_tool(name, arguments, **kwargs):
                 calls.append(name)
+                self.last_calls.append((name, arguments))
                 try:
                     if fault == "read_allowed" and name == "browser_observe" and (await service.session_status(session_id)).state.value.startswith("user_takeover"):
                         value = {"text": "PRIVATE leaked read"}
@@ -2560,6 +2614,11 @@ class ConfidentialBoundaryGateTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["takeover_fixtures"], ["login", "otp"])
         self.assertTrue(result["page_authority_unchanged"])
 
+    @unittest.skipUnless(importlib.util.find_spec("mcp"), "requires the pinned MCP dependency")
+    async def test_paused_actions_pass_actual_mcp_input_validation(self) -> None:
+        await self._run()
+        await _assert_action_wire_inputs(self, self.last_calls)
+
     async def test_gate_rejects_leaks_changed_authority_and_unrotated_resume(self):
         for fault in ("read_allowed", "status_leak", "policy_change", "malformed_policy", "tool_change", "developer_enabled", "resume_not_rotated"):
             with self.subTest(fault=fault):
@@ -2572,6 +2631,11 @@ class ConfidentialBoundaryGateTests(unittest.IsolatedAsyncioTestCase):
 class BackendReleaseFlowTests(unittest.IsolatedAsyncioTestCase):
     async def test_runs_full_observer_artifact_status_and_clean_stop_sequence(self) -> None:
         await self._run_form_gate()
+
+    @unittest.skipUnless(importlib.util.find_spec("mcp"), "requires the pinned MCP dependency")
+    async def test_form_actions_pass_actual_mcp_input_validation(self) -> None:
+        await self._run_form_gate()
+        await _assert_action_wire_inputs(self, self.last_calls)
 
     async def test_stops_session_when_action_boundary_gate_fails(self) -> None:
         with self.assertRaisesRegex(VerificationFailure, "boundary test refusal") as caught:

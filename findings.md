@@ -1,5 +1,33 @@
 # Findings: Termu-inator Modernization
 
+## 2026-09-24 — Canonical actions omitted a required nullable wire field
+
+- Hermes' permitted static read identifies both v0.2.39 errors as `browser_act`
+  / `type` / `mcp_error`. That last value is the verifier's fallback, not a
+  proven server error code. No traceback or internal cause was retained.
+  Hermes reports raw-errors.json as 303 bytes, SHA-256
+  `6761c275879b18891c6203e31711f3c3c4a212a45593187121b7ec785aa1d4aa`.
+  The Mac did not fetch or open that private file; these are reported facts.
+- Exact v0.2.39 source and current v0.2.40 both omit `confirmation_id` from
+  initial form actions. The frozen ActionRequest schema requires the key even
+  when its value is null. Pinned MCP 1.29.0 validates input before calling the
+  router and returns a non-JSON error on rejection; the verifier labels that
+  response `mcp_error`. Browser startup does not bypass this input boundary.
+- The same omission exists in stale/disabled actions and paused takeover
+  probes. Actual SDK-handler regressions fail in all three paths before the
+  typed service is reached. Adding explicit null in each producer makes all
+  three pass. The test service deliberately refuses accepted requests before
+  any effect; this proves wire acceptance, not browser action completion.
+- Regressions use requests captured from the existing gate flows, retain the
+  approved confirmation ID for submission/replay, and prove that removing the
+  key still fails before service dispatch. No schema relaxation or permission
+  bypass was added. All 111 requests from those flows also pass a schema audit.
+- This is a deterministically reproduced verifier blocker consistent with
+  the received failure. The old record cannot establish its complete SDK
+  message or rule out later failures after repair. The select-name fix is a
+  separate later-stage issue, not the reported first failure. Device status
+  remains canonical FAIL / benchmark not run until a new authorized identity.
+
 ## 2026-09-24 — Do not replace cancellation with a stop exception
 
 - `verify_backend` raised from its `finally` block when session stop failed.

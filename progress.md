@@ -1,5 +1,45 @@
 # Progress: Termu-inator Modernization
 
+## 2026-09-24 — Repair canonical action inputs at the actual MCP boundary
+
+- Resumed after receiving the missing Hermes static diagnosis, with clean
+  v0.2.40 HEAD `0586847c1271794b37c36222086cffec02bcbab8`. Preserved all consumed
+  device identities and original reports. The earlier two-error request is
+  satisfied; no further private-log request or device execution was needed.
+- Traced every verifier action producer, the frozen schema, router, and pinned
+  MCP server handler. Form, stale/disabled, and paused probes all omitted the
+  required nullable confirmation_id. Exact v0.2.39 source has the same defect.
+- TDD RED: three generated-request tests reached `mcp_error` instead of the
+  typed service's controlled refusal (3 failures, 0.368s). Added explicit null
+  at the three producers only. GREEN: 3/3 (0.659s), with omission still refused
+  and approved/replayed confirmation IDs preserved. No browser was involved.
+- Independent input-schema audit: form 19, action boundaries 28, confidential
+  boundaries 64 requests; all 111 valid. Existing behavioral effect, approval,
+  refusal, and cleanup checks remain unchanged.
+- Pinned MCP Python 3.14.7: related 193/193 PASS (4.549s); full warning-as-error
+  discovery 605 tests OK (10.796s), 604 PASS and the existing opt-in real-browser
+  test skipped once. SDK/unittest diagnostic output is not a device zero-stderr
+  result. Both edited Python files also pass Python 3.10 grammar validation.
+- Runtime source/dependencies and the wheel are unchanged. Only verifier,
+  its existing test file, and three planning records changed. A new user-owned
+  clean commit must be bound before sealing the next one-shot device handoff.
+  No commit/push, dependency install, remote run, registration, or cutover.
+- Final documentation contracts: 23/23 PASS (0.222s); diff whitespace PASS.
+  The preserved 282268-byte wheel still passes all 58-source, metadata, RECORD,
+  member, license, and entrypoint checks against the current runtime source;
+  SHA-256 remains `9fe9c0f3184ec91aa7e925e19da31c40973c2b9bee1e25a130bd2e5fb87794ce`.
+
+### Invocation and documentation notes
+
+- The first related run was sandbox-blocked at Unix socket bind (18 failures,
+  4 errors, including downstream assertions). The identical approved local
+  run passed; no gate or test was weakened to work around permissions.
+- Guessed schema/contracts test paths were absent; resolved them with rg --files.
+  Oversized reads were narrowed. The docs-write shared style file and formatter
+  are unavailable; existing Markdown style was retained without installing tools.
+- Planning/TDD kept the received device facts separate from local reproduction;
+  actual S22U action/approval/replay, fault/soak, and clean-install remain open.
+
 ## 2026-09-24 — Preserve overlapping action/stop failures and cancellation
 
 - Revalidated HEAD `98f4174e827c` and the preceding eight modified paths; kept

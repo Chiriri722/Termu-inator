@@ -1698,7 +1698,8 @@ async def _verify_form_actions(
             raise VerificationFailure(f"form {stage}: target is not actionable")
         return {**context, "action_id": "action_" + secrets.token_hex(12),
                 "idempotency_key": "idem_" + secrets.token_hex(12), "kind": kind,
-                "target_ref": target["ref"], "parameters": parameters, "timeout_ms": 30_000}
+                "target_ref": target["ref"], "parameters": parameters, "timeout_ms": 30_000,
+                "confirmation_id": None}
 
     def accept_result(value: object, arguments: Mapping[str, object]) -> Mapping[str, Any]:
         nonlocal context
@@ -1794,7 +1795,8 @@ async def _verify_action_boundaries(
         target = _fixture_target(observed, name, "button", label=f"boundary {path}")
         return {**context, "action_id": "action_" + secrets.token_hex(12),
                 "idempotency_key": "idem_" + secrets.token_hex(12), "kind": "click",
-                "target_ref": target["ref"], "parameters": {}, "timeout_ms": 30_000}
+                "target_ref": target["ref"], "parameters": {}, "timeout_ms": 30_000,
+                "confirmation_id": None}
 
     async def click(name: str) -> str:
         nonlocal context
@@ -1927,7 +1929,8 @@ async def _verify_confidential_boundaries(
                 ("browser_wait", {**paused, "condition": {"kind": "text", "text": "Ready", "present": True}, "timeout_ms": 250}),
                 ("browser_navigate", {**paused, "operation": "reload", "timeout_ms": 1000}),
                 ("browser_act", {**paused, "action_id": "action_" + secrets.token_hex(12), "idempotency_key": "idem_" + secrets.token_hex(12),
-                                 "kind": "click", "target_ref": "ref_takeoverblocked123", "parameters": {}, "timeout_ms": 1000}),
+                                 "kind": "click", "target_ref": "ref_takeoverblocked123", "parameters": {},
+                                 "timeout_ms": 1000, "confirmation_id": None}),
                 ("browser_tabs", {"session_id": session_id, "operation": "list"}),
                 ("browser_downloads", {"session_id": session_id, "operation": "list"}),
                 ("browser_permissions", {"session_id": session_id, "operation": "list"}),

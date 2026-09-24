@@ -19,6 +19,17 @@ Termux/Android에서 실제 Firefox·Chromium을 제어하되, 기존의 방대�
 
 ## Next Step
 
+2026-09-24 현재 HEAD는 `0586847c1271794b37c36222086cffec02bcbab8` (`v.0.2.40`)이다.
+Hermes의 기존 오류 두 건은 모두 `browser_act` / `type` / 기본 `mcp_error`로 확인됐다.
+실제 pinned MCP 입력 검증에서 검수기의 `confirmation_id` 생략을 세 경로 모두 재현했고,
+승인 전 명시적 `null`을 보내도록 수정했다. 공개 스키마·승인 규칙·runtime은 변경하지 않았다.
+로컬 전체 605 tests OK(기존 opt-in browser 1 skip), 관련 193 tests PASS다.
+다음은 이 추가 보강 5개 파일의 사용자 clean commit SHA 확인과 새 검수 identity 봉인이다.
+v0.2.39는 재실행하지 않으며, v0.2.40을 이번 미커밋 보강의 SHA로 사용하지 않는다.
+기존 wheel은 runtime source 불변으로 재사용 가능하나 새 commit binding은 다시 확인한다.
+
+### Superseded v0.2.20 checkpoint
+
 2026-09-23 최신 확인 commit은 `22155ee1d7536dbf7f1fcd1d98507323b6db96ce`
 (`v.0.2.20`)이다. S22U canonical과 benchmark quality는 PASS이며,
 `socket-r1` 보완 진단도 완료됐다. 전역 Unix socket census만 권한 부족으로
@@ -197,18 +208,27 @@ benchmark나 RC 승인을 진행하지 않는다.
 
 ## Current Phase
 
-2026-09-24 — v0.2.39 기기 FAIL 증거 확인, 독립 재현 결함과 공개 진단 보강
+2026-09-24 — v0.2.39 type 실패 진단 수신, v0.2.40 MCP 입력 계약 확인
+
+- [x] 사용자 commit `0586847c1271794b37c36222086cffec02bcbab8` (`v.0.2.40`),
+  clean checkout 및 예정된 8개 경로 확인. 기존 wheel의 58-source binding도 일치한다.
+- [x] Hermes의 제한된 기존-record 응답 수신: 양 backend 모두 `browser_act` / `type`,
+  기본 label `mcp_error`. 내부 원인·traceback은 기록되지 않았다. 기기 재실행은 없었다.
+- [x] 검수기의 세 action 생성 경로가 실제 pinned MCP 입력 검증에서 거부됨을 재현.
+- [x] 각 경로에 `confirmation_id: null` 추가. 세 RED→GREEN, 관련 193개 PASS,
+  전체 605 tests OK(기존 opt-in browser 1 skip), 생성된 요청 111개 입력 schema 대조 PASS.
+- [ ] 추가 보강 5개 파일의 새 사용자 clean commit SHA와 새 기기 gate 봉인.
 
 - [x] `98f4174e827c86efca419bf067b2035103c28d3a`의 공개 반환 파일 4개 무결성 확인.
-  양 backend는 `VerificationFailure`, PNG는 미생성이다. 실제 첫 실패 action은 공개되지
-  않았으므로 근본 원인으로 단정하지 않는다. Canonical FAIL, benchmark 미실행을 유지한다.
+  양 backend는 `VerificationFailure`, PNG는 미생성이다. 이후 제한된 진단에서 첫 `type`
+  실패를 확인했다. 상세 SDK 응답은 기존 기록에 없으며 Canonical FAIL, benchmark 미실행을 유지한다.
 - [x] 실제 `/forms`와 공용 DOM probe의 선택 상자 이름 불일치를 Chrome에서 RED→GREEN.
 - [x] 비공개 원문 없이 고정 검수 단계·MCP 오류 코드가 공개 결과에 남도록 보강.
 - [x] Python 3.14 전체 600 tests PASS, skip 0(격리 Chrome 포함). 기기 PASS로 승격하지 않는다.
 - [x] 같은 verifier에서 작업 실패·취소와 session stop 실패가 겹치는 경로 RED→GREEN.
   두 실패 정보와 취소 전파를 보존하며 원문 로그를 공개하지 않는다. 새 local 전체 suite는
   602 tests OK, 기존 opt-in browser 1 skip이다. 원격 실행·활성 backend fault 증거는 아니다.
-- [ ] Hermes의 기존 private 오류 기록에서 최소 허용 label만 받기. 새 기기 실행은 없음.
+- [x] Hermes의 기존 private 오류 기록에서 최소 허용 label 수신. 새 기기 실행은 없음.
 
 - [x] v0.2.20 clean commit과 완료된 socket-r1 결과 확인.
 - [x] 기존 코드·fixture·계획을 대조하고 최소 보강 순서와 완료 조건 작성.
@@ -244,9 +264,9 @@ benchmark나 RC 승인을 진행하지 않는다.
   - [x] 격리 업데이트·원래 설정 복구·제거 범위·비공개 증거·운영 제한 문서 정리.
   - [ ] 별도 안전한 환경의 clean Termux 설치, 양 backend 기기 인수, 운영 전환 승인.
 
-**다음 실행 경계:** v0.2.39는 clean commit이며 해당 canonical identity는 이미 소비됐다.
-`tests/test_cdp.py`도 이 commit에 포함됐다. 이번 보강 후 새 사용자 commit과 정확한 변경
-범위가 확인되기 전에는 새 기기 지시서를 실행 가능 상태로 만들지 않는다.
+**다음 실행 경계:** v0.2.39의 canonical identity는 이미 소비됐으며 재사용하지 않는다.
+v0.2.40 이후 이번 추가 보강의 새 사용자 commit과 정확한 변경 범위가 확인되기 전에는
+새 기기 지시서를 실행 가능 상태로 만들지 않는다. 기존 두 오류의 추가 조회는 필요하지 않다.
 Canonical/benchmark와 별개인 fault·100-action·1시간 idle 검사는
 소유 자원·횟수·새 output identity·승인 범위를 먼저 확정한다. 전체 목표는 아직 미완료다.
 
@@ -1561,6 +1581,9 @@ Termu-inator MVP는 다음 조건을 모두 만족해야 한다.
 
 | Error | Attempt | Resolution |
 |---|---:|---|
+| 검수기의 세 action 경로가 필수 nullable confirmation_id를 생략함 | 1 | 실제 MCP 1.29.0의 입력 검증에서 세 assertion RED를 확인했다. null을 명시해 GREEN으로 만들고 필드 생략은 계속 거부되는 음성 대조도 통과했다. |
+| 관련 193-test 첫 실행에서 sandbox가 Unix bind를 거부함 | 1 | 18 failure·4 error를 성공으로 취급하지 않았다. 같은 명령을 승인된 로컬 socket 권한으로 실행해 193개 PASS를 확인했다. |
+| 진단 조회의 추정 contracts/schema 테스트 경로가 없고 묶음 출력이 잘림 | 1 | rg --files로 실제 경로를 확인하고 필요한 구현과 skill 지침을 작은 범위로 다시 읽었다. 제품 수정은 이 조회와 별개다. |
 | 최초 민감 감지 시 observe/navigate/wait/tab/action이 내용을 반환함 | 1 | 다섯 RED 뒤 기존 active-state guard를 응답 직전에도 적용했다. action은 terminal 기록 후 차단하고 같은 key의 중복 effect가 없음을 확인했다. |
 | 새 privacy 테스트가 필수 session_lock·keyword-only lock 인자·snapshot viewport를 빠뜨림 | 1 | 실제 constructor에 맞춰 기존 ProcessSessionLock과 명시적 viewport를 사용했다. 새 fake/production API는 만들지 않았다. |
 | privacy fault의 subtest 바깥 exception 참조 및 malformed policy raw AttributeError | 1 | typed VerificationFailure를 assert하도록 음성 대조를 바로잡고 policy record의 mapping 검증을 추가했다. |
