@@ -1,5 +1,44 @@
 # Findings: Termu-inator Modernization
 
+## 2026-09-24 — v0.2.42 action-boundary confirmation failure
+
+- Returned public files bind `ff62c307061bfff340f6c80a8b78c99033ad29bf`.
+  Manifest SHA-256: `c427fe504e7092c50ed3b225e62960f29750cbd652ac536ebbb906cc9bcf5db5`.
+  All recorded sizes/hashes match the received bytes. Both backends failed
+  with `_ConfirmationRequired` at `action_boundaries`; no finer device label
+  or additional failure is present. No private logs were read.
+- The boundary gate unconditionally clicks `Remove item`, while the real
+  ActionRiskClassifier raises `remove` to R4 and BrowserService requires an
+  owner-local confirmation. Existing scripted boundary responses bypass this
+  policy and report immediate success. This was reproduced through real
+  policy before repair; risk classification and target names are unchanged.
+- Real Chrome plus the shared DOM probe exposed an earlier blocker: the first
+  `Replace stable target` is `type=submit` because fixture buttons omit type.
+  The real risk classifier consequently requires confirmation even before
+  removal. The existing fake explicitly invented `type=button`, masking this.
+  The actual browser regression fails with `('submit', True)` versus
+  `('button', False)`. Static HTML also fails for all three boundary routes.
+  Declared non-submit types on their six buttons and the dynamically created
+  replacement. Keep `Remove item` consequential by label and `/forms` submit
+  unchanged. The real browser test now passes before and after replacement;
+  removal still requires confirmation. Other scenarios/policy are unchanged.
+- Added the existing owner approval callback only for the explicit removal
+  scenario, verify unchanged pre-approval state/context, check one removal,
+  and replay the identical confirmed request without a second effect. Ordinary
+  unexpected confirmations still fail closed. Pending-state drift, denial,
+  cancellation and duplicate/replaced replay results are covered.
+- A separate RED confirms the special confirmation exception dropped its
+  bounded MCP code/context. It now retains tool/kind/code, not challenge IDs,
+  preview text or raw messages. Removal phases have fixed public stage labels.
+- Valid PNGs are marked UNKNOWN/unbound_artifact after the backend flow fails.
+  They are not evidence of a PNG defect, nor a complete backend PASS. Cleanup
+  and environment/Git readback passed in their declared scope. Benchmark was
+  not run; the consumed device identity and sealed bundle stay unchanged.
+- Local verification: 609 tests PASS, skip 0 with the existing opt-in Chrome
+  fixture test enabled. This separately validates real DOM semantics and real
+  service approval/replay on an in-memory backend, not end-to-end S22U release
+  readiness. The public device record does not identify its exact first click.
+
 ## 2026-09-24 — Canonical actions omitted a required nullable wire field
 
 - Hermes' permitted static read identifies both v0.2.39 errors as `browser_act`

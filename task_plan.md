@@ -19,6 +19,19 @@ Termux/Android에서 실제 Firefox·Chromium을 제어하되, 기존의 방대�
 
 ## Next Step
 
+2026-09-24 최신 수신 결과: `ff62c307061bfff340f6c80a8b78c99033ad29bf`
+(`v.0.2.42`)의 공개 파일 4개 무결성을 확인했다. Canonical FAIL,
+benchmark 미실행이며 양 backend는 `action_boundaries`에서 `_ConfirmationRequired`다.
+일반 fixture 버튼의 기본 `submit` type과 `Remove item`의 필수 승인이
+검수기 기대와 불일치함을 실제 Chrome/서비스 경로에서 각각 재현했다.
+버튼 종류 명시와 삭제 승인·재전달 검증을 수정했다. Mac 전체 609개가 실제
+격리 Chrome 검사 포함 PASS(skip 0)이며, 기존 wheel의 소스 58개도 그대로 일치한다.
+승인 규칙을 완화하지 않으며 소비된 v0.2.42 identity는 재실행하지 않는다.
+검수기·fixture·회귀·기록의 변경 7개 파일을 사용자 clean commit/push한 뒤
+새 SHA를 받아 지시서 TXT/MD와 새 실행 자료를 봉인한다. 아직 기기 해결로 승인하지 않는다.
+
+### Superseded pre-v0.2.42 preparation
+
 2026-09-24 현재 HEAD는 `0586847c1271794b37c36222086cffec02bcbab8` (`v.0.2.40`)이다.
 Hermes의 기존 오류 두 건은 모두 `browser_act` / `type` / 기본 `mcp_error`로 확인됐다.
 실제 pinned MCP 입력 검증에서 검수기의 `confirmation_id` 생략을 세 경로 모두 재현했고,
@@ -207,6 +220,22 @@ handoff를 seal하는 것이다. 새 clean commit의 양 backend PASS 및 `bench
 benchmark나 RC 승인을 진행하지 않는다.
 
 ## Current Phase
+
+2026-09-24 — v0.2.42 승인 경계 검수 보강 (local 완료, 새 commit 대기)
+
+- [x] 현재 clean HEAD와 공개 manifest의 v0.2.42 SHA 일치, 반환 파일 hash/size 확인.
+- [x] 실패는 양 backend의 `action_boundaries` / `_ConfirmationRequired`.
+  PNG는 유효하나 미결합 상태이며, cleanup PASS와 canonical FAIL을 분리한다.
+- [x] 실제 위험 분류/승인 경로를 포함한 회귀로 무승인 삭제 기대를 RED 재현.
+- [x] 기존 owner-local 승인을 연결하고 승인 전/후/재전달 효과를 검증.
+- [x] 실제 Chrome probe에서 첫 Replace 버튼도 `submit`/승인 필요임을 RED 재현.
+  경계 fixture의 정적 버튼 6개와 동적 교체 버튼의 종류를 명시하고 재검증한다.
+- [x] 관련 127개, fixture 10개, 전체 609개 PASS(skip 0; 실제 격리 Chrome 포함).
+  기존 wheel의 소스 58개 binding·Python 3.10 문법·변경 7개 경로 검증.
+- [x] 사용자용 결과와 다음 단계 대기 안내를 TXT/MD로 준비; 새 commit 전 원격 실행 금지.
+- [ ] 새 사용자 clean commit SHA 확인 → 새 checkout/output identity 봉인 → S22U 1회 검수.
+
+### Earlier completed preparation
 
 2026-09-24 — v0.2.39 type 실패 진단 수신, v0.2.40 MCP 입력 계약 확인
 

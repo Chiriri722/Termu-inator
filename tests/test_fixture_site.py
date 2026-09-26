@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import asyncio
+from html.parser import HTMLParser
 import json
 import os
 from pathlib import Path
@@ -76,6 +77,27 @@ class FixtureSiteTests(unittest.TestCase):
         _status, _headers, body = self._get("/states")
         self.assertIn(b"Unavailable activations 0", body)
 
+    def test_boundary_buttons_are_explicitly_non_submit_including_replacement(self) -> None:
+        class Buttons(HTMLParser):
+            def __init__(self):
+                super().__init__()
+                self.controls = []
+
+            def handle_starttag(self, tag, attrs):
+                if tag == "button":
+                    self.controls.append(dict(attrs))
+
+        for path in ("/stale-replacement", "/dynamic-list", "/states"):
+            with self.subTest(path=path):
+                _status, _headers, body = self._get(path)
+                buttons = Buttons()
+                buttons.feed(body.decode())
+                self.assertEqual(len(buttons.controls), 2)
+                for control in buttons.controls:
+                    self.assertEqual(control.get("type"), "button", control.get("id"))
+                if path == "/stale-replacement":
+                    self.assertIn(b"replacement.type='button'", body)
+
     def test_form_exposes_initial_actual_values_and_submission_count(self) -> None:
         _status, _headers, body = self._get("/forms")
         self.assertIn(
@@ -87,7 +109,9 @@ class FixtureSiteTests(unittest.TestCase):
         from src.cdp import CDPClient
         from src.termuinator.backends import BackendPageSnapshot
         from src.termuinator.backends.legacy_dom import observe_script, normalize_observation
-        from src.termuinator.contracts import ChallengeKind, Viewport
+        from src.termuinator.contracts import ActionKind, ActionRequest, ChallengeKind, PageRevision, Viewport
+        from src.termuinator.core.action_policy import ActionRiskClassifier
+        from src.termuinator.core.element_refs import ElementBinding
         from src.termuinator.core.observation import ObservationEngine
 
         async def check() -> None:
@@ -131,6 +155,20 @@ class FixtureSiteTests(unittest.TestCase):
                             await asyncio.sleep(0.05)
                         self.fail("isolated fixture navigation did not become ready")
 
+                    def assert_button_policy(targets, confirmed_names=()):
+                        revision = PageRevision("fixture_policy", 0)
+                        for index, candidate in enumerate(targets):
+                            ref = f"ref_fixture_policy_{index:08d}"
+                            binding = ElementBinding(ref=ref, backend_node_id=candidate.backend_node_id,
+                                semantic_fingerprint=candidate.semantic_fingerprint(), revision=revision, candidate=candidate)
+                            request = ActionRequest(action_id="action_fixture_policy", idempotency_key="idem_fixture_policy",
+                                session_id="session_fixture_policy", tab_id="tab_fixture_policy", page_id="page_fixture_policy",
+                                expected_page_revision=revision, kind=ActionKind.CLICK, target_ref=ref, parameters={})
+                            assessment = ActionRiskClassifier().assess(request=request, target=binding, destination=None,
+                                                                      origin=self.site.url("/").rstrip("/"))
+                            self.assertEqual((candidate.type, assessment.requires_confirmation),
+                                             ("button", candidate.accessible_name in confirmed_names), candidate.accessible_name)
+
                     await navigate("/forms", "#form-result")
                     expected = {"text": "", "terms": False, "choice": "A", "submissions": 0}
 
@@ -166,8 +204,10 @@ class FixtureSiteTests(unittest.TestCase):
 
                     await navigate("/stale-replacement", "#replaceable-target")
                     before = normalize_observation(await evaluate(observe_script("fixture_registry")))[2]
+                    assert_button_policy(before)
                     await evaluate("window.retiredFixtureTarget=document.querySelector('#replaceable-target');document.querySelector('#replace-node').click()")
                     after = normalize_observation(await evaluate(observe_script("fixture_registry")))[2]
+                    assert_button_policy(after)
                     old = next(item for item in before if item.accessible_name == "Continue")
                     new = next(item for item in after if item.accessible_name == "Continue")
                     self.assertNotEqual(old.backend_node_id, new.backend_node_id)
@@ -180,6 +220,7 @@ class FixtureSiteTests(unittest.TestCase):
 
                     await navigate("/states", "#disabled")
                     targets = normalize_observation(await evaluate(observe_script("fixture_registry")))[2]
+                    assert_button_policy(targets)
                     self.assertFalse(next(item for item in targets if item.accessible_name == "Disabled action").enabled)
                     self.assertFalse(next(item for item in targets if item.accessible_name == "Hidden action").visible)
                     await evaluate("document.querySelector('#disabled').click()")
@@ -189,6 +230,8 @@ class FixtureSiteTests(unittest.TestCase):
                     self.assertEqual(await evaluate("document.querySelector('#unavailable-count').textContent"), "Unavailable activations 1")
 
                     await navigate("/dynamic-list", "#items")
+                    assert_button_policy(normalize_observation(await evaluate(observe_script("fixture_registry")))[2],
+                                         ("Remove item",))
                     for control, values in (("add", ["Item 1", "Item 2"]), ("remove", ["Item 1"])):
                         await evaluate("document.getElementById(" + json.dumps(control) + ").click()")
                         self.assertEqual(await evaluate("Array.from(document.querySelectorAll('#items li'),item=>item.textContent)"), values)

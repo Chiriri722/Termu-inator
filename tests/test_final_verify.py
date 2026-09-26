@@ -1941,10 +1941,15 @@ class McpFailureEvidenceTests(unittest.IsolatedAsyncioTestCase):
                     SimpleNamespace(call_tool=AsyncMock(return_value=result)), server_pid=os.getpid(),
                 )
                 with self.assertRaises(VerificationFailure) as caught:
-                    await caller(name, {})
+                    await caller(name, {"kind": "click"})
                 self.assertEqual(getattr(caught.exception, "confirmation_id", None), expected)
                 self.assertNotIn("PRIVATE", repr(caught.exception))
                 self.assertNotIn(challenge_id, repr(caught.exception))
+                self.assertEqual(caught.exception.mcp_code, "confirmation_required")
+                self.assertEqual(caught.exception.verification_context, {
+                    "tool": name, "code": "confirmation_required",
+                    **({"kind": "click"} if name == "browser_act" else {}),
+                })
 
     async def test_records_bounded_firefox_observe_stage(self) -> None:
         private_value = "private Firefox observation detail"
@@ -2385,6 +2390,142 @@ class FinalVerifyCliContractTests(unittest.TestCase):
 
 
 class ActionBoundaryGateTests(unittest.IsolatedAsyncioTestCase):
+    async def _run_real_policy(self, fault=None):
+        from dataclasses import replace
+        from src.termuinator.backends import (
+            BackendActionEvidence, BackendActionOutcome, BackendPageSnapshot, RawInteractiveElement,
+        )
+        from src.termuinator.backends.fake import FakeBackend
+        from src.termuinator.contracts import Backend, Bounds, ErrorCode, PermissionPolicy, Viewport, to_wire
+        from src.termuinator.core.service import BrowserService
+        from src.termuinator.errors import TermuinatorError
+        from src.termuinator.mcp_v1 import CompactV1Router
+
+        origin = "http://127.0.0.1:43123"
+        viewport = Viewport(width=1000, height=700)
+
+        def page(path, text, targets):
+            return BackendPageSnapshot(
+                url=origin + path, title="Boundary fixture", viewport=viewport, ready_state="complete", text=text,
+                interactive_elements=tuple(RawInteractiveElement(
+                    backend_node_id=node, role="button", accessible_name=name, tag="button", type="button",
+                    bounds=Bounds(x=10, y=10, width=100, height=30),
+                    visible=name != "Hidden action", enabled=name != "Disabled action",
+                ) for node, name in targets),
+            )
+
+        original = page("/stale-replacement", "Generation 1\nActivations 0",
+                        (("replace", "Replace stable target"), ("continue-v1", "Continue")))
+        replaced = page("/stale-replacement", "Generation 2\nActivations 0",
+                        (("replace", "Replace stable target"), ("continue-v2", "Continue")))
+        activated = replace(replaced, text="Generation 2\nActivations 1")
+        one = page("/dynamic-list", "Item 1", (("add", "Add item"), ("remove", "Remove item")))
+        two = replace(one, text="Item 1\nItem 2")
+        states = page("/states", "Unavailable activations 0",
+                      (("disabled", "Disabled action"), ("hidden", "Hidden action")))
+        ready = page("/delayed", "Ready", ())
+        transitions = {"replace": replaced, "continue-v2": activated, "add": two, "remove": one}
+
+        class BoundaryBackend(FakeBackend):
+            async def act(self, action):
+                self.action_calls.append(action)
+                self._snapshot = transitions[action.backend_node_id]
+                self._refresh_status()
+                return BackendActionOutcome(executed_method="fixture-click", snapshot=self._snapshot,
+                    evidence=BackendActionEvidence(target_event_dispatched=True, dom_changed=True))
+
+        backend = BoundaryBackend(Backend.CHROMIUM, snapshot=original,
+            navigation_results={("goto", value.url): value for value in (original, one, states, ready)},
+            action_outcome=BackendActionOutcome(executed_method="fixture-click", snapshot=original,
+                                               evidence=BackendActionEvidence()))
+        self.policy_approvals = []
+        self.policy_confirmation_requests = []
+        with tempfile.TemporaryDirectory() as directory:
+            service = BrowserService(data_root=Path(directory), owner_scope="gate-owner",
+                default_backend=Backend.CHROMIUM, profile_schema_version="v1",
+                backend_factories={Backend.CHROMIUM: lambda: backend},
+                session_lock=ProcessSessionLock(lock_path=Path(directory) / "session.lock", owner_scope="gate-owner"))
+            router = CompactV1Router(service)
+            started = await service.session_start(project_id="boundary-fixture", viewport=viewport)
+            session_id = started.session_id
+            await service.local_permission_record(session_id=session_id, origin=origin,
+                                                  policy=PermissionPolicy.SESSION_ALLOW)
+
+            async def call_tool(name, arguments, **kwargs):
+                try:
+                    if name == "browser_act" and arguments["confirmation_id"] is not None:
+                        self.policy_confirmation_requests.append(dict(arguments))
+                    result = await router.dispatch(name, arguments)
+                    if name == "browser_act" and arguments["confirmation_id"] is not None and len(self.policy_confirmation_requests) == 2:
+                        if fault == "duplicate_remove":
+                            backend._snapshot = replace(one, text="")
+                        if fault == "changed_replay":
+                            result = {**result, "executed_method": "different-terminal-result"}
+                    return SimpleNamespace(isError=False, structuredContent=result)
+                except TermuinatorError as exc:
+                    if exc.code is ErrorCode.CONFIRMATION_REQUIRED:
+                        self.assertEqual(backend._snapshot, two)
+                        self.assertNotIn("remove", [call.backend_node_id for call in backend.action_calls])
+                        if fault == "early_effect":
+                            backend._snapshot = one
+                        if fault == "revision_changed":
+                            service._active.observation.capture(two, dom_changed=True)
+                    return SimpleNamespace(isError=True, content=[SimpleNamespace(text=json.dumps(to_wire(exc.to_envelope())))])
+
+            async def approve(identity, confirmation_id):
+                self.assertEqual(identity, session_id)
+                self.assertEqual(backend._snapshot, two)
+                self.policy_approvals.append(confirmation_id)
+                if fault == "approval_cancelled":
+                    raise asyncio.CancelledError()
+                await service.local_confirmation_decide(session_id=identity, confirmation_id=confirmation_id,
+                    operation="deny" if fault == "approval_denied" else "approve")
+
+            caller = final_verify_module._McpToolCaller(SimpleNamespace(call_tool=call_tool), server_pid=os.getpid())
+            try:
+                result = await final_verify_module._verify_action_boundaries(
+                    caller, final_verify_module._status_context(to_wire(started.status)), fixture_origin=origin,
+                    approve_confirmation=approve,
+                )
+                self.assertEqual([call.backend_node_id for call in backend.action_calls],
+                                 ["replace", "continue-v2", "add", "remove"])
+                self.assertEqual(len(self.policy_approvals), 1)
+                self.assertEqual(len(self.policy_confirmation_requests), 2)
+                self.assertEqual(self.policy_confirmation_requests[0], self.policy_confirmation_requests[1])
+                return result
+            finally:
+                self.policy_dispatches = [call.backend_node_id for call in backend.action_calls]
+                await service.close()
+
+    async def test_boundary_removal_uses_real_service_confirmation_and_replay(self):
+        try:
+            result = await self._run_real_policy()
+        except final_verify_module._ConfirmationRequired:
+            self.fail("boundary gate must handle the real Remove item confirmation, not assume direct success")
+        self.assertEqual(result["status"], "PASS")
+
+    async def test_removal_refuses_changed_pending_state_denial_and_duplicate_effects(self):
+        for fault, stage in (
+            ("early_effect", "boundary_remove_before_approval"),
+            ("revision_changed", "boundary_remove_before_approval"),
+            ("approval_denied", "boundary_remove_after_approval"),
+            ("duplicate_remove", "boundary_remove_after_replay"),
+            ("changed_replay", "boundary_remove_after_replay"),
+        ):
+            with self.subTest(fault=fault):
+                with self.assertRaises(VerificationFailure) as caught:
+                    await self._run_real_policy(fault)
+                self.assertEqual(caught.exception.verification_context["verification_stage"], stage)
+                self.assertEqual(len(self.policy_approvals), 0 if stage.endswith("before_approval") else 1)
+                self.assertEqual(self.policy_dispatches.count("remove"), 1 if stage.endswith("after_replay") else 0)
+
+    async def test_cancelled_removal_approval_does_not_dispatch(self):
+        with self.assertRaises(asyncio.CancelledError) as caught:
+            await self._run_real_policy("approval_cancelled")
+        self.assertEqual(caught.exception.verification_context["verification_stage"], "boundary_remove_before_approval")
+        self.assertEqual(self.policy_dispatches.count("remove"), 0)
+        self.assertEqual(self.policy_confirmation_requests, [])
+
     async def _run(self, fault: str | None = None):
         check = getattr(final_verify_module, "_verify_action_boundaries", None)
         self.assertTrue(callable(check), "canonical must exercise stale, disabled and wait boundaries")
@@ -2415,13 +2556,16 @@ class ActionBoundaryGateTests(unittest.IsolatedAsyncioTestCase):
             ref = next(item["ref"] for item in value["interactive_elements"] if item["accessible_name"] == name)
             return {**final_verify_module._page_context(value), "kind": "click", "target_ref": ref, "parameters": {}}
 
-        def click(before, name, after):
-            step("browser_act", {
+        def click(before, name, after, confirmation_id=None):
+            result = {
                 "status": "succeeded", "before_revision": before["page_revision"],
                 "after_revision": after["page_revision"], "executed_method": "fixture-click",
                 "verification": [{"passed": True, "causal": True}],
-            }, arguments(before, name))
+            }
+            step("browser_act", "confirmation_required" if fault == "unexpected_confirmation" else result,
+                 {**arguments(before, name), "confirmation_id": confirmation_id})
             step("browser_observe", after)
+            return result
 
         def reject(expected, code, observation):
             step("browser_act", code, expected)
@@ -2453,7 +2597,12 @@ class ActionBoundaryGateTests(unittest.IsolatedAsyncioTestCase):
         goto(one)
         click(one, names[0], two)
         reject(arguments(one, names[1]), "stale_observation", two)
-        click(two, names[1], removed)
+        step("browser_act", {} if fault == "missing_confirmation" else "confirmation_required",
+             {**arguments(two, names[1]), "confirmation_id": None})
+        step("browser_observe", {**two, "page_revision": "epoch:99"} if fault == "pending_revision_changed" else two)
+        removed_result = click(two, names[1], removed, "confirmation_fixture123")
+        step("browser_act", removed_result, {**arguments(two, names[1]), "confirmation_id": "confirmation_fixture123"})
+        step("browser_observe", removed)
 
         states = snapshot("/states", "Unavailable activations 0", ("Disabled action", "Hidden action"))
         goto(states)
@@ -2485,12 +2634,21 @@ class ActionBoundaryGateTests(unittest.IsolatedAsyncioTestCase):
             for key, value in expected.items():
                 self.assertEqual(arguments.get(key), value, key)
             if isinstance(result, str):
-                return SimpleNamespace(isError=True, content=[SimpleNamespace(text=json.dumps({"code": result}))])
+                envelope = {"code": result}
+                if result == "confirmation_required":
+                    envelope["details"] = {"challenge": {"challenge_id": "confirmation_fixture123",
+                                                         "kind": "confirmation", "state": "pending"}}
+                return SimpleNamespace(isError=True, content=[SimpleNamespace(text=json.dumps(envelope))])
             return SimpleNamespace(isError=False, structuredContent=result)
+
+        async def approve(identity, confirmation_id):
+            self.assertEqual(identity, two["session_id"])
+            self.assertEqual(confirmation_id, "confirmation_fixture123")
+            self.assertEqual(queue[0][2]["confirmation_id"], confirmation_id)
 
         caller = final_verify_module._McpToolCaller(SimpleNamespace(call_tool=call_tool), server_pid=os.getpid())
         result = await check(caller, final_verify_module._page_context(_observation()),
-                             fixture_origin="http://127.0.0.1:43123")
+                             fixture_origin="http://127.0.0.1:43123", approve_confirmation=approve)
         self.assertEqual(queue, [], "a required boundary scenario was skipped")
         return result
 
@@ -2512,7 +2670,8 @@ class ActionBoundaryGateTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_rejects_wrong_error_unexpected_effect_and_invalid_wait_evidence(self) -> None:
         for fault in ("wrong_rejection", "unexpected_success", "effect_despite_rejection",
-                      "false_timeout", "invalid_elapsed", "foreign_wait_page"):
+                      "false_timeout", "invalid_elapsed", "foreign_wait_page",
+                      "missing_confirmation", "unexpected_confirmation", "pending_revision_changed"):
             with self.subTest(fault=fault), self.assertRaises(VerificationFailure):
                 await self._run(fault)
 
@@ -2895,7 +3054,7 @@ class BackendReleaseFlowTests(unittest.IsolatedAsyncioTestCase):
                 boundaries.assert_awaited_once_with(caller, {
                     "session_id": "session_abcdefgh", "tab_id": "tab_abcdefgh", "page_id": "page_abcdefgh",
                     "expected_page_revision": "epoch:5",
-                }, fixture_origin=fixture_origin)
+                }, fixture_origin=fixture_origin, approve_confirmation=approve)
                 confidential.assert_awaited_once_with(caller, session_id="session_abcdefgh", fixture_origin=fixture_origin,
                                                       artifact_uri=uri, takeover=grant)
 

@@ -120,8 +120,8 @@ window.onpopstate=event=>show((event.state&&event.state.route)||'A');</script>""
             "text/html; charset=utf-8",
             _html(
                 "Dynamic list",
-                """<main data-fixture="dynamic-list"><button id="add">Add item</button>
-<button id="remove">Remove item</button><ul id="items"><li>Item 1</li></ul></main>
+                """<main data-fixture="dynamic-list"><button id="add" type="button">Add item</button>
+<button id="remove" type="button">Remove item</button><ul id="items"><li>Item 1</li></ul></main>
 <script>let count=1;const items=document.querySelector('#items');
 document.querySelector('#add').onclick=()=>{const item=document.createElement('li');item.textContent='Item '+(++count);items.append(item);};
 document.querySelector('#remove').onclick=()=>{if(items.lastElementChild)items.lastElementChild.remove();};</script>""",
@@ -132,8 +132,8 @@ document.querySelector('#remove').onclick=()=>{if(items.lastElementChild)items.l
             _html(
                 "Stale replacement",
                 """<main data-fixture="stale-replacement">
-<button id="replace-node">Replace stable target</button>
-<button id="replaceable-target" data-generation="1">Continue</button>
+<button id="replace-node" type="button">Replace stable target</button>
+<button id="replaceable-target" type="button" data-generation="1">Continue</button>
 <output id="replacement-generation" style="display:block">Generation 1</output>
 <output id="activation-count" style="display:block">Activations 0</output></main>
 <script>let generation=1,activations=0;
@@ -141,7 +141,7 @@ document.querySelector('main').addEventListener('click',event=>{if(event.target.
 document.querySelector('#activation-count').textContent='Activations '+(++activations);}});
 document.querySelector('#replace-node').onclick=()=>{
 const current=document.querySelector('#replaceable-target');
-const replacement=document.createElement('button');replacement.id='replaceable-target';
+const replacement=document.createElement('button');replacement.type='button';replacement.id='replaceable-target';
 replacement.dataset.generation=String(++generation);replacement.textContent='Continue';
 current.replaceWith(replacement);
 document.querySelector('#replacement-generation').textContent='Generation '+generation;};</script>""",
@@ -248,8 +248,8 @@ document.querySelector('#prompt').onclick=()=>dialogResult.textContent=window.pr
             "text/html; charset=utf-8",
             _html(
                 "States",
-                """<main data-fixture="states"><button id="disabled" disabled>Disabled action</button>
-<button id="hidden" hidden>Hidden action</button>
+                """<main data-fixture="states"><button id="disabled" type="button" disabled>Disabled action</button>
+<button id="hidden" type="button" hidden>Hidden action</button>
 <output id="unavailable-count" style="display:block">Unavailable activations 0</output></main>
 <script>let activations=0;document.querySelector('main').addEventListener('click',event=>{
 if(event.target.id==='disabled'||event.target.id==='hidden'){

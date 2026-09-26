@@ -195,6 +195,8 @@ _FAILURE_CONTEXT_VALUES = {
         "form_before_approval", "form_after_approval", "form_after_replay",
         "screenshot", "artifact_read", "artifact_store", "artifact_write",
         "action_boundaries", "confidential_boundaries", "session_status", "session_stop",
+        "boundary_remove_request_confirmation", "boundary_remove_before_approval",
+        "boundary_remove_after_approval", "boundary_remove_after_replay",
     }),
     "tool": frozenset(_INTERACTIVE_TOOL_NAMES),
     "kind": frozenset({"click", "type", "key", "scroll", "select", "check", "hover", "drag"}),
@@ -258,7 +260,7 @@ def _verification_failure_evidence(
 
 class _ConfirmationRequired(VerificationFailure):
     def __init__(self, confirmation_id: str) -> None:
-        super().__init__("fixture submission requires local confirmation")
+        super().__init__("fixture action requires local confirmation")
         self.confirmation_id = confirmation_id
 
 
@@ -1756,6 +1758,7 @@ async def _verify_form_actions(
 
 async def _verify_action_boundaries(
     caller: ToolCaller, context: Mapping[str, str], *, fixture_origin: str,
+    approve_confirmation: ConfirmationApproval,
 ) -> dict[str, object]:
     """Require typed refusals, unchanged effects, fresh recovery, and bounded waits."""
     context = dict(context)
@@ -1829,7 +1832,33 @@ async def _verify_action_boundaries(
     old_remove = request("Remove item")
     require(await click("Add item"), ("Item 1", "Item 2"))
     require(await reject(old_remove, "stale_observation"), ("Item 1", "Item 2"))
-    require(await click("Remove item"), ("Item 1",), ("Item 2",))
+    stage = "boundary_remove_request_confirmation"
+    try:
+        arguments = request("Remove item")
+        try:
+            await caller("browser_act", arguments)
+        except _ConfirmationRequired as exc:
+            confirmation_id = exc.confirmation_id
+        else:
+            raise VerificationFailure("boundary removal did not require local confirmation")
+        stage = "boundary_remove_before_approval"
+        require(await fresh(), ("Item 1", "Item 2"))
+        if any(context[key] != arguments[key] for key in context):
+            raise VerificationFailure("boundary removal: fixture changed while awaiting confirmation")
+        await approve_confirmation(session_id, confirmation_id)
+        confirmed = {**arguments, "confirmation_id": confirmation_id}
+        stage = "boundary_remove_after_approval"
+        first = _checked_action_result(await caller("browser_act", confirmed), confirmed, label="boundary removal")
+        context = {**context, "expected_page_revision": first["after_revision"]}
+        require(await fresh(), ("Item 1",), ("Item 2",))
+        stage = "boundary_remove_after_replay"
+        if await caller("browser_act", confirmed) != first:
+            raise VerificationFailure("boundary removal: replay changed the terminal action result")
+        require(await fresh(), ("Item 1",), ("Item 2",))
+    except (Exception, asyncio.CancelledError) as exc:
+        exc.verification_context = {**_safe_failure_context(getattr(exc, "verification_context", None)),
+                                    "verification_stage": stage}
+        raise
 
     require(await goto("/states"), ("Unavailable activations 0",))
     for name, flag in (("Disabled action", "enabled"), ("Hidden action", "visible")):
@@ -1854,6 +1883,8 @@ async def _verify_action_boundaries(
         "status": "PASS", "stale_revision": "stale_observation", "retired_ref": "target_not_found",
         "dynamic_stale_revision": "stale_observation", "disabled_target": "target_not_found",
         "hidden_target": "target_not_found", "replacement_activations": 1,
+        "removal_item_counts": {"before_approval": 2, "after_approval": 1, "after_replay": 1},
+        "removal_replay_result_identical": True,
         "ready_wait_satisfied": True, "missing_text_wait_satisfied": False, "timeout_elapsed_ms": elapsed,
     }
 
@@ -2077,7 +2108,9 @@ async def verify_backend(
         stage = "artifact_write"
         _write_private_bytes(output_dir / f"{backend}.png", screenshot)
         stage = "action_boundaries"
-        boundary_summary = await _verify_action_boundaries(caller, context, fixture_origin=fixture_origin)
+        boundary_summary = await _verify_action_boundaries(
+            caller, context, fixture_origin=fixture_origin, approve_confirmation=approve_confirmation,
+        )
         stage = "confidential_boundaries"
         confidential_summary = await _verify_confidential_boundaries(
             caller, session_id=session_id, fixture_origin=fixture_origin, artifact_uri=artifact["uri"], takeover=takeover,
@@ -2202,7 +2235,10 @@ class _McpToolCaller:
                             and challenge.get("state") == "pending"):
                         identifier = challenge.get("challenge_id")
                         if isinstance(identifier, str) and re.fullmatch(r"[A-Za-z][A-Za-z0-9_-]{7,127}", identifier):
-                            raise _ConfirmationRequired(identifier)
+                            error = _ConfirmationRequired(identifier)
+                            error.mcp_code = code
+                            error.verification_context = {**context, "code": code}
+                            raise error
                     for key, allowed in _MCP_ERROR_DETAIL_VALUES.items():
                         value = details.get(key)
                         if isinstance(value, str) and value in allowed:

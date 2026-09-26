@@ -1,5 +1,52 @@
 # Progress: Termu-inator Modernization
 
+## 2026-09-24 — Resume from v0.2.42 public failure evidence
+
+- Started from clean `ff62c307061bfff340f6c80a8b78c99033ad29bf` (v.0.2.42).
+  Verified all four downloaded public files without opening private diagnostics.
+  Canonical FAIL / benchmark not run remains the device result.
+- Traced the boundary helper's callers, fixture targets, real service and risk
+  classifier. `Remove item` requires confirmation, but the gate expects direct
+  success and its scripted test skips real policy. The reproduction is complete.
+- Real-service RED reproduced `_ConfirmationRequired` on removal (1 failure,
+  0.019s). A separate RED reproduced missing bounded error context (0.005s).
+  Minimal verifier repair passes 14 related tests, including real approval,
+  identical replay, no duplicate dispatch and fail-closed fault scenarios.
+- Source-to-DOM cross-check caught a second, earlier defect before handoff:
+  untyped fixture buttons are observed as submit. The actual isolated Chrome
+  test fails at Replace stable target (1 failure, 2.705s); static HTML checks
+  fail on all three boundary routes. Explicit button types repair the fixture,
+  including its dynamically created replacement. Runtime policy is unchanged.
+- GREEN: verifier/policy/service 127/127 (3.322s); fixture 10/10 including the
+  isolated real Chrome check (8.231s); final warning-as-error discovery 609/609
+  (36.943s), skip 0. Python 3.14.7, MCP 1.29.0, websockets 17.0.1. SDK test
+  diagnostics and asyncio timing messages are not device stdio-purity evidence.
+- Final verifier/packaging recheck after documentation: 134/134 PASS (4.020s).
+- All four edited Python files pass Python 3.10 grammar; diff whitespace is
+  clean. Runtime source is unchanged: the existing 282268-byte wheel passes
+  58-source, metadata/RECORD/member/license/entrypoint binding; SHA-256 remains
+  `9fe9c0f3184ec91aa7e925e19da31c40973c2b9bee1e25a130bd2e5fb87794ce`.
+- Preserved byte-identical public evidence and wrote review/hold attachments
+  outside the repository under `s22u-v0242-ff62c307061b-results`. Seven repo
+  paths changed. A new clean user commit is required before a new sealed gate.
+- Existing planning records are reused. No device rerun, package/settings
+  change, commit/push, or production operation is authorized by this review.
+
+### Test setup and diagnostic notes
+
+- Initial test wiring omitted a required BackendActionOutcome evidence value;
+  corrected the fixture before accepting the real-policy RED. The real browser
+  helper initially used a nonexistent FixtureSite.origin; replaced it with url('/').
+- Changing a fake snapshot title/label alone does not advance its engine's
+  revision. Revision fault injection now uses the existing capture(dom_changed=True);
+  a separate scripted response tests the verifier's changed-context guard.
+- An attempted read-only ps lookup was sandbox-denied, not a product failure;
+  no process was killed. Read/glob guesses were resolved with scoped file listings,
+  and oversized output was narrowed. Local socket/browser tests used approved
+  temporary resources. Shared docs style/formatter are unavailable; no tools installed.
+- One final Git read used the sibling evidence directory by mistake; it reported
+  not-a-repository and changed nothing. Repeated only those reads in the exact repo.
+
 ## 2026-09-24 — Repair canonical action inputs at the actual MCP boundary
 
 - Resumed after receiving the missing Hermes static diagnosis, with clean
