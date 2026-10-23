@@ -10,6 +10,7 @@ import secrets
 import time
 from typing import Any, Callable, Mapping, NoReturn
 
+from ...browser import BrowserStartupError
 from ...commands import JavascriptExecutionTimeout, NativeNavigationError
 from ..contracts import (
     ActionKind,
@@ -166,6 +167,16 @@ class LegacyPilotBackend:
             except (Exception, asyncio.CancelledError):
                 if hasattr(start_error, "add_note"):
                     start_error.add_note("Owned startup cleanup is incomplete")
+            failure = (start_error if isinstance(start_error, BrowserStartupError)
+                       else getattr(pilot, "_startup_failure", None))
+            if isinstance(start_error, Exception) and isinstance(failure, BrowserStartupError):
+                details = failure.startup_details
+                code = (ErrorCode.TIMEOUT if details.get("reason") == "readiness_timeout"
+                        else ErrorCode.BACKEND_CRASHED)
+                raise TermuinatorError(
+                    code, "Owned browser startup failed",
+                    details={"backend": self.backend.value, "operation": "start", **details},
+                ) from start_error
             raise
 
         self._status = BackendStatus(

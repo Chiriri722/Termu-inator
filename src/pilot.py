@@ -4,7 +4,7 @@ import asyncio
 import logging
 import os
 
-from .browser import BrowserPilot
+from .browser import BrowserPilot, BrowserStartupError
 from .native import NativeFirefoxSession
 from .commands import PageCommands
 from .screenshot import ScreenshotCommands
@@ -117,10 +117,17 @@ class Pilot:
 
     async def start(self):
         """Start browser and connect."""
+        self._startup_failure = None
         self._lock.acquire()
         try:
             result = await self._browser.start()
-            await self._init_session(result)
+            try:
+                await self._init_session(result)
+            except Exception as exc:
+                # Preserve the original Python failure/cancellation contract,
+                # while giving the adapter bounded session-initialization facts.
+                self._startup_failure = BrowserStartupError("session_initialization", exc)
+                raise
         except BaseException as start_error:
             try:
                 await self.stop()

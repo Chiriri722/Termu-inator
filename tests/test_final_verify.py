@@ -1204,6 +1204,37 @@ class ChildEnvironmentIsolationTests(unittest.TestCase):
                 _child_environment(output, owner_scope="final-verify-owner")
 
 class ProcessCensusEvidenceTests(unittest.TestCase):
+    def test_startup_observes_child_generation_before_it_reparents_during_rpc(self) -> None:
+        async def scenario():
+            self.process(123)
+            observed = set()
+            observed_child = asyncio.Event()
+
+            def observe(pid):
+                snapshot = self.snapshot()
+                final_verify_module._record_process_tree(snapshot, pid, observed)
+                if ("456", "200") in observed:
+                    observed_child.set()
+
+            async def call_tool(*args, **kwargs):
+                self.process(456, start=200, parent=123)
+                try:
+                    await asyncio.wait_for(observed_child.wait(), timeout=1.0)
+                except asyncio.TimeoutError:
+                    pass
+                self.process(456, start=200, parent=1)
+                raise RuntimeError("PRIVATE startup failure")
+
+            caller = final_verify_module._McpToolCaller(
+                SimpleNamespace(call_tool=call_tool), server_pid=123,
+                process_observer=observe,
+            )
+            with self.assertRaises(RuntimeError):
+                await caller("browser_session_start", {})
+            self.assertIn(("456", "200"), observed,
+                          "Sampling only before/after the RPC loses a child that reparents")
+        asyncio.run(scenario())
+
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)

@@ -1,5 +1,27 @@
 # Findings: Termu-inator Modernization
 
+## 2026-10-23 — r2 Chromium startup and ownership evidence gaps
+
+- Verified the 36,805-byte public ZIP, 20 safe members, 19 payload hashes and six
+  checksum lists for d3486161 / run 43a254707d. Device verdict remains NEEDS_CODE_FIX.
+- Chromium session_start lost its underlying stage/errno/returncode. The public
+  label backend_crashed does not prove an OS crash. Intermediate census had two
+  unattributed processes; neither their ownership nor socket liveness is established.
+- Outer verifier stderr is zero; interactive MCP stderr is **352 bytes**. Private
+  contents were not provided or inspected. Firefox/benchmark did not run.
+- Added bounded startup error metadata through adapter/MCP/verifier and separated
+  readiness timeout from observed process exit; termination codes cannot rewrite
+  the original startup failure. Original cancellation/owned cleanup contracts remain.
+- Removed unconditional Singleton* unlink. New cleanup requires this launch's empty
+  initial profile, captured directory/entry identities, child PID lock and paired
+  cookies, reaped/inactive PID and refused socket. Ambiguity preserves resources.
+- Added in-flight RPC ancestry sampling. Generation checks and UNKNOWN classification
+  remain strict; this is not global containment or retrospective attribution.
+- The isolated Mac Chrome probe rejected a socket outside the requested custom TMPDIR.
+  That record is preserved. A separate probe using the actual OS temp root passed
+  startup/capture/reap/singleton removal. This does not establish S22U success.
+- See docs/s22u-r2-startup-followup.ko.md for evidence identifiers and new-commit gates.
+
 ## 2026-09-24 — v0.2.42 action-boundary confirmation failure
 
 - Returned public files bind `ff62c307061bfff340f6c80a8b78c99033ad29bf`.

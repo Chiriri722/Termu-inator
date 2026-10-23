@@ -159,7 +159,7 @@ _MCP_ERROR_CODES = frozenset(
 )
 _MCP_ERROR_DETAIL_VALUES = {
     "backend": frozenset({"chromium", "firefox"}),
-    "operation": frozenset({"back", "forward", "goto", "observe", "reload"}),
+    "operation": frozenset({"back", "forward", "goto", "observe", "reload", "start"}),
     "stage": frozenset(
         {
             "adapter_metadata",
@@ -174,6 +174,9 @@ _MCP_ERROR_DETAIL_VALUES = {
             "observe_text",
             "pilot_dispatch",
             "window_unavailable",
+            "binary_resolution", "display_allocation", "xvfb_spawn", "xvfb_ready",
+            "window_manager_spawn", "gpu_setup", "profile_prepare", "chromium_spawn",
+            "cdp_ready", "session_initialization", "singleton_cleanup",
         }
     ),
     "reason": frozenset(
@@ -185,9 +188,16 @@ _MCP_ERROR_DETAIL_VALUES = {
             "read_failed",
             "read_timeout",
             "selection_empty",
+            "permission_denied", "dependency_missing", "readiness_timeout",
+            "io_error", "unexpected_error", "process_exited",
+            "ownership_unverified", "preexisting_singleton", "process_not_reaped",
+            "socket_liveness_unknown", "socket_active", "process_identity_active",
         }
     ),
+    "exception_type": frozenset({"PermissionError", "FileNotFoundError", "TimeoutError",
+                                 "OSError", "RuntimeError", "ValueError", "Exception"}),
 }
+_MCP_ERROR_DETAIL_INTEGERS = {"errno": (1, 4095), "process_returncode": (-255, 255)}
 _FAILURE_CONTEXT_VALUES = {
     "verification_stage": frozenset({
         "session_start", "permission_grant", "navigation", "observation", "form_actions",
@@ -231,12 +241,18 @@ class VerificationFailure(RuntimeError):
     verification_context: Mapping[str, object] | None = None
 
 
-def _safe_failure_context(value: object) -> dict[str, str]:
+def _safe_failure_context(value: object) -> dict[str, str | int]:
     """Public labels only; never infer context from exception or page text."""
     if not isinstance(value, Mapping):
         return {}
-    return {key: item for key, allowed in _FAILURE_CONTEXT_VALUES.items()
-            if isinstance(item := value.get(key), str) and item in allowed}
+    result: dict[str, str | int] = {
+        key: item for key, allowed in _FAILURE_CONTEXT_VALUES.items()
+        if isinstance(item := value.get(key), str) and item in allowed}
+    for key, (low, high) in _MCP_ERROR_DETAIL_INTEGERS.items():
+        item = value.get(key)
+        if type(item) is int and low <= item <= high:
+            result[key] = item
+    return result
 
 
 def _verification_failure_evidence(
@@ -2197,13 +2213,28 @@ class _McpToolCaller:
             raise VerificationFailure("MCP client session has no call_tool method")
         if self._process_observer is not None:
             self._process_observer(self.server_pid)
+        pending = None
         try:
-            result = await call_tool(
+            request = call_tool(
                 name,
                 arguments,
                 read_timeout_seconds=timedelta(seconds=180),
             )
+            if self._process_observer is None:
+                result = await request
+            else:
+                pending = asyncio.ensure_future(request)
+                # Sample while the RPC is pending, before descendants can reparent.
+                # This is observed ancestry, never proof of global containment.
+                while not pending.done():
+                    done, _ = await asyncio.wait({pending}, timeout=0.1)
+                    if not done:
+                        self._process_observer(self.server_pid)
+                result = await pending
         finally:
+            if pending is not None and not pending.done():
+                pending.cancel()
+                await asyncio.gather(pending, return_exceptions=True)
             if self._process_observer is not None:
                 self._process_observer(self.server_pid)
         if getattr(result, "isError", False):
@@ -2243,6 +2274,10 @@ class _McpToolCaller:
                         value = details.get(key)
                         if isinstance(value, str) and value in allowed:
                             context[key] = value
+                    safe_details = _safe_failure_context(details)
+                    for key in _MCP_ERROR_DETAIL_INTEGERS:
+                        if key in safe_details:
+                            context[key] = safe_details[key]
                 break
             labels = [f"{key}={value}" for key, value in context.items() if key != "tool"]
             suffix = f" [{','.join(labels)}]" if labels else ""

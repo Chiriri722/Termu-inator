@@ -1,5 +1,20 @@
 # Progress: Termu-inator Modernization
 
+## 2026-10-23 — current user-approved acceptance boundary
+
+The user explicitly chose to preserve all 11 paths in d3486161 **and retain the
+existing mandatory S22U acceptance criteria**. The historical local-only notice
+below does not override that decision. r2 evidence is verified NEEDS_CODE_FIX,
+not device PASS; Chromium failed session_start and Firefox/benchmark were not run.
+
+Startup diagnostics, safe singleton ownership cleanup, and in-flight RPC process
+sampling have been implemented test-first. See docs/s22u-r2-startup-followup.ko.md.
+Final focused: 194 PASS. Full pinned-MCP Python 3.14.7: 638 PASS, zero skips,
+including the isolated real-Chrome fixture. Supplemental Python 3.11: 617 PASS
+and 21 optional skips out of 638; this is not the S22U preflight environment.
+No commit/push, remote rerun, package/network/Hermes setting change, or production
+cutover was performed. Next boundary: new clean commit and newly bound wheel/authority.
+
 > [!IMPORTANT]
 > **2026-09-30 — The verification treadmill is broken. Read `acceptance/README.md`.**
 >

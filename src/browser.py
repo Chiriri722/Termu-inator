@@ -15,6 +15,7 @@ import urllib.error
 import urllib.request
 
 from ._utils import stop_owned_process
+from .chromium_singleton import ChromiumSingletonOwner, SingletonOwnershipError
 
 # Track temp dirs for crash cleanup
 _temp_dirs_to_clean = set()
@@ -46,6 +47,52 @@ CDP_PORT = 9222
 CHROMIUM_STDERR_LIMIT = 64 * 1024
 CHROMIUM_BIN = shutil.which("chromium-browser") or shutil.which("chromium") or "chromium-browser"
 CHROMIUM_CANDIDATES = ("chromium", "chromium-browser", "google-chrome-stable")
+
+
+class BrowserStartupError(RuntimeError):
+    """Public startup facts, separate from private exception text and stderr."""
+
+    def __init__(self, stage, cause, *, returncode=None):
+        if stage not in {
+            "binary_resolution", "display_allocation", "xvfb_spawn", "xvfb_ready",
+            "window_manager_spawn", "gpu_setup", "profile_prepare", "chromium_spawn",
+            "cdp_ready", "session_initialization", "singleton_cleanup",
+        }:
+            stage = "chromium_spawn"
+        os_cause = (cause.__cause__ if isinstance(cause, SingletonOwnershipError)
+                    and isinstance(cause.__cause__, OSError) else cause)
+        kind = type(os_cause).__name__
+        if kind not in {"PermissionError", "FileNotFoundError", "TimeoutError",
+                        "OSError", "RuntimeError", "ValueError"}:
+            kind = "Exception"
+        reason = "unexpected_error"
+        if isinstance(cause, PermissionError):
+            reason = "permission_denied"
+        elif isinstance(cause, FileNotFoundError):
+            reason = "dependency_missing"
+        elif isinstance(cause, TimeoutError):
+            reason = "readiness_timeout"
+        elif isinstance(cause, OSError):
+            reason = "io_error"
+        elif isinstance(cause, SingletonOwnershipError):
+            reason = cause.reason
+        details = {"stage": stage, "reason": reason, "exception_type": kind}
+        number = getattr(os_cause, "errno", None)
+        if type(number) is int and 1 <= number <= 4095:
+            details["errno"] = number
+        if type(returncode) is int and -255 <= returncode <= 255:
+            details["process_returncode"] = returncode
+            details["reason"] = "process_exited"
+        self.startup_details = details
+        prefix = "Xvfb" if stage.startswith("xvfb_") else "Chromium"
+        labels = ",".join(f"{key}={value}" for key, value in details.items())
+        super().__init__(f"{prefix} failed to start [{labels}]")
+
+
+def _startup_failure(stage, cause, *, returncode=None):
+    if isinstance(cause, BrowserStartupError):
+        return cause
+    return BrowserStartupError(stage, cause, returncode=returncode)
 
 
 def _validated_chromium_tmpdir(environment):
@@ -137,6 +184,8 @@ class BrowserPilot:
         self._chromium_stderr_tail = b""
         self._chromium_failed_attempts = []
         self._chromium_diagnostic_path = None
+        self._chromium_singleton_owner = None
+        self._chromium_child_reaped = False
         self._runtime_dir = Path(tempfile.gettempdir()) / "termuinator-runtime"
         self._display_lease_path = None
         self._display_lease_identity = None
@@ -144,6 +193,7 @@ class BrowserPilot:
         self._user_data_dir = None
         self._external_user_data_dir = user_data_dir  # Persistent profile
         self._owns_user_data_dir = False  # Whether we should clean it up
+        self._startup_stage = "binary_resolution"
 
     def _resolve_chromium_binary(self):
         """Resolve Chromium from the current Termux PATH without stale imports."""
@@ -166,12 +216,14 @@ class BrowserPilot:
     async def start(self):
         """Start Xvfb + browser. Returns WS URL (Chromium) or None (Firefox)."""
         try:
+            self._startup_stage = "binary_resolution"
             from ._utils import require_binaries
             require_binaries("Xvfb")
             if self.browser_type != "firefox":
                 self.chromium_bin = self._resolve_chromium_binary()
 
             if self.headless_xvfb:
+                self._startup_stage = "display_allocation"
                 await self._start_xvfb()
 
             if self.browser_type == "firefox":
@@ -179,10 +231,15 @@ class BrowserPilot:
                 return None
 
             # Chromium path
+            self._startup_stage = "gpu_setup"
             await self._setup_gpu()
+            self._startup_stage = "profile_prepare"
             self._ws_url = await self._start_chromium()
             return self._ws_url
-        except BaseException:
+        except BaseException as exc:
+            # Capture before stop: termination must not become an alleged crash code.
+            failure = (_startup_failure(self._startup_stage, exc)
+                       if isinstance(exc, Exception) else exc)
             try:
                 await self.stop()
             except Exception as cleanup_error:
@@ -190,7 +247,9 @@ class BrowserPilot:
                     "Error cleaning failed browser start: %s",
                     type(cleanup_error).__name__,
                 )
-            raise
+            if failure is exc:
+                raise
+            raise failure from exc
 
     async def _setup_gpu(self):
         """Resolve GPU rendering mode (auto-detect best available)."""
@@ -221,21 +280,25 @@ class BrowserPilot:
 
     async def _start_xvfb(self):
         """Launch Xvfb virtual display (non-blocking)."""
+        self._startup_stage = "display_allocation"
         self.display = self._resolve_display(self.display)
         w, h = self.window_size.split(",")
         resolution = f"{w}x{h}x24"
+        self._startup_stage = "xvfb_spawn"
         self._xvfb_proc = await asyncio.create_subprocess_exec(
             "Xvfb", self.display, "-screen", "0", resolution,
             "-ac", "-nolisten", "tcp",
             stdout=asyncio.subprocess.DEVNULL,
             stderr=asyncio.subprocess.DEVNULL,
         )
+        self._startup_stage = "xvfb_ready"
         await asyncio.sleep(0.5)
 
         if self._xvfb_proc.returncode is not None:
+            returncode = self._xvfb_proc.returncode
             self._xvfb_proc = None
             self._release_display_lease()
-            raise RuntimeError("Xvfb failed to start")
+            raise BrowserStartupError("xvfb_ready", RuntimeError(), returncode=returncode)
 
         # Start a lightweight window manager (required for window
         # minimize/activate/raise operations used by DevTools management).
@@ -244,6 +307,7 @@ class BrowserPilot:
         env["DISPLAY"] = self.display
         openbox_bin = shutil.which("openbox")
         if openbox_bin:
+            self._startup_stage = "window_manager_spawn"
             self._wm_proc = await asyncio.create_subprocess_exec(
                 openbox_bin,
                 stdout=asyncio.subprocess.DEVNULL,
@@ -389,6 +453,7 @@ class BrowserPilot:
         Uses multi-process mode by default. Readiness or early-exit failure
         triggers the bounded single-process fallback.
         """
+        self._startup_stage = "profile_prepare"
         env = os.environ.copy()
         env["DISPLAY"] = self.display
         chromium_tmpdir = _validated_chromium_tmpdir(env)
@@ -404,7 +469,7 @@ class BrowserPilot:
         # Use persistent profile if provided, otherwise temp dir
         if self._external_user_data_dir:
             self._user_data_dir = self._external_user_data_dir
-            os.makedirs(self._user_data_dir, exist_ok=True)
+            os.makedirs(self._user_data_dir, mode=0o700, exist_ok=True)
             self._owns_user_data_dir = False
         else:
             self._user_data_dir = tempfile.mkdtemp(prefix="tbp_chrome_")
@@ -420,22 +485,32 @@ class BrowserPilot:
         try:
             await self._launch_chromium(env, extra_flags=[])
             return await self._wait_for_cdp()
-        except (RuntimeError, TimeoutError):
+        except (RuntimeError, TimeoutError) as exc:
+            if isinstance(exc, BrowserStartupError) and exc.startup_details["stage"] != "cdp_ready":
+                raise
+            failure = self._chromium_startup_failure(exc)
             await self._finish_failed_chromium_attempt("multi-process")
             if _FORCE_SINGLE_PROCESS:
-                raise
+                if failure is exc:
+                    raise
+                raise failure from exc
             logger.warning(
-                "Multi-process Chromium crashed. Retrying with --single-process."
+                "Multi-process Chromium startup failed. Retrying with --single-process."
             )
             self._clear_profile_locks()
 
         try:
             await self._launch_chromium(env, extra_flags=["--single-process"])
             return await self._wait_for_cdp()
-        except (RuntimeError, TimeoutError):
+        except (RuntimeError, TimeoutError) as exc:
+            if isinstance(exc, BrowserStartupError) and exc.startup_details["stage"] != "cdp_ready":
+                raise
+            failure = self._chromium_startup_failure(exc)
             await self._finish_failed_chromium_attempt("single-process")
             if self._gpu_mode != "virgl":
-                raise RuntimeError("Chromium failed to start (all modes)")
+                if failure is exc:
+                    raise
+                raise failure from exc
 
         logger.warning(
             "Virgl+single-process failed. Falling back to SwiftShader."
@@ -452,26 +527,44 @@ class BrowserPilot:
         try:
             return await self._wait_for_cdp()
         except (RuntimeError, TimeoutError) as exc:
+            failure = self._chromium_startup_failure(exc)
             await self._finish_failed_chromium_attempt(
                 "swiftshader-single-process"
             )
-            raise RuntimeError("Chromium failed to start (all modes)") from exc
+            if failure is exc:
+                raise
+            raise failure from exc
+
+    def _chromium_startup_failure(self, exc):
+        returncode = None if self._chrome_proc is None else self._chrome_proc.returncode
+        return _startup_failure(self._startup_stage, exc, returncode=returncode)
 
     def _clear_profile_locks(self):
-        """Remove Chromium lock files left by a crashed process."""
-        if not self._user_data_dir:
+        """Clean only singleton entries proven to belong to our reaped child."""
+        owner = self._chromium_singleton_owner
+        if owner is None:
             return
-        for lock_name in ("SingletonLock", "SingletonSocket", "SingletonCookie"):
-            lock_path = os.path.join(self._user_data_dir, lock_name)
-            try:
-                os.remove(lock_path)
-            except FileNotFoundError:
-                pass
-            except OSError as e:
-                logger.debug("Could not remove %s: %s", lock_name, e)
+        reaped = self._chromium_child_reaped or (
+            self._chrome_proc is not None and self._chrome_proc.returncode is not None)
+        try:
+            owner.cleanup(reaped=reaped)
+        except SingletonOwnershipError as exc:
+            raise BrowserStartupError("singleton_cleanup", exc) from exc
+        self._chromium_singleton_owner = None
 
     async def _launch_chromium(self, env, extra_flags=None):
         """Launch Chromium subprocess."""
+        self._startup_stage = "profile_prepare"
+        if self._chromium_singleton_owner is not None:
+            self._clear_profile_locks()
+        try:
+            self._chromium_singleton_owner = ChromiumSingletonOwner(
+                self._user_data_dir, env.get("TMPDIR") or tempfile.gettempdir())
+        except SingletonOwnershipError as exc:
+            raise BrowserStartupError("singleton_cleanup", exc) from exc
+        # Nothing can be alive from this attempt until subprocess creation starts.
+        self._chromium_child_reaped = True
+        self._startup_stage = "chromium_spawn"
         if self._auto_cdp_port:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as reservation:
                 reservation.bind(("127.0.0.1", 0))
@@ -495,11 +588,19 @@ class BrowserPilot:
             "about:blank",
         ]
 
-        self._chrome_proc = await asyncio.create_subprocess_exec(
-            *args, env=env,
-            stdout=asyncio.subprocess.DEVNULL,
-            stderr=asyncio.subprocess.PIPE,
-        )
+        self._chromium_child_reaped = False
+        try:
+            self._chrome_proc = await asyncio.create_subprocess_exec(
+                *args, env=env,
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.PIPE,
+            )
+        except OSError:
+            # exec failed without returning a child handle. Do not retain an
+            # empty singleton claim; cancellation remains unverified instead.
+            self._chromium_child_reaped = True
+            raise
+        self._chromium_singleton_owner.pid = self._chrome_proc.pid
         self._chromium_stderr_tail = b""
         if self._chrome_proc.stderr is not None:
             self._chromium_stderr_task = asyncio.create_task(
@@ -519,8 +620,11 @@ class BrowserPilot:
     async def _finish_failed_chromium_attempt(self, label):
         """Stop a failed attempt and persist its bounded private stderr tail."""
         proc = self._chrome_proc
+        if self._chromium_singleton_owner is not None:
+            self._chromium_singleton_owner.capture()
         if proc is not None:
             await stop_owned_process(proc)
+            self._chromium_child_reaped = True
 
         task = self._chromium_stderr_task
         if task is not None:
@@ -568,6 +672,7 @@ class BrowserPilot:
 
     async def _wait_for_cdp(self, timeout=20):
         """Wait for CDP endpoint to be ready and return WS URL."""
+        self._startup_stage = "cdp_ready"
         url = f"http://127.0.0.1:{self.cdp_port}/json/version"
         deadline = asyncio.get_running_loop().time() + timeout
 
@@ -582,20 +687,18 @@ class BrowserPilot:
                 return ""
 
         while asyncio.get_running_loop().time() < deadline:
+            if self._chromium_singleton_owner is not None:
+                self._chromium_singleton_owner.capture()
             if self._chrome_proc is not None and \
                self._chrome_proc.returncode is not None:
-                raise RuntimeError(
-                    "Chromium exited before CDP became ready "
-                    f"(returncode={self._chrome_proc.returncode})"
-                )
+                raise BrowserStartupError("cdp_ready", RuntimeError(),
+                                          returncode=self._chrome_proc.returncode)
             ws_url = await asyncio.to_thread(_fetch)
             if ws_url:
                 return ws_url
             await asyncio.sleep(0.5)
 
-        raise TimeoutError(
-            f"CDP not ready after {timeout}s on port {self.cdp_port}"
-        )
+        raise BrowserStartupError("cdp_ready", TimeoutError())
 
     @property
     def ws_url(self):
@@ -609,6 +712,8 @@ class BrowserPilot:
         """
         stop_error = None
         cancelled = False
+        if self._chromium_singleton_owner is not None:
+            self._chromium_singleton_owner.capture()
         for name in ("_chrome_proc", "_wm_proc", "_xvfb_proc"):
             proc = getattr(self, name)
             if proc is None:
@@ -622,6 +727,8 @@ class BrowserPilot:
             else:
                 # Only discard an owned handle after its wait has completed.
                 setattr(self, name, None)
+                if name == "_chrome_proc":
+                    self._chromium_child_reaped = True
 
         if self._chrome_proc is None and self._chromium_stderr_task is not None:
             try:
@@ -644,6 +751,12 @@ class BrowserPilot:
                 stop_error = stop_error or exc
             else:
                 self._virgl = None
+
+        if not cancelled and stop_error is None:
+            try:
+                self._clear_profile_locks()
+            except Exception as exc:
+                stop_error = exc
 
         if cancelled or stop_error is not None:
             # Preserve the profile and lease while an owned child may still use them.

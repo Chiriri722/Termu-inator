@@ -19,6 +19,22 @@ Termux/Android에서 실제 Firefox·Chromium을 제어하되, 기존의 방대�
 
 ## Next Step
 
+2026-10-23 최신: `d3486161af763455e0ad6cdc45e9f0790b8e15cf` / OPS-r2 /
+`43a254707d`의 수신 ZIP 및 19 payload 무결성을 검증했다. S22U는 NEEDS_CODE_FIX다.
+Chromium session_start 실패의 하위 원인은 미확정이며, 중간 귀속 불명 2개 때문에
+Firefox/benchmark가 중단됐다. outer stderr 0과 interactive MCP stderr 352를 구분한다.
+시작 진단·PID 관측 간격·소유 singleton 정리를 회귀 테스트부터 보강했다.
+로컬 focused 194개와 pinned MCP/Python 3.14.7 전체 638개가 실제 Chrome fixture
+포함 PASS(skip 0)다. 보조 Python 3.11은 638개 중 617 PASS/21 optional skip이다.
+새 wheel·S22U 실행은 아직 없으며 이번 변경은 13개 경로다.
+상세: [r2 후속 보강 결과](docs/s22u-r2-startup-followup.ko.md).
+다음은 **새 clean commit SHA → 새 wheel/source binding → 새 authority/output →
+fresh S22U gate**다. 기존 r2는 재실행하지 않는다. 사용자가 확정한 기존 11개
+경로를 보존하며, `acceptance/`의 local-only 기준으로 S22U 필수 검수를 대체하지 않는다.
+아래 같은 날짜의 CDP·환경 복구 기록은 이번 수신 전의 historical checkpoint다.
+
+### Historical 2026-10-23 preparation and local CDP work
+
 2026-10-23: 사용자가 Termux 환경 리셋 후 복구·진단·증거 수집의 연속 진행을 요청했다.
 코드 후보는 `5f79919c250f52b5b48446922ef4bf1656da2ca2` (`v.0.2.43`)로 유지한다.
 [OPS-20261023-r1 지침](docs/hermes-continuous-validation.ko.md)은 이미 진행 중인

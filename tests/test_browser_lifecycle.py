@@ -274,9 +274,10 @@ class BrowserLifecycleTests(unittest.IsolatedAsyncioTestCase):
                 return_value="/usr/bin/chromium",
             ),
         ):
-            with self.assertRaisesRegex(RuntimeError, "startup failed"):
+            with self.assertRaisesRegex(RuntimeError, "Chromium failed to start") as caught:
                 await pilot.start()
 
+        self.assertEqual(str(caught.exception.__cause__), "startup failed")
         pilot.stop.assert_awaited_once_with()
 
     async def test_xvfb_start_launches_exactly_one_window_manager(self) -> None:
