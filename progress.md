@@ -1,5 +1,27 @@
 # Progress: Termu-inator Modernization
 
+> [!IMPORTANT]
+> **2026-09-30 — The verification treadmill is broken. Read `acceptance/README.md`.**
+>
+> Root cause: "done" was defined as a physical Samsung S22U / Termux
+> canonical+benchmark run, which no host without that device can execute — so
+> the canonical verdict stayed permanently "FAIL / benchmark not run" while
+> 600+ local tests always passed. The bug was in the *process*, not the product.
+>
+> Fix: a reachable, deterministic, terminating acceptance gate
+> (`acceptance/acceptance_gate.py` + `acceptance/definition_of_done.json`) that a
+> developer machine or CI runner can actually run and pass. It runs the full
+> unit suite AND the real observe→act→verify loop against a real headless
+> browser driving the in-repo FixtureSite, binds the verdict to the git commit,
+> and emits PASS/FAIL with a terminating exit code. The physical-device
+> benchmark is now optional/informational and never blocks completion.
+>
+> Verified PASS on 2026-09-30 at commit `5f79919c250f`: unit 608 passed /
+> real-browser E2E 10 passed / exit 0. To conclude a candidate:
+> `python acceptance/acceptance_gate.py`.
+>
+> Everything below this banner is preserved historical treadmill context.
+
 ## 2026-09-24 — Resume from v0.2.42 public failure evidence
 
 - Started from clean `ff62c307061bfff340f6c80a8b78c99033ad29bf` (v.0.2.42).

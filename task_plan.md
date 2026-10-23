@@ -19,6 +19,36 @@ Termux/Android에서 실제 Firefox·Chromium을 제어하되, 기존의 방대�
 
 ## Next Step
 
+2026-10-23: 사용자가 Termux 환경 리셋 후 복구·진단·증거 수집의 연속 진행을 요청했다.
+코드 후보는 `5f79919c250f52b5b48446922ef4bf1656da2ca2` (`v.0.2.43`)로 유지한다.
+[OPS-20261023-r1 지침](docs/hermes-continuous-validation.ko.md)은 이미 진행 중인
+준비를 검증해 이어 쓰고, 제한된 환경 복구/최소 진단/새 회차 검증을 사전 승인한다.
+같은 코드의 환경 복구만으로 새 commit을 요구하지 않되 run ID와 환경 기록은 구분한다.
+과거 BLOCKED/NOT_RUN/FAIL 및 봉인 ZIP은 불변이다. 해당 OPS 회차에서는 자료만 개정했고
+기기 실행·MCP 등록·production 전환은 하지 않았다. 기존 progress.md/acceptance의
+별도 미커밋 변경은 보존하고 이번 후보나 기기 PASS에 포함하지 않는다.
+
+2026-10-23 후속 local 안정성 보강: CDP의 `timeout`이 응답 대기에만 적용돼
+전송 중 정지와 합산 시간 초과를 막지 못하는 두 경로를 RED로 재현했다.
+`src/cdp.py`의 공통 전송에 단일 시간 예산을 적용하고 기존 finally 정리를 유지했다.
+관련 109개 PASS, 전체 612개 OK(611 PASS·기존 opt-in 1 skip), 별도 실제 격리
+Chrome fixture 10개 PASS다. 현재 Python은 Mac 3.14.7이며 S22U 결과가 아니다.
+이 runtime 변경은 **미커밋 후속 후보**다. 진행 중인 v0.2.43 준비·봉인 자료를
+바꾸거나 중단시키지 않는다. 이를 기기에 전달하려면 새 사용자 clean commit과
+재빌드·소스 바인딩한 wheel이 필요하며, 기존 v0.2.43 wheel로 대체할 수 없다.
+상세 결과는 저장소 밖 `../Termu-inator-device-artifacts/local-cdp-deadline-20261023-xo1tZf/`
+의 `LOCAL-RESULT.ko.md`에 남긴다. 기기 인수·활성 backend fault·장시간 검증은 미완료다.
+
+같은 날 종료 경로도 확인했다. 실제 loopback WebSocket에서 `CDPClient.close()`가
+자기 listener의 취소와 외부 호출자의 취소를 함께 삼키는 경합을 RED로 재현했다.
+기대된 listener 취소만 수집하고 호출자 취소는 소켓 정리 후 다시 전달한다.
+정상 종료·대기 요청 해제·종료 실패 소유권·예상 밖 listener 오류를 보존하며,
+경합 회귀 20회와 전체 616개(615 PASS·기존 opt-in 1 skip), 별도 Chrome 10개가 통과했다.
+이 추가 수정도 미커밋 후속 후보이며 v0.2.43 기기 결과가 아니다. 결과는
+`../Termu-inator-device-artifacts/local-cdp-close-20261023-8h3I5P/LOCAL-RESULT.ko.md`에 보존한다.
+
+### Historical v0.2.42 follow-up
+
 2026-09-24 최신 수신 결과: `ff62c307061bfff340f6c80a8b78c99033ad29bf`
 (`v.0.2.42`)의 공개 파일 4개 무결성을 확인했다. Canonical FAIL,
 benchmark 미실행이며 양 backend는 `action_boundaries`에서 `_ConfirmationRequired`다.
@@ -221,6 +251,19 @@ benchmark나 RC 승인을 진행하지 않는다.
 
 ## Current Phase
 
+2026-10-23 — 연속 진행 문서와 CDP deadline·종료 취소 local 보강 완료
+
+- [x] OPS-20261023-r1 전달 자료와 과거 결과를 보존한다.
+- [x] CDP 전송 정지·전송/응답 합산 timeout 회귀 2건 RED→GREEN.
+- [x] 기존 요청 취소·전송 실패 정리와 실제 loopback 늦은 응답/비재전송 회귀 확인.
+- [x] 관련 109개, 전체 612개(기존 opt-in 1 skip), 별도 격리 Chrome 10개 확인.
+- [x] 종료 중 외부 취소의 전파 누락 RED→GREEN; 경합 회귀 20회 PASS.
+  최종 전체 616개(기존 opt-in 1 skip)와 별도 격리 Chrome 10개 PASS.
+- [ ] 후속 runtime 후보의 사용자 clean commit·새 wheel 및 기기 검증.
+- [ ] 양 backend의 활성 중단·100-action·idle/resume, clean Termux 설치와 운영 승인.
+
+### Historical v0.2.42 local completion
+
 2026-09-24 — v0.2.42 승인 경계 검수 보강 (local 완료, 새 commit 대기)
 
 - [x] 현재 clean HEAD와 공개 manifest의 v0.2.42 SHA 일치, 반환 파일 hash/size 확인.
@@ -286,6 +329,8 @@ benchmark나 RC 승인을 진행하지 않는다.
   - [x] 요청 취소/시간 초과 후 dispatch 재실행 및 새 세션으로 key 재결합 차단 local 회귀.
   - [x] 소유한 실제 자식 process 강제 종료 후 journal 복구와 persistent lock 재획득.
   - [x] CDP 취소/전송 실패 정리 및 실제 Chrome 응답 취소·새 연결 후 효과 1회 확인.
+  - [x] CDP의 전송과 응답에 단일 deadline 적용; 정지·합산 timeout 및 늦은 응답 local 회귀.
+  - [x] CDP 종료 중 호출자 취소와 내부 listener 취소를 구분; cleanup 후 취소 전파 local 회귀.
   - [x] 브라우저 미연결 observer MCP의 초기화 후 stdin EOF·정상 종료·같은 경로 재시작.
   - [ ] 활성 backend/MCP 중단, 양 backend 100-action·idle/resume 및 S22U 증거.
 - [ ] 4단계: 안전 범위를 명시한 설치·운영 전환 준비와 별도 승인.

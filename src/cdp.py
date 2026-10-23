@@ -104,7 +104,7 @@ class CDPClient:
             self._callbacks.clear()
 
     async def send(self, method, params=None, timeout=30):
-        """Send a CDP command and wait for response."""
+        """Send a CDP command and receive its response within one timeout."""
         if self._disconnected:
             raise ConnectionError(
                 "CDP WebSocket disconnected"
@@ -121,9 +121,12 @@ class CDPClient:
         future = asyncio.get_running_loop().create_future()
         self._callbacks[msg_id] = future
 
-        try:
+        async def send_and_receive():
             await self._ws.send(json.dumps(payload))
-            result = await asyncio.wait_for(future, timeout=timeout)
+            return await future
+
+        try:
+            result = await asyncio.wait_for(send_and_receive(), timeout=timeout)
         except asyncio.TimeoutError:
             raise TimeoutError(f"CDP command {method} timed out after {timeout}s")
         finally:
@@ -156,14 +159,27 @@ class CDPClient:
 
     async def close(self):
         """Close the connection."""
+        cancellation = None
         if self._listener_task:
             self._listener_task.cancel()
             try:
-                await self._listener_task
-            except asyncio.CancelledError:
-                pass
-        if self._ws:
-            await self._ws.close()
+                # Child cancellation is expected; cancellation of this caller is not.
+                result, = await asyncio.gather(
+                    self._listener_task, return_exceptions=True
+                )
+            except asyncio.CancelledError as exc:
+                cancellation = exc
+            else:
+                if isinstance(result, BaseException) and not isinstance(
+                    result, asyncio.CancelledError
+                ):
+                    raise result
+        try:
+            if self._ws:
+                await self._ws.close()
+        finally:
+            if cancellation is not None:
+                raise cancellation
 
     async def __aenter__(self):
         await self.connect()

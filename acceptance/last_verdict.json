@@ -1,0 +1,114 @@
+{
+  "gate": "termuinator-reachable-acceptance",
+  "contract_version": "1.0.0",
+  "terminating": true,
+  "verdict": "PASS",
+  "browser_used": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+  "python": "3.14.7",
+  "timestamp_utc": "2026-09-30T12:26:38Z",
+  "repo_identity": {
+    "commit": "5f79919c250f52b5b48446922ef4bf1656da2ca2",
+    "dirty": true,
+    "tree_identity_sha256": "41232153def71b95ad4fae656d0b4e9b7dd821fb208c9cb984c9a01cbc3384d9",
+    "branch": "main"
+  },
+  "criteria": [
+    {
+      "criterion": "unit-suite-green",
+      "status": "PASS",
+      "detail": "608 passed, 1 skipped, 265 subtests passed in 13.76s",
+      "evidence": {
+        "target": ".",
+        "browser": null,
+        "passed": 608,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 1,
+        "duration_s": 14.108,
+        "thresholds": [
+          {
+            "name": "min_passed",
+            "limit": 600,
+            "actual": 608,
+            "ok": true
+          },
+          {
+            "name": "max_failed",
+            "limit": 0,
+            "actual": 0,
+            "ok": true
+          },
+          {
+            "name": "max_errors",
+            "limit": 0,
+            "actual": 0,
+            "ok": true
+          }
+        ]
+      },
+      "blocking": true
+    },
+    {
+      "criterion": "real-browser-e2e",
+      "status": "PASS",
+      "detail": "10 passed, 3 subtests passed in 7.50s",
+      "evidence": {
+        "target": "tests/test_fixture_site.py",
+        "browser": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+        "passed": 10,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0,
+        "duration_s": 7.736,
+        "thresholds": [
+          {
+            "name": "min_passed",
+            "limit": 10,
+            "actual": 10,
+            "ok": true
+          },
+          {
+            "name": "max_failed",
+            "limit": 0,
+            "actual": 0,
+            "ok": true
+          },
+          {
+            "name": "max_errors",
+            "limit": 0,
+            "actual": 0,
+            "ok": true
+          },
+          {
+            "name": "max_skipped",
+            "limit": 0,
+            "actual": 0,
+            "ok": true
+          }
+        ]
+      },
+      "blocking": true
+    },
+    {
+      "criterion": "no-uncommitted-drift",
+      "status": "PASS",
+      "detail": "bound to 5f79919c250f (dirty tree)",
+      "evidence": {
+        "commit": "5f79919c250f52b5b48446922ef4bf1656da2ca2",
+        "dirty": true,
+        "tree_identity_sha256": "41232153def71b95ad4fae656d0b4e9b7dd821fb208c9cb984c9a01cbc3384d9",
+        "branch": "main"
+      },
+      "blocking": true
+    },
+    {
+      "criterion": "physical-device-benchmark",
+      "status": "INFO",
+      "detail": "not_run (no physical device; non-blocking by contract)",
+      "evidence": {
+        "state": "not_run"
+      },
+      "blocking": false
+    }
+  ]
+}

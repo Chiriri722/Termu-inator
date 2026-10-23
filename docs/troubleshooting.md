@@ -6,6 +6,13 @@ Maintenance requires owner approval and exact resource ownership. Preserve the
 previous environment and evidence; never use a process-name kill or recursively
 delete a home/workspace tree to recover a candidate.
 
+For the reset-recovery campaign approved on 2026-10-23, follow the
+[continuous recovery and diagnostics runbook](hermes-continuous-validation.ko.md).
+It permits scoped preparation, bounded private-log metadata extraction, and a
+fresh validation attempt after an evidenced environment repair. Do not stop all
+independent evidence collection at the first failed check, overwrite old results,
+or interpret that permission as unbounded retries or disclosure of raw logs.
+
 ## First Evidence to Collect
 
 Keep the exact command, exit code, stdout, stderr, Android and Termux version,

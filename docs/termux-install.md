@@ -7,6 +7,14 @@ The primary S22U environment has passed browser and MCP smoke tests, but the
 isolated Secure Folder **clean-install gate is still pending**. Do not interpret
 an upgrade of an existing environment as clean-install evidence.
 
+After an environment reset, use the owner-approved
+[continuous recovery and diagnostics runbook](hermes-continuous-validation.ko.md)
+instead of replaying a consumed one-shot handoff. It separates missing-package
+preparation from a frozen validation run, permits bounded recovery and diagnosis,
+and keeps prior BLOCKED/NOT_RUN records unchanged. Environment-only recovery can
+keep the same source commit with a fresh run identity; source changes still need
+a newly bound candidate. This does not authorize registration or production use.
+
 ## Choose the entrypoint and release identity explicitly
 
 | Command | Current purpose |
