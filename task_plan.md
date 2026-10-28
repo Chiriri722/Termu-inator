@@ -19,7 +19,23 @@ Termux/Android에서 실제 Firefox·Chromium을 제어하되, 기존의 방대�
 
 ## Next Step
 
-2026-10-23 최신: `5cc585d6e721b3670f223c1615124908a9692e3d` / OPS-r3 /
+2026-10-28 최신: r3 정적 진단 두 파일의 크기·hash·run binding을 확인했다.
+Firefox는 `browser_navigate`의 `session_paused` 거부 assertion이며 당시 실제 응답은
+미보존이다. Chromium 로그의 미확인 구간까지 검사됐지만 구체적 원인은 기록되지 않았다.
+DBus ERROR와 `-5`의 인과관계는 UNKNOWN이다. 같은 로그 추가 요청은 종료한다.
+실패 당시와 cleanup 후 종료 코드를 구분하고, 기존 최대 3회 attempt의 고정 진단을
+MCP/manifest/한국어 요약에 보존했다. 신규 5개 RED → 관련 65 PASS → 전체 **657 PASS,
+skip 0**. 기존 Chrome fixture를 켠 Mac 결과이며 S22U 승인이 아니다.
+작업 중 사용자가 이전 13개 경로를 `c0e463f3007fc94d9f9ab99c2a37feafbd7adc1f`
+(subject `v.0.2.35`)로 커밋했다. 이번 추가 7개 경로는 그 위의 미커밋 보강이다.
+다음은 **추가 보강을 포함한 새 사용자 clean commit → 새 bound wheel/authority/output →
+fresh S22U canonical → 전체 PASS일 때만 benchmark**다. 기존 r3를 재실행하지 않는다.
+Chromium 원인 해결은 아직 주장하지 않는다. 상세는
+[r3 후속 보강 결과](docs/s22u-r3-confidential-followup.ko.md)에 기록했다.
+
+### Historical 2026-10-23 confidential follow-up
+
+2026-10-23 당시: `5cc585d6e721b3670f223c1615124908a9692e3d` / OPS-r3 /
 `44r30110b1`의 공개 ZIP(18 member / 17 payload) 무결성을 확인했다.
 Canonical FAIL / benchmark NOT_RUN / NEEDS_CODE_FIX를 유지한다.
 이번에는 양 backend cleanup과 최종 관측 범위 census가 통과했다.

@@ -1,5 +1,28 @@
 # Findings: Termu-inator Modernization
 
+## 2026-10-28 — r3 static evidence closed; attempt-time facts preserved
+
+- Both sanitized static files match the supplied sizes/hashes and the exact r3
+  commit/run/manifest. Middle file: 4,049 bytes, SHA-256
+  `5dd77002f3ee7012df43007fe3495f65316841b1a3c17ec16cb8efe284964e8d`.
+- Firefox's refusal assertion is now confirmed: browser_navigate expected
+  session_paused; actual result remains UNKNOWN_NOT_PRESERVED. This matches the
+  repaired local boundary, not proof of the historical device response value.
+- Head/tail plus middle cover the entire preserved Chromium log. DBus ERROR
+  categories do not establish a cause for -5; UNKNOWN_NOT_RECORDED remains.
+- Existing attempt headers read returncode AFTER owned cleanup. Multi-process 0
+  is not failure-time evidence. Five new tests reproduced missing history and
+  ambiguous headers (18 failing assertions, then GREEN).
+- At most three fixed attempt records now distinguish failure-time process state
+  and returncode from cleanup_returncode. Earlier attempts survive fallback and
+  later spawn errors through adapter/MCP/manifest/Korean summary. No raw log export.
+- Related 65 PASS; full 657 PASS, zero skips with live Mac Chrome. No launch-flag,
+  timeout, retry-budget, acceptance or cleanup relaxation; no S22U run or root-cause claim.
+- Prior 13-path work was committed by the user during this turn as c0e463f3
+  (actual subject v.0.2.35). Seven follow-up paths remain uncommitted.
+- codebase-memory refreshed stale index; scripts/ is excluded, so verifier source
+  was inspected directly. Graph results are structural guidance, not runtime evidence.
+
 ## 2026-10-23 — r3 confidential navigation contract and bounded assertion evidence
 
 - Verified r3 ZIP (29,523 bytes, SHA f78916d3…d2682), 18 members, 17 payload

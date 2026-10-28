@@ -1,5 +1,29 @@
 # Progress: Termu-inator Modernization
 
+## 2026-10-28 — received both static diagnostics; startup attempt evidence repaired
+
+Validated 3,772-byte static and 4,049-byte middle JSONs against their supplied hashes
+and r3 identity; preserved originals and owner-private copies. No additional same-log
+request is needed. Firefox assertion matches the navigation-refusal boundary, actual
+result still unrecorded. DBus messages do not explain Chromium's observed -5.
+
+Five new regressions initially failed with 18 assertions; the first draft additionally
+parsed the legacy non-JSON header and raised JSONDecodeError. Added a format assertion
+before decoding, then confirmed the clean RED (18 failures, zero errors).
+Minimal runtime/verifier changes preserve three bounded attempt histories and separate
+failure-time codes from cleanup codes. Actual owned child processes exercise cleanup
+to code 0, second/third exit, forced mode and later spawn failure. Related 65 PASS;
+full warning-as-error suite 657 PASS, zero skips including live Chrome.
+
+During work, the user committed the previous 13-path patch as c0e463f3007fc94d9f9ab99c2a37feafbd7adc1f
+(subject v.0.2.35). It is preserved. Seven additional paths now need a new clean commit
+before a new wheel/authority can be sealed. No assistant commit/push/device execution.
+Chromium device startup remains unresolved; these results are not S22U approval.
+
+Tooling notes: the old graph was stale and was refreshed without repository persistence;
+scripts/ coverage is excluded, checked by direct source. docs-write's shared style file
+and yarn/prettier remain unavailable; existing Markdown and diff checks are used instead.
+
 ## 2026-10-23 — r3 follow-up navigation failure and owner-resume guard
 
 Added four failing regressions for old-context screenshot access after failed

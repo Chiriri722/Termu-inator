@@ -183,6 +183,7 @@ class BrowserPilot:
         self._chromium_stderr_task = None
         self._chromium_stderr_tail = b""
         self._chromium_failed_attempts = []
+        self._chromium_startup_attempts = []
         self._chromium_diagnostic_path = None
         self._chromium_singleton_owner = None
         self._chromium_child_reaped = False
@@ -215,6 +216,7 @@ class BrowserPilot:
 
     async def start(self):
         """Start Xvfb + browser. Returns WS URL (Chromium) or None (Firefox)."""
+        self._chromium_startup_attempts = []
         try:
             self._startup_stage = "binary_resolution"
             from ._utils import require_binaries
@@ -240,6 +242,7 @@ class BrowserPilot:
             # Capture before stop: termination must not become an alleged crash code.
             failure = (_startup_failure(self._startup_stage, exc)
                        if isinstance(exc, Exception) else exc)
+            self._annotate_chromium_attempts(failure)
             try:
                 await self.stop()
             except Exception as cleanup_error:
@@ -453,6 +456,8 @@ class BrowserPilot:
         Uses multi-process mode by default. Readiness or early-exit failure
         triggers the bounded single-process fallback.
         """
+        self._chromium_startup_attempts = []
+        self._chromium_failed_attempts = []
         self._startup_stage = "profile_prepare"
         env = os.environ.copy()
         env["DISPLAY"] = self.display
@@ -489,7 +494,8 @@ class BrowserPilot:
             if isinstance(exc, BrowserStartupError) and exc.startup_details["stage"] != "cdp_ready":
                 raise
             failure = self._chromium_startup_failure(exc)
-            await self._finish_failed_chromium_attempt("multi-process")
+            await self._finish_failed_chromium_attempt(
+                "single-process" if _FORCE_SINGLE_PROCESS else "multi-process", failure)
             if _FORCE_SINGLE_PROCESS:
                 if failure is exc:
                     raise
@@ -506,7 +512,7 @@ class BrowserPilot:
             if isinstance(exc, BrowserStartupError) and exc.startup_details["stage"] != "cdp_ready":
                 raise
             failure = self._chromium_startup_failure(exc)
-            await self._finish_failed_chromium_attempt("single-process")
+            await self._finish_failed_chromium_attempt("single-process", failure)
             if self._gpu_mode != "virgl":
                 if failure is exc:
                     raise
@@ -529,7 +535,7 @@ class BrowserPilot:
         except (RuntimeError, TimeoutError) as exc:
             failure = self._chromium_startup_failure(exc)
             await self._finish_failed_chromium_attempt(
-                "swiftshader-single-process"
+                "swiftshader-single-process", failure
             )
             if failure is exc:
                 raise
@@ -538,6 +544,15 @@ class BrowserPilot:
     def _chromium_startup_failure(self, exc):
         returncode = None if self._chrome_proc is None else self._chrome_proc.returncode
         return _startup_failure(self._startup_stage, exc, returncode=returncode)
+
+    def _annotate_chromium_attempts(self, failure):
+        """Attach at most three fixed attempt records, never subprocess stderr."""
+        if not isinstance(failure, BrowserStartupError) or not self._chromium_startup_attempts:
+            return
+        failure.startup_details["startup_attempt_count"] = len(self._chromium_startup_attempts)
+        for number, record in enumerate(self._chromium_startup_attempts, 1):
+            for key, value in record.items():
+                failure.startup_details[f"attempt_{number}_{key}"] = value
 
     def _clear_profile_locks(self):
         """Clean only singleton entries proven to belong to our reaped child."""
@@ -617,9 +632,16 @@ class BrowserPilot:
                 self._chromium_stderr_tail + chunk
             )[-CHROMIUM_STDERR_LIMIT:]
 
-    async def _finish_failed_chromium_attempt(self, label):
-        """Stop a failed attempt and persist its bounded private stderr tail."""
+    async def _finish_failed_chromium_attempt(self, label, failure):
+        """Separate failure-time facts from the later owned-process cleanup result."""
         proc = self._chrome_proc
+        record = {key: value for key, value in failure.startup_details.items()
+                  if key in {"stage", "reason", "exception_type", "errno", "process_returncode"}}
+        record["mode"] = label
+        record["exit_state"] = ("exited" if "process_returncode" in record else
+                                "not_observed" if proc is not None else "no_process")
+        self._chromium_startup_attempts = (self._chromium_startup_attempts + [record])[-3:]
+        self._annotate_chromium_attempts(failure)
         if self._chromium_singleton_owner is not None:
             self._chromium_singleton_owner.capture()
         if proc is not None:
@@ -636,7 +658,10 @@ class BrowserPilot:
                 pass
 
         returncode = None if proc is None else proc.returncode
-        header = f"[{label}] returncode={returncode}\n".encode("utf-8")
+        if type(returncode) is int and -255 <= returncode <= 255:
+            record["cleanup_returncode"] = returncode
+        self._annotate_chromium_attempts(failure)
+        header = f"[{label}] {json.dumps(record, sort_keys=True, separators=(',', ':'))}\n".encode("utf-8")
         self._chromium_failed_attempts.append(
             header + self._chromium_stderr_tail[-CHROMIUM_STDERR_LIMIT:] + b"\n"
         )

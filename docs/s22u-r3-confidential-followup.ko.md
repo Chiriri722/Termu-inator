@@ -1,6 +1,6 @@
 # S22U r3 후속 보강: 민감 페이지 탐색과 고정 실패 진단
 
-2026-10-23. **로컬 수정 검증 완료 / Chromium 시작 원인 미확정 / S22U 미승인**.
+2026-10-28 갱신. **로컬 수정 검증 완료 / Chromium 시작 원인 미확정 / S22U 미승인**.
 이 문서는 결과 보고서이며 새 기기 실행 승인서가 아니다.
 
 ## r3 결과와 전송 무결성을 확인했다
@@ -20,8 +20,9 @@ checksum 목록 5개를 검증했다. Downloads 원본과 이전 봉인 자료�
 
 - Chromium: `session_start / cdp_ready / process_exited / process_returncode=-5`.
   이 기록만으로 구체적인 Chromium 종료 원인을 확정할 수 없다.
-- Firefox: `confidential_boundaries / VerificationFailure`. 정확한 고정 assertion은
-  기존 공개 파일에 없으므로 기기 실패 분기는 아직 UNKNOWN이다.
+- Firefox: `confidential_boundaries / VerificationFailure`. 후속 정적 진단으로
+  `REFUSED_CALL_CODE_MISMATCH`, `browser_navigate`, 기대 코드 `session_paused`가
+  확인됐다. 실제 반환 code 또는 비-error 응답은 `UNKNOWN_NOT_PRESERVED`다.
 - 양 backend post-stop, observer restart, 최종 census와 독립 확인은 PASS다.
   후보 survivor·귀속 불명 프로세스·Singleton entry·filesystem socket은 모두 0이다.
   이는 이번 run에서 관측한 범위이며 전역 프로세스/소켓 증명이 아니다.
@@ -55,8 +56,8 @@ Firefox의 검증된 native URL/title 경로도 유지한다. 구조 probe 실�
 변경 없는 r3 checkout에서도 이 새 회귀를 실행하여 정확히
 `browser_navigate did not return session_paused` 실패를 재현했다. 해당 checkout은
 계속 clean이며 수정본에서는 같은 실제 브라우저 경로가 PASS다.
-이는 재현 가능한 제품 결함의 증거이지, 아직 전달되지 않은 r3 Firefox private
-assertion을 대신하는 증거는 아니다.
+후속 정적 진단이 확인한 기기 assertion도 같은 탐색 거부 경계다. 다만 당시 실제
+반환값은 보존되지 않았으므로, 로컬 재현의 성공 응답과 기기의 응답을 동일시하지 않는다.
 
 ## confidential 실패의 위치와 실제 오류를 보존한다
 
@@ -114,26 +115,75 @@ Mac 테스트 통과는 Android 16 / Chromium 155 시작 성공이나 S22U 승�
 추가 4개 회귀의 실패를 확인한 뒤 수정했다. adapter·navigation·takeover·dialog·
 confidential 관련 **52/52 PASS**, 최종 전체 **652/652 PASS, skip 0**다.
 이 결과도 실제 격리 Mac Chrome 검사를 포함하지만 S22U 실행은 아니다.
-현재 변경 범위는 **13개 경로**, 미커밋이다.
+이 단계의 13개 경로는 사용자가 `c0e463f3007fc94d9f9ab99c2a37feafbd7adc1f`
+(실제 subject `v.0.2.35`)로 커밋했다. 제목의 버전 숫자 대신 exact SHA로 구분한다.
+이 커밋에는 아래의 후속 startup 진단 보강은 아직 포함되지 않는다.
 
 `status`는 계속 메모리 캐시만 읽는다. `observe`에는 URL/title 확인 호출 두 번이
 추가됐으므로 S22U의 응답 시간은 아직 검증되지 않았다. 기존 latency 기준은 그대로
 유지하고 다음 승인된 candidate에서 측정한다. 새 timeout이나 재시도는 추가하지 않았다.
 
-## 다음 작업은 기존 Chromium 증거로 결정한다
+## 두 정적 진단의 수신을 완료했다
 
-`HERMES-r3-STATIC-DIAGNOSTIC.ko.md`를 Downloads에 작성했고 사용자가 전달하기로 했다.
-기존 run에 귀속된 `raw-errors.json` Firefox record와 `chromium-startup.log`만 정적으로
-확인하도록 제한했다. 파일당 4 KiB / 80줄 범위에서 고정 assertion, 원인 category,
-소스 basename/line, 실제 errno·return code만 반환하며 private 원문은 보내지 않는다.
-기록이 없으면 UNKNOWN을 유지한다. canonical·benchmark·브라우저는 재실행하지 않는다.
+| 파일 | bytes | SHA-256 |
+| --- | ---: | --- |
+| `r3-static-diagnostic-44r30110b1.sanitized.json` | 3,772 | `bb66eb9b63dc1c2986e2dde1b1a23126f39dd2cd938ee00a2b185646f13cb866` |
+| `r3-static-middle-44r30110b1.sanitized.json` | 4,049 | `5dd77002f3ee7012df43007fe3495f65316841b1a3c17ec16cb8efe284964e8d` |
 
-1. 고정 Firefox assertion을 로컬 재현과 대조한다.
-2. 기존 Chromium startup 진단으로 원인을 좁히고 근거 있는 회귀·수정을 추가한다.
-   `-5`만 보고 sandbox/GPU/crashpad flag를 바꾸지 않는다.
-3. 최종 변경 경로와 검증 결과를 확정하고 사용자 새 clean commit SHA를 받는다.
-4. 그 SHA로 새 wheel을 빌드·source-bind하고 새 authority/runbook/output identity를
-   봉인한다. 기존 r3 wheel이나 남은 예산을 새 후보에 재사용하지 않는다.
+두 파일 모두 같은 commit/run/manifest에 귀속되고 전달된 hash와 일치한다.
+Downloads 원본은 보존했다. 새 owner-private 사본도 원본과 byte-for-byte 일치한다.
+기기 파일의 권한·소유권은 Hermes의 보존된 관측이며 Mac에서 다시 측정한 값은 아니다.
+
+같은 5,671-byte Chromium 로그의 앞·뒤와 빠진 중간 구간을 합쳐 전체 보존 내용이
+검사됐다. 중간의 ERROR 3개는 DBus 연결/메서드 실패 및 고정 category 불명으로
+분류됐지만, attempt linkage나 종료 원인은 기록되지 않았다. FATAL/CHECK·명시적
+errno도 확인되지 않았다. `cause=UNKNOWN_NOT_RECORDED`를 유지하며 같은 로그를
+다시 요청하지 않는다. DBus 패키지 설치나 sandbox/GPU/crashpad flag 변경의 근거가 아니다.
+
+## 실패 당시 값과 정리 후 값을 분리했다
+
+exact r3의 `_finish_failed_chromium_attempt()`는 `stop_owned_process()` **후**의
+returncode만 private header에 기록했다. 따라서 multi-process `0`은 정상적인 CDP
+시작이나 정리 전 정상 종료를 증명하지 않는다. 마지막 실패의 공개 label만 남아 첫
+시도의 readiness 실패 정보도 fallback을 지나면서 사라졌다.
+
+5개 신규 테스트의 18개 실패 assertion을 확인한 뒤 최소 수정했다.
+
+- 기존 최대 3회 시도에 고정 mode/stage/reason/exception type과 허용된 errno를 남긴다.
+- `process_returncode`는 실패 시점에 관측된 값만 기록한다. 종료를 관측하지 못했으면
+  `exit_state=not_observed`로 표시하고 숫자를 만들지 않는다.
+- owned cleanup이 완료된 후의 코드는 별도 `cleanup_returncode`다. timeout을 종료
+  코드 `0`이나 강제 종료 코드로 바꿔 해석하지 않는다.
+- 최종 오류에 `attempt_1_*`부터 `attempt_3_*`까지 보존한다. 후속 spawn 실패에도
+  완료된 앞 시도의 기록을 유지한다. 강제 single-process의 mode 오표기도 바로잡았다.
+- adapter → MCP → canonical manifest → 한국어 요약은 같은 고정 allowlist와 숫자
+  범위를 적용한다. raw stderr·PID·경로·환경값은 공개하지 않는다.
+
+실제 Python child의 readiness 실패 → SIGTERM 정상 종료 `0`, 뒤 시도의 exit `22/23`,
+강제 single-process, 후속 PermissionError와 공개 필드 제한을 검사했다. 이는 실제
+프로세스 수명주기 회귀이며 Chromium의 원인 재현이나 Android 실행은 아니다.
+
+관련 startup/Singleton/lifecycle **65/65 PASS**, 실제 격리 Mac Chrome fixture를 포함한
+전체 **657/657 PASS, skip 0**다. Python 3.14.7 / MCP 1.29.0 / websockets 17.0.1을 사용했다.
+실행 옵션·timeout·fallback 횟수·성공 조건·cleanup 판정은 유지했다. 코드 구조는
+`codebase-memory`의 갱신된 graph/coverage와 직접 소스로 대조했으며, 인덱스에서
+제외된 `scripts/final_verify.py`는 실제 파일을 읽어 확인했다.
+
+## 다음 후보는 진단 보강 후보이며 아직 기기 승인이 아니다
+
+현재 `c0e463f3…` 대비 후속 변경은 코드·테스트 3개와 기록 4개, **7개 경로**다.
+assistant의 commit/push, 새 wheel·authority, 기기 실행은 없었다.
+
+1. 이번 7개 경로가 포함된 새 clean commit SHA를 확인한다.
+2. 해당 SHA로 새 wheel을 빌드·source-bind하고 새 authority/runbook/output identity를
+   봉인한다. 기존 r3 wheel·남은 예산·소비된 output identity는 재사용하지 않는다.
+3. 새 후보에서 전체 preflight와 fresh S22U canonical을 실행한다. 실패하면 앞/뒤 시도의
+   고정 진단과 cleanup을 보존한다. 같은 상태 재시도나 근거 없는 환경 변경은 하지 않는다.
+4. 모든 canonical 조건이 통과한 경우에만 benchmark로 진행한다. 특히 observe의
+   추가 metadata 호출 비용은 기존 기준으로 다시 측정해야 한다.
+
+Chromium의 구체적인 종료 원인은 아직 미확정이다. 보강된 진단을 제품 시작 문제의
+해결로 승격하지 않으며, 다음 실행도 실패할 가능성을 전제로 정확한 증거를 수집한다.
 
 사용자가 확정한 S22U 필수 검수 기준을 유지한다. `acceptance/`의 local-only
 기준이나 로컬 PASS로 기기 검수·benchmark·production 전환을 대체하지 않는다.

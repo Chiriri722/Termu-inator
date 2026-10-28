@@ -200,6 +200,24 @@ _MCP_ERROR_DETAIL_VALUES = {
                                  "OSError", "RuntimeError", "ValueError", "Exception"}),
 }
 _MCP_ERROR_DETAIL_INTEGERS = {"errno": (1, 4095), "process_returncode": (-255, 255)}
+# Three existing bounded Chromium launch attempts. No arbitrary keys, raw stderr,
+# PID, path or exit-code interpretation is accepted from an MCP response.
+_MCP_ERROR_DETAIL_VALUES.update({
+    f"attempt_{number}_{key}": allowed
+    for number in range(1, 4)
+    for key, allowed in {
+        "mode": frozenset({"multi-process", "single-process", "swiftshader-single-process"}),
+        "exit_state": frozenset({"exited", "not_observed", "no_process"}),
+        **{key: _MCP_ERROR_DETAIL_VALUES[key] for key in ("stage", "reason", "exception_type")},
+    }.items()
+})
+_MCP_ERROR_DETAIL_INTEGERS.update({
+    f"attempt_{number}_{key}": bounds
+    for number in range(1, 4)
+    for key, bounds in {"errno": (1, 4095), "process_returncode": (-255, 255),
+                        "cleanup_returncode": (-255, 255)}.items()
+})
+_MCP_ERROR_DETAIL_INTEGERS["startup_attempt_count"] = (1, 3)
 _FAILURE_CONTEXT_VALUES = {
     "assertion": frozenset({
         "expected_refusal", "session_state", "paused_metadata", "tool_inventory",
