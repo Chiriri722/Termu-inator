@@ -589,6 +589,9 @@ class BrowserService:
                     url=url,
                     quarantine=False,
                 )
+            # A dispatched navigation can move the browser even when its reply,
+            # metadata or structural probe fails. Do not authorize the old page.
+            active.state = SessionState.USER_TAKEOVER_REQUIRED
             try:
                 snapshot = await active.backend.navigate(
                     operation,
@@ -637,6 +640,7 @@ class BrowserService:
                     url=observation.url,
                     quarantine=True,
                 )
+            active.state = SessionState.ACTIVE
             self._apply_observation_handoff(active, observation)
             self._require_remote_active(active)
             return observation
@@ -1394,6 +1398,10 @@ class BrowserService:
                     details={"backend": active.capabilities.backend.value},
                 ) from exc
 
+            # Taking local control is not an origin-permission grant. A failed
+            # navigation or the user may have moved to another origin meanwhile.
+            if snapshot.url.startswith(("http://", "https://")):
+                self._require_origin_permission(active, url=snapshot.url, quarantine=False)
             observation = active.observation.capture(
                 snapshot,
                 document_changed=True,

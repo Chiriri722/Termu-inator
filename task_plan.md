@@ -19,6 +19,26 @@ Termux/Android에서 실제 Firefox·Chromium을 제어하되, 기존의 방대�
 
 ## Next Step
 
+2026-10-23 최신: `5cc585d6e721b3670f223c1615124908a9692e3d` / OPS-r3 /
+`44r30110b1`의 공개 ZIP(18 member / 17 payload) 무결성을 확인했다.
+Canonical FAIL / benchmark NOT_RUN / NEEDS_CODE_FIX를 유지한다.
+이번에는 양 backend cleanup과 최종 관측 범위 census가 통과했다.
+Chromium은 `cdp_ready / process_exited / -5`지만 구체적 원인은 아직 미확정이다.
+Firefox confidential 실패와 관련해 실제 adapter 탐색 응답의 필드 누락을
+실패 테스트와 변경 없는 r3의 실제 Chrome 경로에서 재현하고 수정했다.
+고정 assertion·fixture·phase·기대 코드와 예상 밖 MCP 오류의 공개 진단도 보강했다.
+추가로 탐색 실패 뒤의 원격 읽기 차단과 재개 시 현재 origin 권한을 보강했다.
+현재 변경은 13개 경로이며 로컬 전체 **652/652 PASS, skip 0**다. S22U 결과가 아니다.
+`status`는 캐시 전용으로 유지하지만 `observe`의 최신 metadata 확인 비용은
+다음 승인된 S22U 회차에서 검증해야 한다. 성공 기준·timeout은 완화하지 않았다.
+상세: [r3 후속 보강 결과](docs/s22u-r3-confidential-followup.ko.md).
+현재는 사용자가 전달하는 기존 로그의 최소 정적 진단으로 Chromium 원인을 좁힌다.
+동일 r3 재실행·무근거 flag 변경은 하지 않는다. 최종 수정 검증 후 **새 사용자
+clean commit → 새 bound wheel → 새 authority/output → fresh S22U gate** 순서다.
+아래 기록은 보존된 이전 checkpoint이며 이번 결과를 대체하지 않는다.
+
+### Historical r2 startup follow-up
+
 2026-10-23 최신: `d3486161af763455e0ad6cdc45e9f0790b8e15cf` / OPS-r2 /
 `43a254707d`의 수신 ZIP 및 19 payload 무결성을 검증했다. S22U는 NEEDS_CODE_FIX다.
 Chromium session_start 실패의 하위 원인은 미확정이며, 중간 귀속 불명 2개 때문에

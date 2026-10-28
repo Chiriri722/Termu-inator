@@ -1,5 +1,41 @@
 # Findings: Termu-inator Modernization
 
+## 2026-10-23 — r3 confidential navigation contract and bounded assertion evidence
+
+- Verified r3 ZIP (29,523 bytes, SHA f78916d3…d2682), 18 members, 17 payload
+  hashes and five checksum lists. Commit 5cc585d6 / run 44r30110b1 remains
+  NEEDS_CODE_FIX: Chromium failed cdp_ready with observed returncode -5; Firefox
+  failed confidential_boundaries, exact device assertion unknown.
+- Both post-stop checks and final observed-UID census passed; zero candidate
+  survivors, unattributed processes and Singleton/socket entries. Outer stderr 0
+  is distinct from interactive MCP stderr 359. No raw private logs were supplied.
+- Real LegacyPilotBackend navigation returned metadata-only snapshots, while the
+  service requires structural fields to detect sensitive handoff. FakeBackend
+  supplied these fields and hid the mismatch. Tests reproduced both password/OTP
+  misses and structural-probe failure falsely succeeding on both adapter identities.
+- Navigation now includes the bounded structural probe without text/a11y/screenshot
+  reads. Native Firefox metadata remains intact; failed probes get navigation_dom.
+- The real Chrome/CDP adapter/service/router confidential gate now passes. Running
+  the new regression against the unchanged sealed r3 checkout reproduces exactly
+  browser_navigate did not return session_paused; that checkout remains clean.
+  This is local reproduction, not a claim about the still-unknown device assertion.
+- Verifier failures now preserve fixed assertion/fixture/phase/expected-code labels
+  and unexpected MCP codes, with no arbitrary exception/page data in public output.
+- Full local suite: 648 PASS, zero skips including opt-in Chrome; no S22U execution.
+  Chromium's precise startup cause remains unproven. A separate read-only existing-log
+  request was delivered as a Markdown file; no blind launch-flag or timeout changes.
+- See docs/s22u-r3-confidential-followup.ko.md. A new user commit, new bound wheel and
+  fresh authority are required after the pending cause/fix review, not a same-r3 retry.
+- Follow-up RED reproduced post-navigation probe failure leaving old context usable
+  for screenshots, stale metadata after local navigation, and takeover resume bypassing
+  an unapproved redirect origin. Dispatch now quarantines until the result is verified;
+  errors/cancellation remain typed and quarantined, and pre-dispatch rejection stays inert.
+- Observation refreshes URL/title; owner resume checks current origin permission. This
+  adds two metadata calls to observe but none to cached status. Device latency remains
+  unmeasured. Explicit fixture grants replace three tests' implicit authorization.
+- Follow-up local tests: 52 related PASS; full 652 PASS / zero skips with live Chrome.
+  There are now 13 modified/new paths. No release seal, device retry or commit/push.
+
 ## 2026-10-23 — r2 Chromium startup and ownership evidence gaps
 
 - Verified the 36,805-byte public ZIP, 20 safe members, 19 payload hashes and six

@@ -451,6 +451,8 @@ class BrowserServiceTakeoverTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(backend.tab_calls, [])
         self.assertEqual(backend.download_calls, [])
         self.assertEqual(backend.devtools_calls, [])
+        await service.local_permission_record(session_id=session_id,
+            origin="https://example.com", policy=PermissionPolicy.SESSION_ALLOW)
         resumed = await service.local_takeover_resume(session_id)
         resumed_status = await service.session_status(session_id)
         self.assertEqual(resumed_status.state, SessionState.ACTIVE)

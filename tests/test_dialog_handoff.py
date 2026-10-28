@@ -19,6 +19,7 @@ from src.termuinator.contracts import (
     ChallengeState,
     Dialog,
     ErrorCode,
+    PermissionPolicy,
     SessionState,
     Viewport,
     to_wire,
@@ -113,6 +114,8 @@ class SensitiveHandoffServiceTests(unittest.IsolatedAsyncioTestCase):
             project_id="project-handoff",
             viewport=self.viewport,
         )
+        await service.local_permission_record(session_id=started.session_id,
+            origin="https://example.com", policy=PermissionPolicy.SESSION_ALLOW)
         status = started.status
         assert status.active_tab_id is not None
         assert status.active_page_id is not None

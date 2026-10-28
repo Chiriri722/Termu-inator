@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 import tempfile
 import unittest
@@ -192,6 +193,62 @@ class BrowserServiceNavigationTests(unittest.IsolatedAsyncioTestCase):
                 )
             self.assertEqual(denied.exception.code, expected_code)
             self.assertEqual(backend.navigation_calls, [])
+            self.assertEqual((await service.session_status(session_id)).state, SessionState.ACTIVE)
+
+    async def test_post_dispatch_failures_preserve_error_and_quarantine_old_context(self) -> None:
+        for failure in (RuntimeError("PRIVATE dispatch failure"), TimeoutError("PRIVATE timeout"),
+                        TermuinatorError(ErrorCode.BACKEND_CRASHED, "Probe failed"),
+                        asyncio.CancelledError(), None):
+            with self.subTest(failure=type(failure).__name__):
+                service, backend = self._service({("goto", self.allowed_url): self.allowed_snapshot})
+                try:
+                    session_id, before = await self._start_and_observe(service)
+                    self.permissions.record(origin="https://allowed.example", policy=PermissionPolicy.SESSION_ALLOW, session_id=session_id)
+                    original_navigate = backend.navigate
+
+                    async def incomplete_navigation(*args):
+                        await original_navigate(*args)
+                        if failure is not None:
+                            raise failure
+                        return None
+
+                    backend.navigate = incomplete_navigation
+                    with self.assertRaises((TermuinatorError, asyncio.CancelledError)) as caught:
+                        await service.navigate(session_id=session_id, tab_id=before.tab_id, page_id=before.page_id,
+                            expected_revision=before.page_revision, operation="goto", url=self.allowed_url)
+                    if isinstance(failure, (asyncio.CancelledError, TermuinatorError)):
+                        self.assertIs(caught.exception, failure)
+                    else:
+                        self.assertEqual(caught.exception.code, ErrorCode.TIMEOUT if isinstance(failure, TimeoutError) else ErrorCode.BACKEND_CRASHED)
+                    self.assertEqual((await service.session_status(session_id)).state, SessionState.USER_TAKEOVER_REQUIRED)
+                    self.assertEqual((await service.shared_view_snapshot()).confidential, True)
+                    with self.assertRaises(TermuinatorError) as blocked:
+                        await service.observe(session_id=session_id, tab_id=before.tab_id, page_id=before.page_id,
+                            expected_revision=before.page_revision, include_screenshot=True, include_accessibility=True, text_limit=1000)
+                    self.assertEqual(blocked.exception.code, ErrorCode.SESSION_PAUSED)
+                finally:
+                    await service.close()
+
+    async def test_owner_resume_cannot_bypass_permission_for_unapproved_redirect(self) -> None:
+        redirected = BackendPageSnapshot(url="https://other.example/private", title="Private", ready_state="complete", viewport=self.viewport)
+        service, backend = self._service({("goto", self.allowed_url): redirected})
+        try:
+            session_id, before = await self._start_and_observe(service)
+            self.permissions.record(origin="https://allowed.example", policy=PermissionPolicy.SESSION_ALLOW, session_id=session_id)
+            with self.assertRaises(TermuinatorError):
+                await service.navigate(session_id=session_id, tab_id=before.tab_id, page_id=before.page_id,
+                    expected_revision=before.page_revision, operation="goto", url=self.allowed_url)
+            await service.local_takeover_start(session_id)
+            with self.assertRaises(TermuinatorError) as denied:
+                await service.local_takeover_resume(session_id)
+            self.assertEqual(denied.exception.code, ErrorCode.PERMISSION_REQUIRED)
+            self.assertEqual((await service.session_status(session_id)).state, SessionState.USER_TAKEOVER_ACTIVE)
+            await service.local_permission_record(session_id=session_id, origin="https://other.example", policy=PermissionPolicy.SESSION_ALLOW)
+            resumed = await service.local_takeover_resume(session_id)
+            self.assertEqual(resumed.url, redirected.url)
+            self.assertEqual((await service.session_status(session_id)).state, SessionState.ACTIVE)
+        finally:
+            await service.close()
 
     async def test_unapproved_redirect_rotates_identity_and_pauses_without_page_data(self) -> None:
         requested = "https://allowed.example/redirect"

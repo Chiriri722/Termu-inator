@@ -410,15 +410,18 @@ class LegacyPilotBackend:
                     "stage": "adapter_metadata",
                 },
             )
+        # The service applies sensitive-field handoff to this snapshot before
+        # returning navigation to the remote caller. Metadata alone cannot do so.
+        ready_state, _, interactive_elements = await self._collect_dom(pilot, operation=operation)
         self._status = BackendStatus(
             backend=self.backend,
             running=True,
             url=current_url,
             title=title,
-            ready_state="complete",
+            ready_state=ready_state,
             updated_at_monotonic=time.monotonic(),
         )
-        return self._snapshot()
+        return self._snapshot(interactive_elements=interactive_elements)
 
     async def observe(
         self,
@@ -438,11 +441,22 @@ class LegacyPilotBackend:
             )
         pilot = self._require_pilot()
         ready_state, _, interactive_elements = await self._collect_dom(pilot)
+        # Observation (including local takeover resume) must describe the actual
+        # page, which can change without a successful adapter navigation reply.
+        try:
+            current_url = await pilot.url()  # type: ignore[attr-defined]
+            title = await pilot.title()  # type: ignore[attr-defined]
+            if (not isinstance(current_url, str)
+                    or not (current_url == "about:blank" or current_url.startswith(("http://", "https://")))
+                    or len(current_url) > 8_192 or not isinstance(title, str) or len(title) > 4_096):
+                raise ValueError("Invalid observation metadata")
+        except Exception as exc:
+            self._raise_observe_failure("adapter_metadata", exc)
         self._status = BackendStatus(
             backend=self.backend,
             running=True,
-            url=self._status.url,
-            title=self._status.title,
+            url=current_url,
+            title=title,
             ready_state=ready_state,
             updated_at_monotonic=time.monotonic(),
         )
@@ -479,7 +493,7 @@ class LegacyPilotBackend:
             screenshot=screenshot,
         )
 
-    def _raise_observe_failure(self, stage: str, exc: Exception) -> NoReturn:
+    def _raise_observe_failure(self, stage: str, exc: Exception, *, operation: str = "observe") -> NoReturn:
         if (
             isinstance(exc, TermuinatorError)
             and exc.code is not ErrorCode.BACKEND_CRASHED
@@ -491,8 +505,8 @@ class LegacyPilotBackend:
             retryable=True,
             details={
                 "backend": self.backend.value,
-                "capability": "observe",
-                "operation": "observe",
+                "capability": "observe" if operation == "observe" else "navigate",
+                "operation": operation,
                 "stage": stage,
             },
         ) from exc
@@ -519,9 +533,10 @@ class LegacyPilotBackend:
         )
 
     async def _collect_dom(
-        self, pilot: object
+        self, pilot: object, *, operation: str = "observe"
     ) -> tuple[str, int, tuple[RawInteractiveElement, ...]]:
         script = observe_script(self._dom_registry_key)
+        stage = "observe_dom" if operation == "observe" else "navigation_dom"
         for attempt in range(2):
             try:
                 payload = await pilot.evaluate(script)  # type: ignore[attr-defined]
@@ -529,9 +544,9 @@ class LegacyPilotBackend:
             except JavascriptExecutionTimeout as exc:
                 if self.backend is Backend.FIREFOX and attempt == 0:
                     continue
-                self._raise_observe_failure("observe_dom", exc)
+                self._raise_observe_failure(stage, exc, operation=operation)
             except Exception as exc:
-                self._raise_observe_failure("observe_dom", exc)
+                self._raise_observe_failure(stage, exc, operation=operation)
         raise AssertionError("unreachable DOM observation retry state")
 
     async def _element_state(

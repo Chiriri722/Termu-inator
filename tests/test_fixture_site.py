@@ -4,15 +4,18 @@ from __future__ import annotations
 
 import hashlib
 import asyncio
+import base64
 from html.parser import HTMLParser
 import json
 import os
 from pathlib import Path
 import subprocess
 import tempfile
+from types import SimpleNamespace
 import unittest
 from urllib.error import HTTPError
 from urllib.request import Request, build_opener, HTTPRedirectHandler, ProxyHandler, urlopen
+from urllib.parse import urlsplit
 
 from tests.fixtures.server import FIXTURE_SCENARIOS, FixtureSite
 
@@ -113,6 +116,13 @@ class FixtureSiteTests(unittest.TestCase):
         from src.termuinator.core.action_policy import ActionRiskClassifier
         from src.termuinator.core.element_refs import ElementBinding
         from src.termuinator.core.observation import ObservationEngine
+        from src.termuinator.backends import LegacyPilotBackend
+        from src.termuinator.contracts import Backend, PermissionPolicy, to_wire
+        from src.termuinator.core.service import BrowserService
+        from src.termuinator.core.sessions import ProcessSessionLock
+        from src.termuinator.errors import TermuinatorError
+        from src.termuinator.mcp_v1 import CompactV1Router
+        from scripts import final_verify
 
         async def check() -> None:
             with tempfile.TemporaryDirectory() as directory, tempfile.TemporaryFile() as browser_log:
@@ -259,6 +269,75 @@ class FixtureSiteTests(unittest.TestCase):
                             text = await evaluate("document.body.innerText")
                             self.assertIn("always_allow", text)
                             self.assertIn("Developer Mode", text)
+
+                    # Exercise the canonical privacy checks through the actual
+                    # adapter/service/router, not a hand-built navigation snapshot.
+                    class LiveCdpPilot:
+                        async def start(self):
+                            pass  # This test owns the browser/client lifecycle.
+
+                        async def stop(self):
+                            pass
+
+                        async def goto(self, url, timeout):
+                            await navigate(urlsplit(url).path, "main")
+
+                        async def url(self):
+                            return await evaluate("location.href")
+
+                        async def title(self):
+                            return await evaluate("document.title")
+
+                        async def evaluate(self, script):
+                            return await evaluate(script)
+
+                        async def text(self):
+                            return await evaluate("document.body.innerText")
+
+                        async def screenshot(self, path=None, full_page=False):
+                            result = await client.send("Page.captureScreenshot", {"format": "png"})
+                            return base64.b64decode(result["data"], validate=True)
+
+                    adapter = LegacyPilotBackend(Backend.CHROMIUM, pilot_factory=lambda **_: LiveCdpPilot())
+                    service = BrowserService(
+                        data_root=profile / "service-data", owner_scope="live-confidential-gate",
+                        default_backend=Backend.CHROMIUM, profile_schema_version="v1",
+                        backend_factories={Backend.CHROMIUM: lambda: adapter},
+                        session_lock=ProcessSessionLock(lock_path=profile / "session.lock", owner_scope="live-confidential-gate"),
+                    )
+                    router = CompactV1Router(service)
+
+                    async def call_tool(name, arguments, **kwargs):
+                        try:
+                            return SimpleNamespace(isError=False, structuredContent=await router.dispatch(name, arguments))
+                        except TermuinatorError as exc:
+                            return SimpleNamespace(isError=True, content=[SimpleNamespace(text=json.dumps(to_wire(exc.to_envelope())))])
+
+                    async def list_tools():
+                        return SimpleNamespace(tools=[SimpleNamespace(name=name) for name in final_verify._INTERACTIVE_TOOL_NAMES])
+
+                    async def takeover(session_id, operation):
+                        if operation == "start":
+                            await service.local_takeover_start(session_id)
+                        else:
+                            await service.local_takeover_resume(session_id)
+
+                    try:
+                        started = await service.session_start(project_id="live-confidential-gate", viewport=Viewport(width=1000, height=700))
+                        origin = self.site.url("/").rstrip("/")
+                        await service.local_permission_record(session_id=started.session_id, origin=origin, policy=PermissionPolicy.SESSION_ALLOW)
+                        context = final_verify._status_context(to_wire(started.status))
+                        forms = await router.dispatch("browser_navigate", {
+                            **context, "operation": "goto", "url": self.site.url("/forms"), "timeout_ms": 45_000,
+                        })
+                        artifact = await router.dispatch("browser_screenshot", {**final_verify._page_context(forms), "mode": "viewport"})
+                        caller = final_verify._McpToolCaller(SimpleNamespace(call_tool=call_tool, list_tools=list_tools), server_pid=os.getpid())
+                        result = await final_verify._verify_confidential_boundaries(caller, session_id=started.session_id,
+                            fixture_origin=origin, artifact_uri=artifact["uri"], takeover=takeover)
+                        self.assertEqual(result["status"], "PASS")
+                        self.assertEqual(result["takeover_fixtures"], ["login", "otp"])
+                    finally:
+                        await service.close()
 
                     # A lost response must not undo or repeat the real page effect.
                     await navigate("/forms", "#form-result")

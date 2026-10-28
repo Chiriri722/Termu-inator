@@ -1,5 +1,37 @@
 # Progress: Termu-inator Modernization
 
+## 2026-10-23 — r3 follow-up navigation failure and owner-resume guard
+
+Added four failing regressions for old-context screenshot access after failed
+navigation, failure/cancellation quarantine, fresh actual metadata and unapproved
+redirect resumption. Fixed the service dispatch boundary, actual observation metadata
+and current-origin permission check on local resume. Related 52 PASS; full 652 PASS,
+zero skips including live Chrome. Three old fixture tests now explicitly grant their
+origin; no assertions/skips relaxed. Cached status remains I/O-free; observe adds two
+metadata calls and needs fresh S22U latency qualification. Current scope is 13 paths.
+The earlier 648-test result below remains the completed first-stage checkpoint.
+Static Chromium diagnostic still absent; no same-state device retry or release seal.
+
+## 2026-10-23 — r3 evidence received; confidential navigation locally repaired
+
+Preserved and verified the 18-member / 17-payload public ZIP for 5cc585d6,
+OPS-20261023-r3 / 44r30110b1. r3 remains NEEDS_CODE_FIX, canonical FAIL,
+benchmark NOT_RUN. Cleanup improved: both post-stop and final process checks PASS.
+Chromium cdp_ready returncode -5 has no confirmed underlying cause yet; Firefox's
+exact confidential assertion is absent from the public report.
+
+Reproduced metadata-only real-adapter navigation bypassing password/OTP handoff.
+Added structural navigation snapshots without content/screenshot reads, and fixed
+verifier assertion/fixture/phase labels with preservation of unexpected MCP errors.
+The new live Chrome adapter/service/router regression fails on the unchanged r3
+checkout and passes with the fix. Local full suite: 648 PASS, zero skips, Python
+3.14.7 / MCP 1.29.0 / websockets 17.0.1. See docs/s22u-r3-confidential-followup.ko.md.
+
+The user is forwarding HERMES-r3-STATIC-DIAGNOSTIC.ko.md for bounded, read-only
+existing-log analysis. No new canonical, benchmark, remote config, production,
+commit/push or release seal was performed. Finish the Chromium cause/fix review
+before requesting a new commit-bound device candidate; retain mandatory S22U gates.
+
 ## 2026-10-23 — current user-approved acceptance boundary
 
 The user explicitly chose to preserve all 11 paths in d3486161 **and retain the

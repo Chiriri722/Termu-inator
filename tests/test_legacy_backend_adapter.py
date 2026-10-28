@@ -33,6 +33,7 @@ from src.termuinator.contracts import (
     ChallengeKind,
     ChallengeState,
     ErrorCode,
+    PermissionPolicy,
     SessionState,
     Viewport,
     to_wire,
@@ -605,6 +606,152 @@ class LegacyBackendLifecycleTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("url", pilot.calls)
         self.assertNotIn("title", pilot.calls)
 
+    async def test_navigation_snapshot_contains_structural_targets_without_content_reads(self) -> None:
+        for backend in (Backend.CHROMIUM, Backend.FIREFOX):
+            with self.subTest(backend=backend), tempfile.TemporaryDirectory() as directory:
+                pilot = _StructuredPilot()
+                adapter = LegacyPilotBackend(backend, pilot_factory=lambda **_: pilot)
+                profile = Path(directory) / "profile"
+                profile.mkdir(mode=0o700)
+                await adapter.start(profile, Viewport(width=1000, height=700))
+                try:
+                    snapshot = await adapter.navigate("goto", "https://example.com/forms", 45_000)
+                    self.assertEqual(len(snapshot.interactive_elements), 1)
+                    self.assertEqual(snapshot.interactive_elements[0].accessible_name, "Account name")
+                    self.assertEqual(snapshot.ready_state, "complete")
+                    self.assertEqual(snapshot.text, "")
+                    self.assertEqual(snapshot.accessibility, ())
+                    self.assertIsNone(snapshot.screenshot)
+                    self.assertEqual(pilot.calls.count("observe_dom"), 1)
+                    self.assertNotIn("text", pilot.calls)
+                    self.assertNotIn("a11y_nodes", pilot.calls)
+                    self.assertFalse(any(isinstance(call, tuple) and call[0] == "screenshot" for call in pilot.calls))
+                finally:
+                    await adapter.stop()
+
+    async def test_navigation_detects_sensitive_fields_before_returning_to_remote_caller(self) -> None:
+        for backend in (Backend.CHROMIUM, Backend.FIREFOX):
+            for field_type, name in (("password", "Account secret"), ("text", "One-time code")):
+                with self.subTest(backend=backend, field_type=field_type), tempfile.TemporaryDirectory() as directory:
+                    pilot = _SensitiveStructuredPilot(field_type=field_type, accessible_name=name)
+                    adapter = LegacyPilotBackend(backend, pilot_factory=lambda **_: pilot)
+                    service = BrowserService(
+                        data_root=Path(directory) / "data", owner_scope="navigation-handoff",
+                        default_backend=backend, profile_schema_version="v1",
+                        backend_factories={backend: lambda: adapter}, session_lock=_NoopSessionLock(),
+                    )
+                    try:
+                        started = await service.session_start(project_id="navigation-handoff", viewport=Viewport(width=1000, height=700))
+                        initial = started.status
+                        await service.local_permission_record(session_id=started.session_id,
+                            origin="https://example.com", policy=PermissionPolicy.SESSION_ALLOW)
+                        with self.assertRaises(TermuinatorError) as caught:
+                            await service.navigate(session_id=started.session_id, tab_id=initial.active_tab_id,
+                                page_id=initial.active_page_id, expected_revision=initial.page_revision,
+                                operation="goto", url="https://example.com/login")
+                        self.assertEqual(caught.exception.code, ErrorCode.SESSION_PAUSED)
+                        paused = await service.session_status(started.session_id)
+                        self.assertEqual(paused.state, SessionState.USER_TAKEOVER_REQUIRED)
+                        self.assertEqual((paused.url, paused.title, paused.ready_state), ("", "", "takeover"))
+                        self.assertNotIn("must-never-cross-the-adapter", json.dumps(to_wire(caught.exception.to_envelope())))
+                        self.assertEqual(pilot.calls.count("observe_dom"), 1)
+                        self.assertNotIn("text", pilot.calls)
+                        self.assertNotIn("a11y_nodes", pilot.calls)
+                        with self.assertRaises(TermuinatorError) as blocked:
+                            await service.observe(session_id=started.session_id, tab_id=paused.active_tab_id,
+                                page_id=paused.active_page_id, expected_revision=paused.page_revision,
+                                include_screenshot=True, include_accessibility=True, text_limit=4096)
+                        self.assertEqual(blocked.exception.code, ErrorCode.SESSION_PAUSED)
+                        self.assertEqual(pilot.calls.count("observe_dom"), 1, "paused read must not reach the pilot")
+                        await service.local_takeover_start(started.session_id)
+                        resumed = await service.local_takeover_resume(started.session_id)
+                        self.assertNotEqual(resumed.page_id, paused.active_page_id)
+                        self.assertNotEqual(resumed.page_revision, paused.page_revision)
+                        self.assertEqual((await service.session_status(started.session_id)).state, SessionState.ACTIVE)
+                    finally:
+                        await service.close()
+
+    async def test_navigation_structural_probe_failure_is_closed_and_operation_labelled(self) -> None:
+        for backend in (Backend.CHROMIUM, Backend.FIREFOX):
+            with self.subTest(backend=backend), tempfile.TemporaryDirectory() as directory:
+                pilot = _FailingObserveStagePilot("observe_dom")
+                adapter = LegacyPilotBackend(backend, pilot_factory=lambda **_: pilot)
+                profile = Path(directory) / "profile"
+                profile.mkdir(mode=0o700)
+                await adapter.start(profile, None)
+                try:
+                    with self.assertRaises(TermuinatorError) as caught:
+                        await adapter.navigate("goto", "https://example.com/login", 45_000)
+                    self.assertEqual(caught.exception.code, ErrorCode.BACKEND_CRASHED)
+                    self.assertEqual(caught.exception.details, {
+                        "backend": backend.value, "capability": "navigate", "operation": "goto", "stage": "navigation_dom",
+                    })
+                    self.assertNotIn("private DOM failure", json.dumps(to_wire(caught.exception.to_envelope())))
+                finally:
+                    await adapter.stop()
+
+    async def test_failed_navigation_blocks_remote_capture_until_owner_revalidates_current_page(self) -> None:
+        for backend in (Backend.CHROMIUM, Backend.FIREFOX):
+            with self.subTest(backend=backend), tempfile.TemporaryDirectory() as directory:
+                pilot = _FailingObserveStagePilot("observe_dom")
+                adapter = LegacyPilotBackend(backend, pilot_factory=lambda **_: pilot)
+                service = BrowserService(data_root=Path(directory) / "data", owner_scope="failed-navigation",
+                    default_backend=backend, profile_schema_version="v1",
+                    backend_factories={backend: lambda: adapter}, session_lock=_NoopSessionLock())
+                try:
+                    started = await service.session_start(project_id="failed-navigation", viewport=Viewport(width=1000, height=700))
+                    initial = started.status
+                    await service.local_permission_record(session_id=started.session_id,
+                        origin="https://example.com", policy=PermissionPolicy.SESSION_ALLOW)
+                    with self.assertRaises(TermuinatorError):
+                        await service.navigate(session_id=started.session_id, tab_id=initial.active_tab_id,
+                            page_id=initial.active_page_id, expected_revision=initial.page_revision,
+                            operation="goto", url="https://example.com/login")
+                    self.assertEqual(pilot.current_url, "https://example.com/login", "browser already moved")
+                    with self.assertRaises(TermuinatorError) as blocked:
+                        await service.screenshot(session_id=started.session_id, tab_id=initial.active_tab_id,
+                            page_id=initial.active_page_id, expected_revision=initial.page_revision, mode="viewport")
+                    self.assertEqual(blocked.exception.code, ErrorCode.SESSION_PAUSED)
+                    self.assertFalse(any(isinstance(call, tuple) and call[0] == "screenshot" for call in pilot.calls))
+                    self.assertEqual((await service.session_status(started.session_id)).state, SessionState.USER_TAKEOVER_REQUIRED)
+                    await service.local_takeover_start(started.session_id)
+                    with self.assertRaises(TermuinatorError):
+                        await service.local_takeover_resume(started.session_id)
+                    self.assertEqual((await service.session_status(started.session_id)).state, SessionState.USER_TAKEOVER_ACTIVE)
+                    pilot.stage = "recovered"
+                    pilot.current_url = "https://other.example/after-local-control"
+                    with self.assertRaises(TermuinatorError) as denied:
+                        await service.local_takeover_resume(started.session_id)
+                    self.assertEqual(denied.exception.code, ErrorCode.PERMISSION_REQUIRED)
+                    await service.local_permission_record(session_id=started.session_id,
+                        origin="https://other.example", policy=PermissionPolicy.SESSION_ALLOW)
+                    resumed = await service.local_takeover_resume(started.session_id)
+                    self.assertEqual(resumed.url, pilot.current_url, "resume must not reuse pre-navigation metadata")
+                    self.assertNotEqual(resumed.page_id, initial.active_page_id)
+                    self.assertEqual((await service.session_status(started.session_id)).state, SessionState.ACTIVE)
+                finally:
+                    await service.close()
+
+    async def test_observation_refreshes_actual_page_metadata_without_status_io(self) -> None:
+        for backend in (Backend.CHROMIUM, Backend.FIREFOX):
+            with self.subTest(backend=backend), tempfile.TemporaryDirectory() as directory:
+                pilot = _RecordingPilot()
+                adapter = LegacyPilotBackend(backend, pilot_factory=lambda **_: pilot)
+                profile = Path(directory) / "profile"
+                profile.mkdir(mode=0o700)
+                await adapter.start(profile, Viewport(width=1000, height=700))
+                try:
+                    # Local user control or page script can navigate without adapter.goto.
+                    pilot.current_url = "https://other.example/private"
+                    calls = list(pilot.calls)
+                    self.assertEqual(adapter.cached_status().url, "about:blank")
+                    self.assertEqual(pilot.calls, calls)
+                    observed = await adapter.observe(include_screenshot=False, include_accessibility=False, text_limit=0)
+                    self.assertEqual(observed.url, pilot.current_url)
+                    self.assertEqual(adapter.cached_status().url, pilot.current_url)
+                finally:
+                    await adapter.stop()
+
     async def test_firefox_navigation_preserves_bounded_native_failure_context(
         self,
     ) -> None:
@@ -833,6 +980,8 @@ class LegacyBackendLifecycleTests(unittest.IsolatedAsyncioTestCase):
                 ("screenshot", None, False),
                 ("screenshot", None, True),
                 "observe_dom",
+                "url",
+                "title",
                 ("screenshot", None, False),
             ],
         )

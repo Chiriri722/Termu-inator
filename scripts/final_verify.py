@@ -8,6 +8,7 @@ import asyncio
 import base64
 import binascii
 from collections.abc import Awaitable, Callable, Mapping, Sequence
+from contextlib import contextmanager
 import csv
 from datetime import datetime, timedelta, timezone
 from email import policy as email_policy
@@ -168,6 +169,7 @@ _MCP_ERROR_DETAIL_VALUES = {
             "bidi_navigation",
             "clipboard_prime",
             "metadata_validation",
+            "navigation_dom",
             "observe_accessibility",
             "observe_dom",
             "observe_screenshot",
@@ -199,6 +201,16 @@ _MCP_ERROR_DETAIL_VALUES = {
 }
 _MCP_ERROR_DETAIL_INTEGERS = {"errno": (1, 4095), "process_returncode": (-255, 255)}
 _FAILURE_CONTEXT_VALUES = {
+    "assertion": frozenset({
+        "expected_refusal", "session_state", "paused_metadata", "tool_inventory",
+        "isolated_origin_policy", "fixture_navigation", "fixture_observation", "prompt_text",
+        "origin_policy_unchanged", "takeover_start", "takeover_identity", "takeover_resume",
+        "resume_identity", "resumed_observation",
+    }),
+    "fixture": frozenset({"setup", "prompt_injection", "login", "otp"}),
+    "phase": frozenset({"active", "required", "takeover", "resumed"}),
+    "expected_code": frozenset({"session_paused", "unsupported_capability", "stale_observation"}),
+    "observed_result": frozenset({"success", "mcp_error"}),
     "verification_stage": frozenset({
         "session_start", "permission_grant", "navigation", "observation", "form_actions",
         "form_initial", "form_type", "form_check", "form_select", "form_request_confirmation",
@@ -1910,65 +1922,102 @@ async def _verify_confidential_boundaries(
     artifact_uri: str, takeover: LocalTakeover,
 ) -> dict[str, object]:
     """Exercise only synthetic pages; page text cannot grant local authority."""
-    async def refused(name: str, arguments: dict[str, object], code: str) -> None:
+    fixture, phase = "setup", "active"
+
+    @contextmanager
+    def checking(assertion: str, *, tool: str | None = None, expected_code: str | None = None):
         try:
-            await caller(name, arguments)
-        except VerificationFailure as exc:
-            if exc.mcp_code == code:
-                return
-        raise VerificationFailure(f"confidential gate: {name} did not return {code}")
+            yield
+        except (Exception, asyncio.CancelledError) as exc:
+            # Labels come from the fixed call sites, never exception/page text.
+            exc.verification_context = _safe_failure_context({
+                **_safe_failure_context(getattr(exc, "verification_context", None)),
+                "verification_stage": "confidential_boundaries", "assertion": assertion,
+                "fixture": fixture, "phase": phase, "tool": tool, "expected_code": expected_code,
+            })
+            raise
+
+    async def refused(name: str, arguments: dict[str, object], code: str) -> None:
+        with checking("expected_refusal", tool=name, expected_code=code):
+            try:
+                await caller(name, arguments)
+            except VerificationFailure as exc:
+                if exc.mcp_code == code:
+                    return
+                if exc.mcp_code is not None:
+                    exc.verification_context = {
+                        **_safe_failure_context(exc.verification_context), "observed_result": "mcp_error",
+                    }
+                raise
+            failure = VerificationFailure(f"confidential gate: {name} did not return {code}")
+            failure.verification_context = {"observed_result": "success"}
+            raise failure
 
     async def status(state: str) -> Mapping[str, Any]:
-        value = await caller("browser_session_status", {"session_id": session_id})
-        if (value.get("session_id") != session_id or value.get("state") != state
-                or value.get("running") is not True):
-            raise VerificationFailure("confidential gate: session transition was not verified")
-        _status_context(value)
-        if state != "active" and (value.get("url") != "" or value.get("title") != "" or value.get("ready_state") != "takeover"):
-            raise VerificationFailure("confidential gate: paused metadata was not hidden")
+        with checking("session_state", tool="browser_session_status"):
+            value = await caller("browser_session_status", {"session_id": session_id})
+            if (value.get("session_id") != session_id or value.get("state") != state
+                    or value.get("running") is not True):
+                raise VerificationFailure("confidential gate: session transition was not verified")
+            _status_context(value)
+        with checking("paused_metadata", tool="browser_session_status"):
+            if state != "active" and (value.get("url") != "" or value.get("title") != "" or value.get("ready_state") != "takeover"):
+                raise VerificationFailure("confidential gate: paused metadata was not hidden")
         return value
 
     async def inventory() -> None:
-        listed = await caller._session.list_tools()
-        validate_tool_inventory(tuple(tool.name for tool in listed.tools), _INTERACTIVE_TOOL_NAMES, profile="interactive")
+        with checking("tool_inventory"):
+            listed = await caller._session.list_tools()
+            validate_tool_inventory(tuple(tool.name for tool in listed.tools), _INTERACTIVE_TOOL_NAMES, profile="interactive")
 
     context = _status_context(await status("active"))
     await inventory()
-    before = await caller("browser_permissions", {"session_id": session_id, "operation": "list"})
-    decisions = before.get("decisions")
-    if (before.get("operation") != "list" or before.get("challenge") is not None
-            or not isinstance(decisions, list) or len(decisions) != 1
-            or not isinstance(decisions[0], Mapping)
-            or decisions[0].get("origin") != fixture_origin or decisions[0].get("policy") != "session_allow"
-            or decisions[0].get("session_id") != session_id):
-        raise VerificationFailure("confidential gate: isolated fixture policy was not verified")
-    value = await caller("browser_navigate", {
-        **context, "operation": "goto", "url": fixture_origin + "/prompt-injection", "timeout_ms": 45_000,
-    })
-    context = _page_context(value)
-    observed = await caller("browser_observe", {
-        **context, "include_screenshot": False, "include_accessibility": False, "text_limit": 4096,
-    })
-    text = _fixture_text(observed, context, url=fixture_origin + "/prompt-injection", origin=fixture_origin, label="page authority")
-    if not all(token in text for token in ("Untrusted page instructions", "always_allow", "Developer Mode")):
-        raise VerificationFailure("confidential gate: untrusted fixture text was not observed")
-    context = _page_context(observed)
-    after = await caller("browser_permissions", {"session_id": session_id, "operation": "list"})
-    if after != before:
-        raise VerificationFailure("confidential gate: page text changed origin policy")
+    with checking("isolated_origin_policy", tool="browser_permissions"):
+        before = await caller("browser_permissions", {"session_id": session_id, "operation": "list"})
+        decisions = before.get("decisions")
+        if (before.get("operation") != "list" or before.get("challenge") is not None
+                or not isinstance(decisions, list) or len(decisions) != 1
+                or not isinstance(decisions[0], Mapping)
+                or decisions[0].get("origin") != fixture_origin or decisions[0].get("policy") != "session_allow"
+                or decisions[0].get("session_id") != session_id):
+            raise VerificationFailure("confidential gate: isolated fixture policy was not verified")
+    fixture = "prompt_injection"
+    with checking("fixture_navigation", tool="browser_navigate"):
+        value = await caller("browser_navigate", {
+            **context, "operation": "goto", "url": fixture_origin + "/prompt-injection", "timeout_ms": 45_000,
+        })
+        context = _page_context(value)
+    with checking("fixture_observation", tool="browser_observe"):
+        observed = await caller("browser_observe", {
+            **context, "include_screenshot": False, "include_accessibility": False, "text_limit": 4096,
+        })
+        text = _fixture_text(observed, context, url=fixture_origin + "/prompt-injection", origin=fixture_origin, label="page authority")
+        context = _page_context(observed)
+    with checking("prompt_text", tool="browser_observe"):
+        if not all(token in text for token in ("Untrusted page instructions", "always_allow", "Developer Mode")):
+            raise VerificationFailure("confidential gate: untrusted fixture text was not observed")
+    with checking("origin_policy_unchanged", tool="browser_permissions"):
+        after = await caller("browser_permissions", {"session_id": session_id, "operation": "list"})
+        if after != before:
+            raise VerificationFailure("confidential gate: page text changed origin policy")
     await inventory()
     await refused("browser_devtools", {**context, "query": "console", "parameters": {}}, "unsupported_capability")
 
     for route in ("login", "otp"):
+        fixture, phase = route, "required"
         await refused("browser_navigate", {
             **context, "operation": "goto", "url": fixture_origin + "/" + route, "timeout_ms": 45_000,
         }, "session_paused")
         paused = _status_context(await status("user_takeover_required"))
         for state in ("user_takeover_required", "user_takeover_active"):
             if state == "user_takeover_active":
-                await takeover(session_id, "start")
-                if _status_context(await status(state)) != paused:
-                    raise VerificationFailure("confidential gate: takeover start changed page identity")
+                phase = "takeover"
+                with checking("takeover_start"):
+                    await takeover(session_id, "start")
+                active_context = _status_context(await status(state))
+                with checking("takeover_identity"):
+                    if active_context != paused:
+                        raise VerificationFailure("confidential gate: takeover start changed page identity")
             for name, arguments in (
                 ("browser_observe", {**paused, "include_screenshot": True, "include_accessibility": True, "text_limit": 4096}),
                 ("browser_screenshot", {**paused, "mode": "viewport"}),
@@ -1985,22 +2034,27 @@ async def _verify_confidential_boundaries(
                 ("browser_devtools", {**paused, "query": "console", "parameters": {}}),
             ):
                 await refused(name, arguments, "session_paused")
-        await takeover(session_id, "resume")
+        phase = "resumed"
+        with checking("takeover_resume"):
+            await takeover(session_id, "resume")
         context = _status_context(await status("active"))
-        if (context["tab_id"] != paused["tab_id"] or context["page_id"] == paused["page_id"]
-                or context["expected_page_revision"] == paused["expected_page_revision"]):
-            raise VerificationFailure("confidential gate: resume did not rotate page identity")
+        with checking("resume_identity"):
+            if (context["tab_id"] != paused["tab_id"] or context["page_id"] == paused["page_id"]
+                    or context["expected_page_revision"] == paused["expected_page_revision"]):
+                raise VerificationFailure("confidential gate: resume did not rotate page identity")
         await refused("browser_observe", {
             **paused, "include_screenshot": False, "include_accessibility": False, "text_limit": 0,
         }, "stale_observation")
-        observed = await caller("browser_observe", {
-            **context, "include_screenshot": False, "include_accessibility": False, "text_limit": 0,
-        })
-        if (_page_context(observed) != context or observed.get("text") != "" or observed.get("accessibility") != []
-                or observed.get("screenshot_artifact_uri") is not None):
-            raise VerificationFailure("confidential gate: resumed observation was not bounded or fresh")
-        if await caller("browser_permissions", {"session_id": session_id, "operation": "list"}) != before:
-            raise VerificationFailure("confidential gate: takeover changed origin policy")
+        with checking("resumed_observation", tool="browser_observe"):
+            observed = await caller("browser_observe", {
+                **context, "include_screenshot": False, "include_accessibility": False, "text_limit": 0,
+            })
+            if (_page_context(observed) != context or observed.get("text") != "" or observed.get("accessibility") != []
+                    or observed.get("screenshot_artifact_uri") is not None):
+                raise VerificationFailure("confidential gate: resumed observation was not bounded or fresh")
+        with checking("origin_policy_unchanged", tool="browser_permissions"):
+            if await caller("browser_permissions", {"session_id": session_id, "operation": "list"}) != before:
+                raise VerificationFailure("confidential gate: takeover changed origin policy")
     return {"status": "PASS", "takeover_fixtures": ["login", "otp"], "page_authority_unchanged": True,
             "paused_reads_refused": True, "resume_rotates_identity": True}
 

@@ -2752,6 +2752,8 @@ class ConfidentialBoundaryGateTests(unittest.IsolatedAsyncioTestCase):
                 nonlocal resumed_from
                 self.assertEqual(identity, session_id)
                 transitions.append(operation)
+                if fault == "takeover_" + operation:
+                    raise VerificationFailure("PRIVATE local control failure")
                 if operation == "start":
                     await service.local_takeover_start(identity)
                 else:
@@ -2762,7 +2764,16 @@ class ConfidentialBoundaryGateTests(unittest.IsolatedAsyncioTestCase):
                 calls.append(name)
                 self.last_calls.append((name, arguments))
                 try:
-                    if fault == "read_allowed" and name == "browser_observe" and (await service.session_status(session_id)).state.value.startswith("user_takeover"):
+                    if fault == "navigation_cancelled" and name == "browser_navigate" and arguments.get("url", "").endswith("/login"):
+                        raise asyncio.CancelledError("PRIVATE cancelled navigation")
+                    if (fault in {"navigation_allowed", "otp_navigation_allowed"} and name == "browser_navigate"
+                            and arguments.get("url", "").endswith("/otp" if fault == "otp_navigation_allowed" else "/login")):
+                        value = {}
+                    elif fault == "navigation_error" and name == "browser_navigate" and arguments.get("url", "").endswith("/login"):
+                        from src.termuinator.contracts import ErrorCode
+                        raise TermuinatorError(ErrorCode.BACKEND_CRASHED, "PRIVATE navigation exception", details={
+                            "backend": "firefox", "operation": "goto", "stage": "navigation_dom", "message": "PRIVATE details"})
+                    elif fault == "read_allowed" and name == "browser_observe" and (await service.session_status(session_id)).state.value.startswith("user_takeover"):
                         value = {"text": "PRIVATE leaked read"}
                     elif fault == "developer_enabled" and name == "browser_devtools":
                         value = {"query": "console", "entries": [], "truncated": False}
@@ -2772,9 +2783,24 @@ class ConfidentialBoundaryGateTests(unittest.IsolatedAsyncioTestCase):
                         value["decisions"][0]["policy"] = "always_allow"
                     if name == "browser_permissions" and fault == "malformed_policy":
                         value["decisions"] = ["PRIVATE malformed record"]
+                    if name == "browser_permissions" and fault == "takeover_policy" and resumed_from:
+                        value["decisions"][0]["policy"] = "always_allow"
+                    if name == "browser_navigate" and fault == "prompt_navigation_shape":
+                        value = {}
+                    if name == "browser_observe":
+                        if fault == "prompt_observation_shape" and backend._snapshot.url.endswith("/prompt-injection"):
+                            value = {}
+                        if fault == "prompt_text" and backend._snapshot.url.endswith("/prompt-injection"):
+                            value["text"] = "PRIVATE wrong fixture text"
+                        if fault == "resume_observation" and resumed_from:
+                            value["text"] = "PRIVATE unbounded resumed content"
                     if name == "browser_session_status":
+                        if fault == "initial_state":
+                            value["state"] = "closed"
                         if fault == "status_leak" and value["state"].startswith("user_takeover"):
                             value["title"] = "PRIVATE leaked title"
+                        if fault == "takeover_identity" and value["state"] == "user_takeover_active":
+                            value["active_page_id"] = "page_replaced_identity"
                         if fault == "resume_not_rotated" and value["state"] == "active" and resumed_from:
                             value["page_revision"] = resumed_from["page_revision"]
                     return SimpleNamespace(isError=False, structuredContent=value)
@@ -2816,6 +2842,71 @@ class ConfidentialBoundaryGateTests(unittest.IsolatedAsyncioTestCase):
                     await self._run(fault)
                 self.assertIsInstance(caught.exception, VerificationFailure)
                 self.assertNotIn("PRIVATE", str(caught.exception))
+
+    async def test_confidential_failures_identify_fixed_assertion_fixture_and_phase(self):
+        cases = (
+            ("navigation_allowed", "expected_refusal", "login", "required"),
+            ("read_allowed", "expected_refusal", "login", "required"),
+            ("status_leak", "paused_metadata", "login", "required"),
+            ("policy_change", "origin_policy_unchanged", "prompt_injection", "active"),
+            ("malformed_policy", "isolated_origin_policy", "setup", "active"),
+            ("tool_change", "tool_inventory", "prompt_injection", "active"),
+            ("developer_enabled", "expected_refusal", "prompt_injection", "active"),
+            ("resume_not_rotated", "resume_identity", "login", "resumed"),
+            ("initial_state", "session_state", "setup", "active"),
+            ("prompt_navigation_shape", "fixture_navigation", "prompt_injection", "active"),
+            ("prompt_observation_shape", "fixture_observation", "prompt_injection", "active"),
+            ("prompt_text", "prompt_text", "prompt_injection", "active"),
+            ("takeover_start", "takeover_start", "login", "takeover"),
+            ("takeover_identity", "takeover_identity", "login", "takeover"),
+            ("takeover_resume", "takeover_resume", "login", "resumed"),
+            ("resume_observation", "resumed_observation", "login", "resumed"),
+            ("takeover_policy", "origin_policy_unchanged", "login", "resumed"),
+            ("otp_navigation_allowed", "expected_refusal", "otp", "required"),
+        )
+        for fault, assertion, fixture, phase in cases:
+            with self.subTest(fault=fault):
+                with self.assertRaises(VerificationFailure) as caught:
+                    await self._run(fault)
+                evidence = final_verify_module._verification_failure_evidence(caught.exception, "backend-firefox", [])
+                context = evidence["failure_context"]
+                self.assertEqual(context.get("verification_stage"), "confidential_boundaries")
+                self.assertEqual((context.get("assertion"), context.get("fixture"), context.get("phase")),
+                                 (assertion, fixture, phase))
+                if assertion == "expected_refusal":
+                    self.assertEqual(context.get("observed_result"), "success")
+                    self.assertEqual(context.get("expected_code"), "unsupported_capability" if fault == "developer_enabled" else "session_paused")
+                note = final_verify_module.verification_summary_ko({"status": "FAIL", "device": {
+                    "backends": [{"backend": "firefox", "status": "FAIL", **evidence}]}})
+                self.assertIn("assertion=" + assertion, note)
+                self.assertNotIn("PRIVATE", json.dumps(evidence) + note)
+
+    async def test_confidential_refusal_preserves_unexpected_mcp_error_context(self):
+        with self.assertRaises(VerificationFailure) as caught:
+            await self._run("navigation_error")
+        self.assertEqual(caught.exception.mcp_code, "backend_crashed")
+        context = final_verify_module._safe_failure_context(caught.exception.verification_context)
+        self.assertEqual(context, {
+            "verification_stage": "confidential_boundaries", "assertion": "expected_refusal",
+            "fixture": "login", "phase": "required", "expected_code": "session_paused",
+            "observed_result": "mcp_error", "tool": "browser_navigate", "code": "backend_crashed",
+            "backend": "firefox", "operation": "goto", "stage": "navigation_dom",
+        })
+        with self.assertRaises(asyncio.CancelledError) as cancelled:
+            await self._run("navigation_cancelled")
+        self.assertEqual(final_verify_module._safe_failure_context(cancelled.exception.verification_context), {
+            "verification_stage": "confidential_boundaries", "assertion": "expected_refusal",
+            "fixture": "login", "phase": "required", "expected_code": "session_paused",
+            "tool": "browser_navigate",
+        })
+
+    async def test_confidential_context_rejects_unbounded_values(self):
+        context = final_verify_module._safe_failure_context({
+            "verification_stage": "confidential_boundaries", "assertion": "PRIVATE assertion",
+            "fixture": "https://PRIVATE/login", "phase": ["PRIVATE"],
+            "expected_code": "PRIVATE", "observed_result": "PRIVATE", "message": "PRIVATE",
+        })
+        self.assertEqual(context, {"verification_stage": "confidential_boundaries"})
 
 
 class BackendReleaseFlowTests(unittest.IsolatedAsyncioTestCase):
