@@ -19,7 +19,25 @@ Termux/Android에서 실제 Firefox·Chromium을 제어하되, 기존의 방대�
 
 ## Next Step
 
-2026-10-28 최신: r3 정적 진단 두 파일의 크기·hash·run binding을 확인했다.
+2026-11-06 최신: r4 공개 ZIP의 8개 member/7개 payload/sidecar 무결성을 확인했다.
+기기 preflight는 named import 실패, full 648/657 수집 및 실패·오류 14건으로
+종료했고 canonical/benchmark는 NOT_RUN이다. 누락된 tests/__init__.py 때문에
+외부 tests 패키지가 선택되는 조건을 별도 로컬 venv에서 재현하자 같은 648개,
+failures=5/errors=9가 나왔다. 패키지 marker와 회귀 2개로 수정했다.
+새 회귀 RED 2 → GREEN 2, 충돌 환경 전체 **659개 실행/658 PASS/opt-in 1 skip**,
+별도 실제 Mac Chrome fixture 10 PASS다. Runtime 소스·기존 성공 기준은 불변이다.
+정적 추출 JSON 11,585 bytes / SHA 43d48cee…c7cb423을 수신·검증했다.
+기기 14건 모두 테스트/subtest/실패 위치가 로컬과 일치한다. 다만 실제 명령/cwd와
+선택된 tests 경로는 미기록이고 assertion 값은 비공개라 기기 근본 원인은 미확정이다.
+새 자료에는 실제 호출 인자·cwd 귀속·import origin 기록을 포함한다.
+기존 로그 정적 대조를 종료하고 **새 사용자 clean commit → 새 bound 자료 →
+fresh S22U preflight/canonical → 완전 PASS에만 benchmark**로 이어간다.
+자세한 근거와 호출 경로는 [r4 preflight 보강](docs/s22u-r4-test-discovery-followup.ko.md)에 있다.
+이번 로컬 재현으로 Chromium 시작 원인이나 S22U 승인을 주장하지 않는다.
+
+### Historical 2026-10-28 startup evidence follow-up
+
+2026-10-28: r3 정적 진단 두 파일의 크기·hash·run binding을 확인했다.
 Firefox는 `browser_navigate`의 `session_paused` 거부 assertion이며 당시 실제 응답은
 미보존이다. Chromium 로그의 미확인 구간까지 검사됐지만 구체적 원인은 기록되지 않았다.
 DBus ERROR와 `-5`의 인과관계는 UNKNOWN이다. 같은 로그 추가 요청은 종료한다.

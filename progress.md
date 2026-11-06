@@ -1,5 +1,31 @@
 # Progress: Termu-inator Modernization
 
+## 2026-11-06 — r4 preflight evidence and tests namespace repair
+
+Received the r4 preflight-only public ZIP; all seven payload hashes and sidecars
+match its manifest. No canonical/browser/benchmark ran on S22U. Preserved the
+download and owner-private copies under the repository-external device-artifacts
+directory. The old r4 delivery remains immutable.
+
+Reproduced named import failure and full 648/657 collection using a disposable
+installed tests package. Keeping that collision visible to isolated subprocesses
+also reproduced all 14 aggregate records (5 failures, 9 errors). Added two focused
+regressions before the fix and confirmed loader-error REDs, then added the missing
+tests/__init__.py. Both regressions now pass; existing assertions are unchanged.
+
+Colliding-environment suites pass 115/90/107/9/30/35, full 659 with only the existing
+opt-in skip, and separate live Mac Chrome fixture 10/10. These are local Python
+3.14.7 results, not S22U success. Runtime source and package dependencies are unchanged.
+
+Received the static extraction (11585 bytes, SHA 43d48cee…c7cb423); preserved it and
+the original sidecar in a fresh private subdirectory with a separate receipt.
+Compared all 14 test/subtest identities and source frames with the saved local
+baseline: 14/14 match. Device cwd/command/import path and assertion values remain
+unknown. This closes the existing-log comparison without claiming device repair.
+Updated the follow-up with exact comparison and next-run invocation/origin records.
+No remote rerun, source patch on device, commit/push or production change occurred.
+Next: obtain new clean commit, then seal updated handoff with actual SHA and scope.
+
 ## 2026-10-28 — received both static diagnostics; startup attempt evidence repaired
 
 Validated 3,772-byte static and 4,049-byte middle JSONs against their supplied hashes

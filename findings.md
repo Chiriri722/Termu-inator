@@ -1,5 +1,32 @@
 # Findings: Termu-inator Modernization
 
+## 2026-11-06 — r4 preflight import collision reproduced
+
+- Verified incoming 10849-byte ZIP caf7e67c…e724, eight members, seven payload
+  hashes and both summary sidecars. Exact candidate 1b1e4eb9 remains preflight
+  FAIL; canonical/benchmark NOT_RUN. Budget used is 1/3, 0/2, 0/2.
+- Missing top-level tests/__init__.py lets an unrelated installed regular tests
+  package override the checkout namespace, even with checkout first on sys.path.
+- An isolated local site-packages collision reproduces 648 tests and 14 records
+  (5 failures/9 errors). Fixture's ten cases collapse to one failed-import case;
+  cross-test helper imports and the isolated journal writer also fail.
+- Received the 11585-byte static JSON 43d48cee…c7cb423 and its sidecar; candidate
+  identity and private-file sizes match the prior public report. All 14 records
+  match local test/subtest identities, ERROR/FAIL kinds and source frames. Nine
+  name tests.test_benchmark_device, one names tests.fixtures, four are assertions.
+- Actual device invocation/cwd, selected tests path and four assertion values
+  remain unknown. Matching error signatures supports the minimal fix but is not
+  proof of the device's root cause. No further old-log request or device rerun.
+- Next candidate handoff must preserve invocation arguments/candidate cwd before
+  imports and publish bounded origin/flags/environment-presence diagnostics.
+- Added the package marker and two subprocess regressions; intended RED 2 then
+  GREEN 2. With the colliding package retained, focused suites 115/90/107/9/30/35
+  pass; full 659 run / 658 PASS / only existing opt-in skipped. Real Mac Chrome
+  fixture separately passes 10. No runtime/dependency/policy relaxation.
+- Graph guided discovery; tests/fixtures and scripts/ are excluded and were read
+  directly where relevant. Preserve r3/r4 evidence and require a fresh clean
+  candidate before any new S22U gate. Chromium startup cause is still unknown.
+
 ## 2026-10-28 — r3 static evidence closed; attempt-time facts preserved
 
 - Both sanitized static files match the supplied sizes/hashes and the exact r3

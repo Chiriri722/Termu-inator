@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import ast
+import json
 import os
 from pathlib import Path
 import re
 import subprocess
 import sys
+import tempfile
 import unittest
 
 
@@ -280,6 +282,69 @@ class ManualBrowserScriptBoundaryTests(unittest.TestCase):
                 self.assertEqual(eager_project_imports, [])
                 self.assertEqual(eager_runs, [])
                 self.assertEqual(len(main_guards), 1)
+
+
+class TestDiscoveryIsolationTests(unittest.TestCase):
+    def _collect_with_installed_tests_package(self, mode: str) -> dict:
+        script = r"""
+import json, pathlib, sys, unittest
+repo, installed, mode = sys.argv[1:]
+sys.path[:0] = [repo, installed]
+loader = unittest.TestLoader()
+if mode == "named":
+    suite = loader.loadTestsFromNames(["tests.test_cdp", "tests.test_fixture_site"])
+else:
+    suite = loader.discover(str(pathlib.Path(repo) / "tests"), pattern="test_fixture_site.py")
+def identifiers(suite):
+    for item in suite:
+        if isinstance(item, unittest.TestSuite):
+            yield from identifiers(item)
+        else:
+            yield item.id()
+fixture = sys.modules.get("tests.fixtures.server")
+print(json.dumps({
+    "loader_errors": len(loader.errors),
+    "test_ids": list(identifiers(suite)),
+    "fixture_source": None if fixture is None else str(pathlib.Path(fixture.__file__).resolve()),
+}))
+"""
+        with tempfile.TemporaryDirectory() as directory:
+            installed = Path(directory)
+            (installed / "tests").mkdir()
+            (installed / "tests" / "__init__.py").write_text(
+                '"""An unrelated installed package with the common tests name."""\n',
+                encoding="utf-8",
+            )
+            completed = subprocess.run(
+                [sys.executable, "-I", "-B", "-W", "error", "-c", script,
+                 str(ROOT), str(installed), mode],
+                cwd=ROOT, capture_output=True, text=True, timeout=30,
+            )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertEqual(completed.stderr, "")
+        return json.loads(completed.stdout)
+
+    def test_named_suites_resolve_checkout_when_installed_tests_package_exists(self):
+        result = self._collect_with_installed_tests_package("named")
+        self.assertEqual(result["loader_errors"], 0)
+        self.assertIn(
+            "tests.test_cdp.CDPClientLifecycleTests.test_command_timeout_includes_blocked_send",
+            result["test_ids"],
+        )
+        self.assertEqual(
+            result["fixture_source"], str((ROOT / "tests/fixtures/server.py").resolve()),
+        )
+
+    def test_discovery_keeps_fixture_tests_when_installed_tests_package_exists(self):
+        result = self._collect_with_installed_tests_package("discover")
+        self.assertEqual(result["loader_errors"], 0)
+        self.assertIn(
+            "test_fixture_site.FixtureSiteTests.test_core_pages_are_local_deterministic_and_security_bounded",
+            result["test_ids"],
+        )
+        self.assertEqual(
+            result["fixture_source"], str((ROOT / "tests/fixtures/server.py").resolve()),
+        )
 
 
 class McpEntrypointTests(unittest.TestCase):
