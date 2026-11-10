@@ -10,6 +10,9 @@
 > baseline while Termu-inator is being modernized. See the
 > [upstream baseline record](docs/upstream-baseline.md) and
 > [attribution notice](NOTICE.md).
+>
+> The fork's current position and next step are in [STATUS.md](STATUS.md); the
+> plan is in [task_plan.md](task_plan.md).
 
 Real browser automation for Termux/Android. No root required.
 

@@ -1,7 +1,7 @@
 {
-  "contract_version": "1.0.0",
-  "title": "Termu-inator reachable acceptance contract",
-  "rationale": "Completion was previously defined as a canonical + benchmark run on a physical Samsung S22U device in Termux, sealed to a commit/wheel identity. That gate is unreachable from any host without the device, so the 'canonical' verdict stayed permanently FAIL/not-run while 600+ local tests always passed. This contract replaces the unreachable gate with criteria that a developer machine or CI runner can actually execute and pass, terminating a candidate without a device. The physical-device benchmark is retained ONLY as an optional, informational signal that never blocks completion.",
+  "contract_version": "1.1.0",
+  "title": "Termu-inator L0 local gate contract",
+  "rationale": "L0 is the local regression lane defined in docs/verification-lanes.ko.md. It runs on a developer machine or CI runner and decides whether a tree is fit to go to the device. It does not replace the S22U device acceptance (L2), which stays mandatory by the user's 2026-10-23 decision. This file was created on 2026-09-30 as a device-free completion contract and was repositioned as L0 on 2026-11-10; the criteria and thresholds are unchanged.",
   "terminating": true,
   "blocking_criteria": [
     {
@@ -9,27 +9,27 @@
       "description": "The full in-repo test suite passes with zero failures and zero errors.",
       "check": "pytest",
       "params": {"target": ".", "min_passed": 600, "max_failed": 0, "max_errors": 0},
-      "replaces": "Local-correctness portion of the old canonical run."
+      "replaces": "Nothing on the device. Local correctness only."
     },
     {
       "id": "real-browser-e2e",
       "description": "The full observe->act->verify loop runs end-to-end against a REAL headless browser (Chrome/Chromium/Firefox) driving the deterministic in-repo FixtureSite, using the production ObservationEngine, ActionRiskClassifier, element bindings, and CDP client. This exercises real DOM semantics, real form-effect counting, stale node-identity replacement, unavailable/hidden targets, challenge (login/OTP) takeover detection, prompt-injection inertness, and lost-response replay safety.",
       "check": "pytest",
       "params": {"target": "tests/test_fixture_site.py", "env": {"TERMUINATOR_TEST_BROWSER": "<auto-discovered-browser>"}, "min_passed": 10, "max_failed": 0, "max_errors": 0, "max_skipped": 0},
-      "replaces": "The unreachable S22U end-to-end device benchmark. This is the reachable equivalent: a real browser, real engine code, deterministic site."
+      "replaces": "Nothing on the device. A desktop Chrome run is not evidence for Termux Chromium or Firefox on Android."
     },
     {
       "id": "no-uncommitted-drift",
-      "description": "The verdict is bound to a concrete repository identity (git commit SHA + working-tree hash). A candidate is identified by its resolved tree, not by a promise to commit later.",
+      "description": "Records the repository identity (git commit SHA + working-tree hash) the verdict was produced from. A dirty tree still passes: this is an identity record, not a cleanliness check. The clean-commit requirement is enforced in L2 by scripts/final_verify.py.",
       "check": "repo_identity",
       "params": {},
-      "replaces": "The 'obtain the user's new clean commit SHA before sealing' ritual, which never terminated because sealing waited on the device run."
+      "replaces": "Nothing. L2 keeps its own commit, tree and wheel binding."
     }
   ],
   "informational_criteria": [
     {
       "id": "physical-device-benchmark",
-      "description": "Optional Samsung S22U / Termux canonical + benchmark run. Provides field-hardware signal but is NOT required for completion. Its absence records as 'not_run', never as FAIL, and never blocks the verdict.",
+      "description": "Displays a device report if one was dropped next to this file. Device results are judged in the L1/L2 lanes, never here. 'not_run' in this gate says nothing about device acceptance, which remains mandatory for alpha.",
       "check": "device_benchmark_optional",
       "params": {}
     }

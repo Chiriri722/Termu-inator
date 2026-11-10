@@ -15,6 +15,12 @@ and keeps prior BLOCKED/NOT_RUN records unchanged. Environment-only recovery can
 keep the same source commit with a fresh run identity; source changes still need
 a newly bound candidate. This does not authorize registration or production use.
 
+That runbook records the 2026-10-23 campaign. The current procedure is in
+[verification lanes and the alpha gate](verification-lanes.ko.md): diagnose on
+the device in the unsealed L1 lane first, and seal an L2 acceptance run only for
+a commit that already passed there. The project's current position is in
+[STATUS.md](../STATUS.md).
+
 ## Choose the entrypoint and release identity explicitly
 
 | Command | Current purpose |

@@ -1,9 +1,9 @@
 # Benchmark quality follow-up after v0.2.18
 
 > Historical preparation record: the v0.2.19 commit-wait instructions below
-> were superseded by the v0.2.20 run. The active post-v0.2.20 hardening work is
-> tracked in [the current plan](../task_plan.md#current-phase) and is not yet a
-> sealed candidate. Do not execute the historical hold/run text as a new order.
+> were superseded by the v0.2.20 run. The current position is in
+> [STATUS.md](../STATUS.md) and [the current plan](../task_plan.md#current-phase).
+> Do not execute the historical hold/run text as a new order.
 
 This is a preparation checklist, **not an authorization to rerun v0.2.18**.
 Its canonical and benchmark identities have already been consumed. Keep the

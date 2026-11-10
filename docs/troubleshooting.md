@@ -13,6 +13,13 @@ fresh validation attempt after an evidenced environment repair. Do not stop all
 independent evidence collection at the first failed check, overwrite old results,
 or interpret that permission as unbounded retries or disclosure of raw logs.
 
+Since 2026-11-10, device failures are diagnosed in the unsealed L1 lane before
+any sealed acceptance run. L1 runs use only a temporary profile with
+`about:blank` or the loopback fixture, and their raw stderr may be returned as
+is. See [verification lanes and the alpha gate](verification-lanes.ko.md). The
+runbook above is a historical record of the 2026-10-23 campaign; its sealing,
+budget and sanitizing rules now apply to L2 only.
+
 ## First Evidence to Collect
 
 Keep the exact command, exit code, stdout, stderr, Android and Termux version,

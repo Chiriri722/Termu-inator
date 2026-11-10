@@ -1,5 +1,10 @@
 # r4 preflight: tests 패키지 충돌 보강
 
+> **2026-11-10 안내.** 이 수정은 `feb7bd8`에 들어갔다. 아래 "다음 후보의 실행 경로" 절의 봉인 순서는
+> 보류됐다. 먼저 L1에서 Chromium 시작 원인을 찾는다. import origin 확인 블록은 그대로 유효하며
+> [alpha 게이트 v1](verification-lanes.ko.md)의 preflight 차단 항목으로 쓴다.
+> 현재 절차는 [STATUS.md](../STATUS.md)를 따른다.
+
 2026-11-06. **로컬 수정 검증·기기 오류 14건 대조 완료 / 기기 근본 원인 미확정 / S22U 미승인**.
 
 ## 수신 결과

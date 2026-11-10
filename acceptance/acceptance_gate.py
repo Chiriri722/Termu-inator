@@ -1,28 +1,29 @@
 #!/usr/bin/env python3
-"""Reachable, deterministic acceptance gate for Termu-inator.
+"""L0 local gate for Termu-inator.
 
-WHY THIS EXISTS
----------------
-For many iterations the project's definition of "done" was a *canonical +
-benchmark run on a physical Samsung S22U device in Termux*, sealed to a specific
-commit SHA and wheel SHA-256. That gate is unreachable from any host that does
-not physically have the device attached. The consequence was a verification
-treadmill: every cycle reproduced a micro-defect locally, fixed it, turned 600+
-local tests green, and then had to "seal a new candidate and wait for the
-device" -- which never terminated, so the canonical verdict stayed permanently
-"FAIL / benchmark not run".
-
-This gate replaces that unreachable gate with one a developer machine or CI
-runner can actually execute AND pass, producing a terminating PASS/FAIL verdict:
+WHAT THIS IS
+------------
+This is the L0 lane defined in docs/verification-lanes.ko.md: a fast regression
+gate that a developer machine or CI runner can execute. It does NOT replace the
+S22U device acceptance (L2), which stays mandatory. A PASS here only means a
+tree is fit to go to the device.
 
   Stage A  unit-suite-green   -- the full in-repo pytest suite (internal correctness)
   Stage B  real-browser-e2e   -- the real observe->act->verify loop against a REAL
                                  headless browser driving the deterministic
                                  in-repo FixtureSite, using production engine code
-  Stage C  no-uncommitted-drift -- bind the verdict to git commit + tree hash
+  Stage C  no-uncommitted-drift -- record the git commit + working-tree identity
+                                 the verdict was produced from (a dirty tree
+                                 still passes; it is an identity, not a check)
 
-The physical-device benchmark is retained only as OPTIONAL, informational signal
-(never blocks completion, absence records as "not_run", never as FAIL).
+The device entry is informational in this gate only. Device results are judged
+in the L1/L2 lanes, not here.
+
+HISTORY
+-------
+Created on 2026-09-30 as a "reachable acceptance gate" meant to conclude a
+candidate without the device. The user kept the S22U gate mandatory on
+2026-10-23, and on 2026-11-10 this gate was repositioned as L0.
 
 USAGE
 -----
@@ -30,12 +31,9 @@ USAGE
     python acceptance/acceptance_gate.py --json-only      # machine-readable JSON only
     python acceptance/acceptance_gate.py --out verdict.json
 
-Exit code 0 == all blocking criteria PASS (candidate concluded).
+Exit code 0 == all blocking L0 criteria PASS.
 Exit code 1 == at least one blocking criterion FAILED.
 Exit code 2 == the gate itself could not run (e.g. no browser found).
-
-The gate is deterministic and terminating: given the same repo tree and a
-working browser, it always reaches a verdict without waiting on a device.
 """
 
 from __future__ import annotations
@@ -214,9 +212,9 @@ def check_repo_identity(criterion: dict, browser: str | None) -> dict:
 
 
 def check_device_benchmark_optional(criterion: dict, browser: str | None) -> dict:
-    # Informational only. Absence is "not_run", never FAIL. A device operator may
-    # drop a JSON report at acceptance/device_benchmark_result.json to record a
-    # signal; the gate reads it but never blocks on it.
+    # Informational in L0 only. Device acceptance is the separate, mandatory L2
+    # lane; this entry never decides it. A device operator may drop a JSON report
+    # at acceptance/device_benchmark_result.json and the gate will display it.
     report = Path(__file__).resolve().parent / "device_benchmark_result.json"
     if report.is_file():
         try:
@@ -224,10 +222,10 @@ def check_device_benchmark_optional(criterion: dict, browser: str | None) -> dic
         except Exception:
             data = {"parse_error": True}
         return {"criterion": criterion["id"], "status": "INFO",
-                "detail": "device report present (informational, non-blocking)",
+                "detail": "device report present (shown for reference; judged in L2)",
                 "evidence": data}
     return {"criterion": criterion["id"], "status": "INFO",
-            "detail": "not_run (no physical device; non-blocking by contract)",
+            "detail": "not judged here (S22U acceptance is the mandatory L2 lane)",
             "evidence": {"state": "not_run"}}
 
 
@@ -279,7 +277,7 @@ def run_gate() -> dict:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Termu-inator reachable acceptance gate")
+    parser = argparse.ArgumentParser(description="Termu-inator L0 local gate")
     parser.add_argument("--json-only", action="store_true", help="print only the JSON verdict")
     parser.add_argument("--out", type=str, default=None, help="also write the JSON verdict to this path")
     args = parser.parse_args(argv)
@@ -308,7 +306,7 @@ def main(argv: list[str] | None = None) -> int:
         print(payload)
         print()
         print("=" * 68)
-        print(f"ACCEPTANCE VERDICT: {verdict['verdict']}  "
+        print(f"L0 LOCAL GATE VERDICT: {verdict['verdict']}  "
               f"(commit {(verdict['repo_identity'].get('commit') or '?')[:12]}, "
               f"browser {Path(browser).name})")
         for item in verdict["criteria"]:

@@ -1,0 +1,1443 @@
+# Findings: Termu-inator Modernization
+
+## 2026-11-06 — r4 preflight import collision reproduced
+
+- Verified incoming 10849-byte ZIP caf7e67c…e724, eight members, seven payload
+  hashes and both summary sidecars. Exact candidate 1b1e4eb9 remains preflight
+  FAIL; canonical/benchmark NOT_RUN. Budget used is 1/3, 0/2, 0/2.
+- Missing top-level tests/__init__.py lets an unrelated installed regular tests
+  package override the checkout namespace, even with checkout first on sys.path.
+- An isolated local site-packages collision reproduces 648 tests and 14 records
+  (5 failures/9 errors). Fixture's ten cases collapse to one failed-import case;
+  cross-test helper imports and the isolated journal writer also fail.
+- Received the 11585-byte static JSON 43d48cee…c7cb423 and its sidecar; candidate
+  identity and private-file sizes match the prior public report. All 14 records
+  match local test/subtest identities, ERROR/FAIL kinds and source frames. Nine
+  name tests.test_benchmark_device, one names tests.fixtures, four are assertions.
+- Actual device invocation/cwd, selected tests path and four assertion values
+  remain unknown. Matching error signatures supports the minimal fix but is not
+  proof of the device's root cause. No further old-log request or device rerun.
+- Next candidate handoff must preserve invocation arguments/candidate cwd before
+  imports and publish bounded origin/flags/environment-presence diagnostics.
+- Added the package marker and two subprocess regressions; intended RED 2 then
+  GREEN 2. With the colliding package retained, focused suites 115/90/107/9/30/35
+  pass; full 659 run / 658 PASS / only existing opt-in skipped. Real Mac Chrome
+  fixture separately passes 10. No runtime/dependency/policy relaxation.
+- Graph guided discovery; tests/fixtures and scripts/ are excluded and were read
+  directly where relevant. Preserve r3/r4 evidence and require a fresh clean
+  candidate before any new S22U gate. Chromium startup cause is still unknown.
+
+## 2026-10-28 — r3 static evidence closed; attempt-time facts preserved
+
+- Both sanitized static files match the supplied sizes/hashes and the exact r3
+  commit/run/manifest. Middle file: 4,049 bytes, SHA-256
+  `5dd77002f3ee7012df43007fe3495f65316841b1a3c17ec16cb8efe284964e8d`.
+- Firefox's refusal assertion is now confirmed: browser_navigate expected
+  session_paused; actual result remains UNKNOWN_NOT_PRESERVED. This matches the
+  repaired local boundary, not proof of the historical device response value.
+- Head/tail plus middle cover the entire preserved Chromium log. DBus ERROR
+  categories do not establish a cause for -5; UNKNOWN_NOT_RECORDED remains.
+- Existing attempt headers read returncode AFTER owned cleanup. Multi-process 0
+  is not failure-time evidence. Five new tests reproduced missing history and
+  ambiguous headers (18 failing assertions, then GREEN).
+- At most three fixed attempt records now distinguish failure-time process state
+  and returncode from cleanup_returncode. Earlier attempts survive fallback and
+  later spawn errors through adapter/MCP/manifest/Korean summary. No raw log export.
+- Related 65 PASS; full 657 PASS, zero skips with live Mac Chrome. No launch-flag,
+  timeout, retry-budget, acceptance or cleanup relaxation; no S22U run or root-cause claim.
+- Prior 13-path work was committed by the user during this turn as c0e463f3
+  (actual subject v.0.2.35). Seven follow-up paths remain uncommitted.
+- codebase-memory refreshed stale index; scripts/ is excluded, so verifier source
+  was inspected directly. Graph results are structural guidance, not runtime evidence.
+
+## 2026-10-23 — r3 confidential navigation contract and bounded assertion evidence
+
+- Verified r3 ZIP (29,523 bytes, SHA f78916d3…d2682), 18 members, 17 payload
+  hashes and five checksum lists. Commit 5cc585d6 / run 44r30110b1 remains
+  NEEDS_CODE_FIX: Chromium failed cdp_ready with observed returncode -5; Firefox
+  failed confidential_boundaries, exact device assertion unknown.
+- Both post-stop checks and final observed-UID census passed; zero candidate
+  survivors, unattributed processes and Singleton/socket entries. Outer stderr 0
+  is distinct from interactive MCP stderr 359. No raw private logs were supplied.
+- Real LegacyPilotBackend navigation returned metadata-only snapshots, while the
+  service requires structural fields to detect sensitive handoff. FakeBackend
+  supplied these fields and hid the mismatch. Tests reproduced both password/OTP
+  misses and structural-probe failure falsely succeeding on both adapter identities.
+- Navigation now includes the bounded structural probe without text/a11y/screenshot
+  reads. Native Firefox metadata remains intact; failed probes get navigation_dom.
+- The real Chrome/CDP adapter/service/router confidential gate now passes. Running
+  the new regression against the unchanged sealed r3 checkout reproduces exactly
+  browser_navigate did not return session_paused; that checkout remains clean.
+  This is local reproduction, not a claim about the still-unknown device assertion.
+- Verifier failures now preserve fixed assertion/fixture/phase/expected-code labels
+  and unexpected MCP codes, with no arbitrary exception/page data in public output.
+- Full local suite: 648 PASS, zero skips including opt-in Chrome; no S22U execution.
+  Chromium's precise startup cause remains unproven. A separate read-only existing-log
+  request was delivered as a Markdown file; no blind launch-flag or timeout changes.
+- See docs/s22u-r3-confidential-followup.ko.md. A new user commit, new bound wheel and
+  fresh authority are required after the pending cause/fix review, not a same-r3 retry.
+- Follow-up RED reproduced post-navigation probe failure leaving old context usable
+  for screenshots, stale metadata after local navigation, and takeover resume bypassing
+  an unapproved redirect origin. Dispatch now quarantines until the result is verified;
+  errors/cancellation remain typed and quarantined, and pre-dispatch rejection stays inert.
+- Observation refreshes URL/title; owner resume checks current origin permission. This
+  adds two metadata calls to observe but none to cached status. Device latency remains
+  unmeasured. Explicit fixture grants replace three tests' implicit authorization.
+- Follow-up local tests: 52 related PASS; full 652 PASS / zero skips with live Chrome.
+  There are now 13 modified/new paths. No release seal, device retry or commit/push.
+
+## 2026-10-23 — r2 Chromium startup and ownership evidence gaps
+
+- Verified the 36,805-byte public ZIP, 20 safe members, 19 payload hashes and six
+  checksum lists for d3486161 / run 43a254707d. Device verdict remains NEEDS_CODE_FIX.
+- Chromium session_start lost its underlying stage/errno/returncode. The public
+  label backend_crashed does not prove an OS crash. Intermediate census had two
+  unattributed processes; neither their ownership nor socket liveness is established.
+- Outer verifier stderr is zero; interactive MCP stderr is **352 bytes**. Private
+  contents were not provided or inspected. Firefox/benchmark did not run.
+- Added bounded startup error metadata through adapter/MCP/verifier and separated
+  readiness timeout from observed process exit; termination codes cannot rewrite
+  the original startup failure. Original cancellation/owned cleanup contracts remain.
+- Removed unconditional Singleton* unlink. New cleanup requires this launch's empty
+  initial profile, captured directory/entry identities, child PID lock and paired
+  cookies, reaped/inactive PID and refused socket. Ambiguity preserves resources.
+- Added in-flight RPC ancestry sampling. Generation checks and UNKNOWN classification
+  remain strict; this is not global containment or retrospective attribution.
+- The isolated Mac Chrome probe rejected a socket outside the requested custom TMPDIR.
+  That record is preserved. A separate probe using the actual OS temp root passed
+  startup/capture/reap/singleton removal. This does not establish S22U success.
+- See docs/s22u-r2-startup-followup.ko.md for evidence identifiers and new-commit gates.
+
+## 2026-09-24 — v0.2.42 action-boundary confirmation failure
+
+- Returned public files bind `ff62c307061bfff340f6c80a8b78c99033ad29bf`.
+  Manifest SHA-256: `c427fe504e7092c50ed3b225e62960f29750cbd652ac536ebbb906cc9bcf5db5`.
+  All recorded sizes/hashes match the received bytes. Both backends failed
+  with `_ConfirmationRequired` at `action_boundaries`; no finer device label
+  or additional failure is present. No private logs were read.
+- The boundary gate unconditionally clicks `Remove item`, while the real
+  ActionRiskClassifier raises `remove` to R4 and BrowserService requires an
+  owner-local confirmation. Existing scripted boundary responses bypass this
+  policy and report immediate success. This was reproduced through real
+  policy before repair; risk classification and target names are unchanged.
+- Real Chrome plus the shared DOM probe exposed an earlier blocker: the first
+  `Replace stable target` is `type=submit` because fixture buttons omit type.
+  The real risk classifier consequently requires confirmation even before
+  removal. The existing fake explicitly invented `type=button`, masking this.
+  The actual browser regression fails with `('submit', True)` versus
+  `('button', False)`. Static HTML also fails for all three boundary routes.
+  Declared non-submit types on their six buttons and the dynamically created
+  replacement. Keep `Remove item` consequential by label and `/forms` submit
+  unchanged. The real browser test now passes before and after replacement;
+  removal still requires confirmation. Other scenarios/policy are unchanged.
+- Added the existing owner approval callback only for the explicit removal
+  scenario, verify unchanged pre-approval state/context, check one removal,
+  and replay the identical confirmed request without a second effect. Ordinary
+  unexpected confirmations still fail closed. Pending-state drift, denial,
+  cancellation and duplicate/replaced replay results are covered.
+- A separate RED confirms the special confirmation exception dropped its
+  bounded MCP code/context. It now retains tool/kind/code, not challenge IDs,
+  preview text or raw messages. Removal phases have fixed public stage labels.
+- Valid PNGs are marked UNKNOWN/unbound_artifact after the backend flow fails.
+  They are not evidence of a PNG defect, nor a complete backend PASS. Cleanup
+  and environment/Git readback passed in their declared scope. Benchmark was
+  not run; the consumed device identity and sealed bundle stay unchanged.
+- Local verification: 609 tests PASS, skip 0 with the existing opt-in Chrome
+  fixture test enabled. This separately validates real DOM semantics and real
+  service approval/replay on an in-memory backend, not end-to-end S22U release
+  readiness. The public device record does not identify its exact first click.
+
+## 2026-09-24 — Canonical actions omitted a required nullable wire field
+
+- Hermes' permitted static read identifies both v0.2.39 errors as `browser_act`
+  / `type` / `mcp_error`. That last value is the verifier's fallback, not a
+  proven server error code. No traceback or internal cause was retained.
+  Hermes reports raw-errors.json as 303 bytes, SHA-256
+  `6761c275879b18891c6203e31711f3c3c4a212a45593187121b7ec785aa1d4aa`.
+  The Mac did not fetch or open that private file; these are reported facts.
+- Exact v0.2.39 source and current v0.2.40 both omit `confirmation_id` from
+  initial form actions. The frozen ActionRequest schema requires the key even
+  when its value is null. Pinned MCP 1.29.0 validates input before calling the
+  router and returns a non-JSON error on rejection; the verifier labels that
+  response `mcp_error`. Browser startup does not bypass this input boundary.
+- The same omission exists in stale/disabled actions and paused takeover
+  probes. Actual SDK-handler regressions fail in all three paths before the
+  typed service is reached. Adding explicit null in each producer makes all
+  three pass. The test service deliberately refuses accepted requests before
+  any effect; this proves wire acceptance, not browser action completion.
+- Regressions use requests captured from the existing gate flows, retain the
+  approved confirmation ID for submission/replay, and prove that removing the
+  key still fails before service dispatch. No schema relaxation or permission
+  bypass was added. All 111 requests from those flows also pass a schema audit.
+- This is a deterministically reproduced verifier blocker consistent with
+  the received failure. The old record cannot establish its complete SDK
+  message or rule out later failures after repair. The select-name fix is a
+  separate later-stage issue, not the reported first failure. Device status
+  remains canonical FAIL / benchmark not run until a new authorized identity.
+
+## 2026-09-24 — Do not replace cancellation with a stop exception
+
+- `verify_backend` raised from its `finally` block when session stop failed.
+  A preceding action failure or CancelledError was then replaced by the stop
+  RuntimeError. Only that later exception reached the raw/public collector.
+  In the cancelled-body case, the per-backend ordinary-Exception handler could
+  treat it as an ordinary failure and continue if independent cleanup passed.
+- New regressions reproduce ordinary-error/stop-error, cancellation/stop-error,
+  and ordinary-error/stop-cancellation. The pending failure is now preserved,
+  cancellation takes precedence, and the other failure is retained explicitly.
+  The action and stop are each attempted once, without retry or fallback.
+- The existing backend/profile collector publishes both bounded contexts and
+  preserves two raw private entries. It only follows the explicitly attached
+  additional failure once, not arbitrary exception causes or context chains.
+  The Korean note filters both contexts again. Profile cancellation prevents
+  further backend/restart work while final cleanup evidence is still collected.
+- This reproduces a verifier control-flow defect locally; it does not establish
+  that v0.2.39 encountered a stop error. That device's declared cleanup passed,
+  and its first backend errors still require the requested existing-record labels.
+
+## 2026-09-24 — v0.2.39 FAIL evidence and independently reproduced fixture mismatch
+
+- The four returned public files bind the consumed `98f4174e827c` candidate.
+  Manifest SHA-256 is `822ac0f72975add110a86c68026e83d7a2bd9d0345203317bb27b24eb93c2e7c`.
+  Both backends failed with VerificationFailure; missing PNGs are downstream
+  evidence, not a demonstrated root cause. Cleanup/transition and zero-stderr
+  checks passed within their declared scope. Benchmark was not run.
+- Existing canonical/benchmark identities and sealed files remain unchanged.
+  The separate evidence review requests only allowlisted labels from the two
+  existing private backend errors. Those labels have not been received; the
+  actual first failing device action remains unknown.
+- The existing real Chrome fixture test checked effects but not target names.
+  Running the actual shared `observe_script` against `/forms` reproduced
+  `Choose option AB`, while canonical requires exactly `Choose option`.
+  A standard explicit `label for="choice"` separates the label from option
+  contents. The same real test now checks all four names before and after
+  edits/submits/reconnection. Exact target matching is not weakened.
+- This is a fixture/probe contract repair, not a claim of a complete accessible-
+  name algorithm or proof that the mismatch caused the S22U failure. No runtime
+  browser fallback, selector guessing, retry, or dependency was introduced.
+- Backend errors now preserve fixed verifier stages and allowlisted MCP tool,
+  kind, code, and diagnostic labels as structured `failure_context`. The JSON
+  boundary and Korean note independently apply the same allowlist. Raw messages,
+  paths, IDs, and page/input values remain private; absent labels stay unknown.
+- A malformed MCP error code of list/dict previously raised TypeError during
+  allowlist lookup. The regression fails before the string guard and passes
+  afterward with bounded `mcp_error`. Failure evidence still closes the gate.
+
+## 2026-09-23 — Do not confuse operational instructions with acceptance
+
+- The pinned MCP package has no mcp.__version__; its documented diagnostic
+  actually failed. Distribution metadata fixes it without package changes.
+- setup.sh installs native packages/upgrades pip and is not a sealed-candidate
+  updater. A successful smoke does not authorize a registration switch. Keep
+  old command/arguments and data identity, not only the old venv, for rollback.
+- A three-second idle timeout is not an MCP handshake. Existing fixed-output
+  probes could overwrite evidence or collide with a live compact data root;
+  current docs direct candidate acceptance to the existing isolated gate.
+- Legacy and compact entrypoints have different authority guarantees. Current
+  pre-follow redirect/DNS-peer gaps still restrict evaluation to controlled
+  fixtures; neither local tests nor old device PASS grant general deployment.
+
+## 2026-09-23 — Retire CDP requests on every interrupted path
+
+- CDPClient.send only removed callbacks on timeout. Task cancellation retained
+  a cancelled Future; an error/cancellation during socket.send retained a
+  pending Future. A reply that never arrives could keep these entries alive
+  for the entire connection lifetime. Loopback and real-Chrome REDs confirmed it.
+- One finally now owns cleanup across send and response wait without changing
+  uncertain-outcome semantics or retrying. In the real fixture a submission
+  occurred despite cancellation; reconnect readback still showed exactly one.
+- Initialized observer MCP stdio EOF exits cleanly and permits same-root
+  restart. This proves transport/control-socket lifecycle with no active
+  browser, not combined active-backend shutdown or S22U recovery/soak.
+
+## 2026-09-23 — Cancellation does not authorize replay
+
+- Existing durable DISPATCHED state survives asyncio task cancellation and
+  deadline expiry after backend acceptance. Cancellation is not evidence of
+  no effect: the same request remains outcome_unknown and non-retryable.
+- Restart does not transfer authority. The old session is gone; rebinding its
+  key to a new session/page/ref changes the digest and conflicts before dispatch.
+- An actual owned child exit confirms kernel lease release without deleting the
+  persistent lock inode, plus DISPATCHED/TERMINAL journal readback. The effect is
+  a synthetic marker, not a browser submission. No runtime repair was needed;
+  real backend interruption, Android lifecycle, and soak remain separate checks.
+
+## 2026-09-23 — Suppress the response that first detects takeover
+
+- A pre-call active-state guard was insufficient: navigate/observe/wait/tab
+  reconciliation and action post-observation could detect a credential/OTP or
+  open dialog, mark takeover required, and then return page data anyway. All
+  five paths now recheck before publishing. Shared-view and later-read guards
+  remain intact; no alternate public response or bypass was added.
+- Action publication happens after durable trace/terminal storage. A paused
+  response is not evidence of no effect; the same request/key after authorized
+  resume must reuse the terminal result, never dispatch again. True interrupted
+  dispatch remains outcome_unknown under the existing journal contract.
+- Canonical uses owner-local takeover start/resume only on synthetic fixtures.
+  Both paused states must refuse page-sensitive tools, hide metadata, and keep
+  policy unchanged. Resume must rotate page identity and reject old context.
+- Reading the inert prompt-injection fixture must leave site policy and exact
+  tool inventory unchanged with Developer Mode still off. This tests bounded
+  runtime authority, not arbitrary-LLM prompt-injection immunity.
+- Local evidence includes the actual service/router and durable state, plus
+  real Chrome DOM probes and empty-field detection. Full S22U MCP action gates
+  are still unrun. The patch prevents disclosure after detection; it does not
+  erase earlier backend snapshots or promise no private screenshot was stored.
+
+## 2026-09-23 — Reject known unavailable targets before dispatch
+
+- BrowserService resolved refs but did not reject already-observed disabled,
+  hidden, or zero-area targets before risk assessment and journal dispatch.
+  A disabled submit could incorrectly request approval; disabled drag targets
+  could reach the executor and become outcome_unknown. The smallest shared
+  fix is in action binding, not ElementRefRegistry (also used by reads/waits).
+- Backend live target revalidation remains necessary for races after observe.
+  Its failures after journal dispatch still conservatively retain uncertainty;
+  the new guard does not assert that an unobserved page change is safe to retry.
+- The existing fixtures now expose activation counts. Canonical requires
+  stale_observation for old revisions, target_not_found for retired/unavailable
+  refs, unchanged effects after refusals, and fresh-ref recovery. MCP codes are
+  bounded structured evidence, not extracted from human error messages.
+- Positive and unsatisfied waits require same-page/origin complete observation
+  evidence and valid elapsed milliseconds; an unsatisfied early return cannot
+  masquerade as a completed timeout. Existing wait polling needed no runtime
+  change in this slice. Its timeout result is satisfied=false, not backend crash.
+- Real isolated Chrome executed the production DOM probe and fixture handlers.
+  Replacement changes private handles, disabled/hidden state is observable,
+  and the fixture detects a direct hidden JS click. This is not proof that
+  either S22U backend passed the new canonical action boundary gate.
+
+## 2026-09-23 — Form effects and owner-confirmed replay gate
+
+- The existing service already implements consequential-action confirmation
+  and idempotent terminal replay. Reused those interfaces; no new backend,
+  approval engine, runtime bypass, or external form submission was introduced.
+- Canonical now resolves one visible/enabled named ref for type/check/select/
+  click and checks actual fixture values after every action. A fresh same-page,
+  same-origin complete observation must show submission counts 0 before local
+  approval, 1 after approval, and 1 after replay of the identical confirmed
+  request. Replay must also return the identical terminal result.
+- Only a valid pending browser_act confirmation ID crosses the MCP-error
+  boundary in memory; raw messages, preview, and ID never enter its exception
+  text. The owner-local CLI must acknowledge the exact approved challenge.
+  Effect failures retain fixed stage labels; MCP action errors also retain an
+  allowlisted action kind, never arbitrary page content or input parameters.
+- An opt-in test used the installed macOS Chrome in a new headless profile with
+  the repository CDP client and loopback fixture. It checked live input/change
+  handlers, actual DOM fields, and distinct submit counts 0/1/2. This validates
+  the fixture, not the full Termux/MCP/backend action or exactly-once path.
+  Both S22U backend action results and the remaining Stage 2 boundaries are open.
+
+## 2026-09-23 — Completed intake and bounded next work
+
+- Downloaded socket-r1 JSON still matches the preserved 5,729-byte copy and
+  SHA-256 `0885d9ff85393b49b18a0fbb5ecfc39e72d31383d76ea1e82c7b49ea3243be8e`.
+  It has a completion timestamp, 21 PASS and one UNAVAILABLE. No additional
+  Hermes message is required; global socket ownership/cleanup remains UNKNOWN.
+- Re-read current `verify_backend()` and `/forms`: the gate does not call
+  browser_act, and the fixed submitted message cannot count duplicate effects.
+  The next bounded unit is form-state/effect evidence and the existing compact
+  action/owner-confirmation/idempotency flow, not another diagnostic framework.
+
+## 2026-09-23 — Canonical transition contracts and action-test gap
+
+- Canonical previously checked files only after a backend exception, not after
+  success, and required absence of the still-live MCP control socket. The shared
+  transition path now records both outcomes and permits only the bound MCP
+  generation/private socket to stay live. It reuses the process cleanup helper;
+  observer restart requires a second check after the interactive root exits.
+- A later census could otherwise adopt a reused root PID as newly owned.
+  Root generation is now fixed per trusted MCP launch; the observed ancestry
+  set never gains an unrelated replacement through repeated sampling. A later
+  verified observer launch may bind its own new generation, including PID reuse.
+- Transition failure does not erase a successful browser observation. Its
+  post_stop result separately blocks benchmark permission and later starts;
+  the Korean summary and benchmark consumer recognize that distinction.
+- Stage 1 is locally covered by 574 tests, real temporary sockets/files/leases,
+  owned dummy children, and synthetic proc transitions. This is not real
+  Termux process-tree evidence or a host-wide cleanup guarantee.
+- Stage 2 source inspection: canonical still has no browser_act calls. Existing
+  /forms has four interactive controls but its submit handler always writes
+  the same submitted text. Effect counts and form-state evidence must be added
+  to that fixture before claiming no duplicate submission on real backends.
+
+## 2026-09-23 — Benchmark peer-bound shutdown and sampled descendants
+
+- The CLI starter double-forks; its launcher PID is not a trusted daemon
+  identity. Linux Unix-stream SO_PEERCRED provides the connected peer PID/UID:
+  [Unix socket manual](https://man7.org/linux/man-pages/man7/unix.7.html).
+  Benchmark now checks that peer against the private pidfile and proc start
+  ticks and keeps the authenticated connection for shutdown, avoiding a
+  check-then-reconnect gap. Unsupported peer credentials fail closed.
+- Shared process cleanup separates known observed descendants from unattributed
+  new processes. Missing census blocks startup. A later observation failure
+  stays incomplete but does not discard an authenticated daemon's safe shutdown
+  path. No guessed PID or process-name match authorizes termination.
+- Before/finally warm-command observations survive failures/cancellation and
+  do not enter latency samples. File absence alone cannot pass quality or allow
+  the next launch. Public process scope/counts stay separate from file cleanup;
+  raw numeric ancestry remains private. All this is local regression evidence,
+  not a new device result or proof of unseen descendants. Canonical transition
+  handling is the remaining ownership integration step before Stage 1 review.
+
+## 2026-09-23 — Name-independent census and observed candidate ancestry
+
+- REDs demonstrate that the name allowlist omitted an unlisted helper, while
+  cmdline/comm reads made identity-only inspection unnecessarily unavailable.
+  The census now reads same-UID proc stat identities only: PID, parent PID, and
+  start ticks. It retains the existing two-read race and visibility guards.
+- Linux documents parent/start fields and PID reuse independently of an open
+  proc descriptor: [proc documentation](https://docs.kernel.org/filesystems/proc.html).
+  An observed parent must not have started after its alleged child. PID and
+  start ticks, not names or final parent alone, identify observed descendants.
+- Canonical records ancestry at trusted MCP initialization and around each tool
+  call, including failures/cancellation. Confirmed observed survivors are FAIL;
+  new processes without observed ancestry are UNKNOWN. Reparenting does not
+  erase earlier evidence and PID reuse does not transfer ownership. The numeric
+  observation set is private; public output contains bounded counts/statuses.
+- This is sampled visible-process evidence, not continuous supervision or proof
+  of invisible/never-observed descendants. No census issues signals. Benchmark
+  trusted-daemon integration and safe between-backend transitions remain open.
+
+## 2026-09-23 — Completed Hermes result and planning boundary
+
+- Re-read the downloaded socket-r1 JSON: completed_at_utc is present, 21 checks
+  PASS and one is UNAVAILABLE. The socket read failed with PermissionError,
+  errno 13; match counts are null and cleanup_assessment is UNKNOWN. This is a
+  completed diagnostic result, not evidence that Hermes is still running.
+- Its SHA-256 matches the preserved copy. The downloaded canonical manifest and
+  benchmark summary hashes also match the returned-file records; both retain
+  their original PASS. The original readback actual remains unrecoverable from
+  these records, and production_approval remains false.
+- HEAD is v0.2.20; the existing 30-path dirty worktree contains later local work.
+  That work has no new device authority. Current source still uses a browser-name
+  process census and direct-child waits, while verify_backend does not call
+  browser_act. Those bounded gaps determine the next implementation order.
+- This request updates the plan only. Preserve existing code, avoid another
+  global socket query, and finish a bounded ownership review before broadening
+  validation to real fixture actions and recovery. No new framework is planned.
+
+## 2026-09-23 — Canonical finalization and returned-file integrity
+
+- Shared private-file reads could block opening a FIFO before checking its type,
+  and accepted symlink parents, foreign file ownership, or replacement during
+  reading. Real FIFO/replacement negative controls reproduce those gaps; the
+  bounded nonblocking reader now checks parent/file ownership and stable identity.
+  Benchmark manifest/checksum reading reuses it instead of check-then-read copies.
+- Canonical now independently rechecks source/installed environment and both PNGs.
+  PNG content must match the captured artifact, not merely be a valid later image.
+  Moving the existing PNG validator into final_verify avoids importing a sibling
+  package from the standalone verifier under Python -I. The benchmark keeps its
+  existing file_check API as a delegate; the validation logic is not duplicated.
+- Returned-file manifests bind the writer's intended bytes to observed private
+  files. Publication failure and execution quality remain separate: original
+  reports are not overwritten, but exit/next-stage authorization stays closed.
+  New canonical manifests declare their integrity record; the benchmark verifies
+  that record and its files before allowing execution. Legacy records are not
+  rewritten or granted new device authority by this additive format.
+- Cancellation, post-process census/write failure, cleanup-reader failure, and
+  private diagnostic-write failure no longer discard otherwise collectable
+  independent results. Unavailable evidence remains null/UNKNOWN/UNAVAILABLE.
+  This is local fault-injection evidence, not observed S22U cleanup or new
+  descendant coverage. Owned-descendant proof and action/recovery gates remain open.
+
+## 2026-09-22 — v0.2.20 results and next-work planning
+
+- Benchmark finalization previously raised before writing reports when closing
+  authority or cleanup failed. It now preserves completed samples and a FAIL
+  result, independently rechecks environment/Git/PNGs, and never relaunches a
+  browser for those checks. A missing, unreadable, changed, and unbound PNG are
+  different results. Public status counts omit raw private failure strings.
+- Reusing the exclusive canonical output writer prevents overwriting a report
+  or symlink target. The current package metadata declares Python >=3.10, so
+  added exception notes must remain optional; local 3.11+ coverage does not prove
+  a 3.10 runtime. Report-file integrity collection and canonical integration
+  remain unfinished alongside descendant evidence.
+- Partial-start regressions reproduced a separate ownership gap: Pilot closed
+  only BrowserPilot on session-init failure, adapters discarded failed pilots,
+  and service startup released its lease or bypassed cleanup on cancellation.
+  Pending backend ownership now survives failed cleanup, blocks replacement,
+  and is cleaned through owner close. No active session is published until its
+  metadata/result is constructed. Pending cleanup cannot report an idle viewer.
+- Native Firefox now owns its BiDi client before connecting, including when
+  connection and transport close both fail. Daemon startup exceptions reach the
+  same cleanup path; file removal checks recorded identities and listener drain
+  is bounded. A real owned dummy child cancellation test proves direct-child
+  and two-lock retention/release, not termination of all browser descendants.
+- Owned shutdown regressions now reproduce and fix an additional runtime gap:
+  Browser/Pilot errors could be swallowed, adapter references discarded, and
+  service leases released even when stopping failed. STOPPING now blocks new
+  work, hides page content, and retains ownership until an explicit cleanup
+  succeeds. Completed direct child waits, not PID-name matching, discard handles.
+- Firefox callback shutdown previously left its listening socket open; a real
+  local HTTPServer reproduced the missing server_close(). BiDi/native cleanup
+  failures now retain unresolved resources and propagate fixed errors. MCP
+  transport teardown also calls service cleanup; legacy daemon failure preserves
+  its socket/pidfile evidence and CLI stop cannot silently auto-start a new daemon.
+- These tests use owned local dummy processes/listeners and real orchestration
+  where possible. They do not establish historical device leaks or Termux browser
+  success. Descendant coverage and the independent result collector remain open.
+- Stage 1 implementation: nine RED tests reproduce missing procfs/read-denial
+  evidence and PID-generation ambiguity. The first local GREEN records a
+  visible-same-UID scope, fixed error counts, and proc stat start ticks, with
+  incomplete survivor counts remaining null. Canonical report integration and
+  ordinary MCP-failure continuation now have local coverage; candidate-owned
+  descendant tracking and the full independent result collector remain open.
+  This is not a device cleanup PASS.
+- Linux's process documentation confirms stat field 22 is start time and that a
+  PID can be reused even while proc descriptors exist:
+  <https://docs.kernel.org/filesystems/proc.html>. The implementation reads
+  generation on both sides of command/comm acquisition to reject mixed evidence.
+- Further RED/GREEN closes metadata-error-as-absence in both cleanup callers,
+  unreadable/symlinked display-lease directories, and benchmark preflight paths.
+  The first unavailable stop observation is retained instead of being silently
+  resampled into success. Removing duplicate symlink probes also avoids raw
+  PermissionError escape on Python 3.11/3.12.
+- Canonical and benchmark now write mode-0600 Korean summaries from their JSON
+  results. The canonical note names incomplete fixed cleanup checks without
+  copying private exception strings. The benchmark's additive public cleanup
+  record explicitly covers daemon files only, not process/lease termination.
+- Planning baseline is clean commit `22155ee1d7536dbf7f1fcd1d98507323b6db96ce`
+  (`v.0.2.20`), tree `d19f826879fe487ed39c5a9a3b00d4e5547d62f8`.
+  The earlier v0.2.19/uncommitted handoff entries below are historical.
+- Preserved device evidence reports canonical PASS and benchmark quality PASS,
+  with zero operation errors and both backends within the warm latency budgets.
+  The canonical manifest SHA-256 is
+  `a465b1a2bacbed7506606453377f60ad7e23c87283effab62e6760ad913b572f`.
+- The completed `22155ee1d753-socket-r1` report records 21 PASS and one
+  UNAVAILABLE: `/proc/net/unix` raised `PermissionError`, errno 13. Its ten PNG
+  checks, returned-file integrity, and Git checks passed as reported. Empty
+  entries with null counts are not proof of zero sockets. The original readback
+  actual is not restored, and production approval remains false.
+- Evidence is preserved outside Git under
+  `../Termu-inator-device-artifacts/s22u-v0220-22155ee1d753-results/`.
+  Mac review checks report identities and hashes; the PNG bytes and diagnostic
+  scripts were not supplied, so their execution remains device-reported evidence.
+- At the v0.2.20 baseline, `_process_snapshot()` returned an empty mapping when `/proc`
+  is absent and skips unreadable entries; `_wait_for_new_processes()` compares
+  PID keys only. This can omit visibility/generation uncertainty. It is a
+  verification gap, not proof of a device process leak. Benchmark `stop_daemon()`
+  checks socket/pidfile absence, not browser-descendant termination.
+- Reuse `_cleanup_summary()`, `validate_released_session_lock()`, the existing
+  process handles/display-lease identities, and benchmark `file_check()` rather
+  than creating a second cleanup/PNG framework. Global socket visibility must
+  stay distinct from evidence about resources owned by this run.
+- `verify_backend()` currently exercises start, navigation, observation,
+  screenshot/artifact retrieval, status, and stop, but does not call
+  `browser_act`. Existing fixture routes and service/adapter action tests support
+  a bounded next step: real observe–act–verify scenarios, then crash/idle recovery.
+- Tabs/dialogs/completed downloads and pre-follow redirect/DNS enforcement remain
+  documented gaps. Existing fake/local tests are not device proof. No new engine,
+  automatic legacy migration, remote access layer, or production switch is needed
+  to plan these next steps.
+
+## 2026-09-22 — Evidence scope and execution follow-up
+
+- Clean HEAD is `0a295fe4cdf94bc185e7f75f932043b017beac78` (`v.0.2.19`); its nine paths match the previous local repair. The supplied S22U v0.2.18 report is historical canonical PASS / benchmark screenshot FAIL, not a new v0.2.19 device result.
+- `results.json` concerns the separate study_checker plugin. `S22U-STEPS1-4-REPORT.ko.md` concerns Buzz TLS/profile verification. Neither authorizes or proves Termu-inator browser behavior.
+- The safe-access guide is a proposal, not observed SSH installation or permission to change services/keys/network settings. No remote command is in scope for this local continuation.
+- Source follow-up: benchmark samples call legacy `send_command()`, whose implicit `ensure_daemon()` can relaunch a crashed daemon during measurement. Intermediate stop results are discarded, while final cleanup alone determines quality. `--socket`/`--pidfile` are used for probes but do not select the legacy CLI/client target. These need deterministic regression coverage before another device handoff.
+- The follow-up closes those gaps with a benchmark-only auto-start opt-out, mandatory transition cleanup/startup checks, exact HOME/client/probe path agreement, and pre-existing runtime rejection before any stop command. `--isolated-runtime` reuses the canonical HOME/XDG/TMP helper, so output and transport share one fresh identity without changing the operator's HOME.
+- Startup/cleanup failures retain raw evidence only in the owner-private report. The public summary exposes fixed lifecycle reasons and per-operation `artifact_invalid`/`command_failed` counts, not exception text or response bodies. This distinguishes failure boundaries without claiming a browser-process crash.
+- The fresh macOS wheel and installed-source bindings both verify 58 files after the `src/client.py` change. A new wheel is required; the historical v0.2.18 bytes cannot represent this patch. The temporary UV installation's empty PEP 610 `archive_info` is not acceptable canonical provenance; the documented pip install yields the required hash without weakening the verifier.
+
+## 2026-09-07 — v0.2.18 benchmark quality follow-up
+
+- Implemented preflight by reusing the daemon's actual `validate_path()` contract. A regression passes a generated PNG through the real daemon screenshot handler in the corrected isolated layout; the browser capture boundary alone is substituted.
+- Screenshot success now requires a stable real owner-private file, bounded bytes, PNG signature/chunk CRC/dimensions/IEND at EOF, and a complete bounded zlib stream. Validation is outside the measured RPC interval so historical operation timing semantics are retained. Failed validation counts as an operation error rather than a successful latency sample.
+- Version 2 summary/raw quality checks require all configured backends and samples, startup/navigation, operation budgets, artifact validation, and final socket/pidfile cleanup. Exit 0 means quality PASS, exit 1 preserves quality FAIL, exit 2 rejects authority/output. Device process/display/session-lock checks remain separately required; this patch does not claim a device benchmark PASS.
+- Downloads manifest (9) hashes to `9af8cc2e61bab26b38f08f33cfa78c53087b5912800c13514d1ad785ad9cf3fe`, matching its sidecar and the public report. Canonical PASS is preserved; both benchmark screenshot operations have zero successes and five errors.
+- The sealed handoff sets HOME to the short isolated runtime `/h` but sends screenshots to an output directory outside that HOME. The daemon's existing `validate_path()` rejects that layout before browser capture. Device-private raw errors have not been received; distinguish this source-reproducible defect from a verified reading of those errors.
+- The harness counts a successful response before checking whether a PNG actually exists and always returns CLI exit 0 after report publication. Repair harness contracts without weakening the daemon's HOME boundary or retrying the consumed identity.
+- Camofox/Lightpanda are deferred; no new engine, network, package, Hermes registration, or production change is in scope.
+
+## S22U Device Evidence — 2026-08-16
+
+- The three Tailscale-transferred raw benchmark artifacts have matching device and Mac SHA-256 values. They are managed in the private sibling directory `../Termu-inator-device-artifacts/s22u-2026-08-16/` and must not be copied into the public repository.
+- Both Firefox 153.0.4 and Chromium 149.0.7827.155 passed the full `example.com` smoke on Android 16 / Termux 0.118.3 / Python 3.14.6: backend identity, URL, title, body, valid non-empty PNG, and clean stop.
+- The DNS outage was isolated from MCP and Python packaging. Direct `1.1.1.1` HTTPS succeeded while hostname resolution failed; changing the Tailscale Android Excluding-mode Termux toggle to OFF restored curl, Python IPv4/IPv6 resolution, Firefox, and Chromium without resolver/package changes.
+- `crawl4ai` was removed from the ambient device environment, but the controlled network evidence shows it was not the cause of recovery. It is neither an installation dependency nor a success criterion.
+- Chromium met the existing warm status, text, and screenshot budgets. Firefox exceeded status by roughly 14× and text by about 6.9%; screenshot remained within budget.
+- Firefox status latency is consistent with two sequential native evaluate calls, while text is consistent with one native evaluate cycle. Status must become a daemon-cached control-plane read; native evaluation waits need an adaptive sentinel rather than a relaxed budget.
+- Browser RSS process sums are diagnostic only because shared memory can be counted repeatedly. The measured sums still justify Chromium as the default backend on the S22U.
+- This evidence closes smoke and baseline-measurement work only. The original device was not a clean Termux environment, so Phase 1 remains `in_progress` until an isolated-profile installation passes.
+
+## Packaging Implementation Preflight — 2026-08-24
+
+- The refreshed code graph contains 1,016 nodes and 4,612 edges. The three executable boundaries remain `cli.main`, `src.daemon.main`, and `src.mcp_server.main`; packaging changes can therefore be isolated from runtime behavior initially.
+- The current installer globally invokes pip, conditionally enables `--break-system-packages`, swallows repository/Chromium/websockets errors, and creates neither of the approved isolated environments.
+- Current metadata admits `websockets>=12.0`, exposes a broken optional `tbp-mcp` entrypoint, makes `mcp[cli]>=1.0` unbounded, retains a Cloudflare-success claim, and points project metadata at upstream.
+- The first packaging TDD cycle will lock metadata, a guarded MCP entrypoint, exact Termux pins, native-cryptography preflight, fail-closed package installation, and non-overwriting CLI/MCP venv paths before implementation changes.
+
+## Clean-Install Reachability — 2026-08-24
+
+- The Mac Tailscale GUI binary reports `galaxy-s22-ultra` online at `100.75.81.89`; two tailnet pings succeeded, with the observed direct-path round trip at 106 ms.
+- Read-only TCP probes to ports 22 and Termux's common 8022 port were both refused. There is no Mac-initiated SSH path to run the Secure Folder clean-install gate.
+- No device, Tailscale, Termux, package, or SSH setting was changed. The clean-install item remains open and must be executed through the on-device bot/user path or after a separately authorized SSH listener is provided.
+- Lack of an SSH listener does not block local contract/core work, but it prevents claiming Phase 1 complete or treating macOS wheel validation as Android ABI evidence.
+
+## Phase 2 Contract Review — 2026-08-24
+
+- The refreshed graph now includes the uncommitted v1 package (1,297 nodes / 5,431 edges). The legacy boundary remains concentrated in `send_command`, daemon `_dispatch`, and 148 thin `_send`/`_result` MCP wrappers, supporting a typed service plus thin compatibility-adapter migration.
+- `ActionRequest.risk` currently accepts `risk_context.risk_class` from the caller. That contradicts the RFC statement that page/agent input cannot lower risk classification; caller context may raise a hint but the service must own the effective risk.
+- `browser_artifact_read` accepts only a content URI. Because artifacts and quota are project-scoped, the read contract needs an active session/project authorization boundary even though SHA-256 URIs are difficult to guess.
+- Several multiplexed tools document operation-specific requirements that the machine schema does not enforce: `navigate/goto` URL, tab open URL, tab switch/close ID, element screenshot ref, permission challenge status ID, and trace get/export ID. Outer `additionalProperties: false` is insufficient without conditional constraints.
+- The task-plan shared-view checklist still mentions takeover/resume controls, while the approved architecture and security RFC make the MVP view static and read-only. The checklist must be corrected rather than weakening the reviewed boundary.
+- The durable `agbrowse` review session is `01M0RAP74JAS45CND4TSGX55G4`. A provider accessibility snapshot verifies the uploaded seven-file context, active Pro tier, and ongoing Pro reasoning; no raw device artifacts were included.
+
+## Phase 2 Pro Review Triage — 2026-08-24
+
+- The recovered Pro verdict is correctly conservative: M1 contract freeze must remain open. It found seven blocker groups, eight high findings, one medium lifecycle finding, and one low naming/editorial defect.
+- Cycle 2 already resolves the caller-controlled risk downgrade, target-ref requirement, several multiplexed input preconditions, and session context on artifact reads. The review evaluated the pre-fix snapshots, so these items require revalidation rather than duplicate edits.
+- Accepted contract blockers are: closed output schemas for every tool; exact action/wait/Developer unions; one non-overlapping MCP error/confirmation mapping; transport-established project ownership; HTTP(S)-only plus local-network/redirect policy; crash-safe idempotency states; and a versioned capability-fidelity model instead of booleans.
+- Accepted security/lifecycle work includes confidential takeover state, page/revision binding for page-sensitive reads, causal typed verification, authenticated/no-store shared view, bounded redacted public data, manifest/MCP version separation, project+backend+profile-schema storage separation, and machine-valid permission/artifact lifecycles.
+- The review's claim that implementation files/tests were absent is not a repository defect: only the seven explicitly approved RFC/schema files were uploaded. Source/runtime conclusions from that omission are discarded; the concrete schema/prose findings remain independently reproducible.
+- The review affirmed the central service authority, 14-tool compact surface, no backend fallback, structured unsupported behavior, opaque refs/revision invalidation, approval-token cryptographic bindings, bounded content-addressed artifacts, legacy isolation/stdout purity, deterministic fixtures, and single-session design. Those decisions should remain unchanged.
+
+## MCP 2025-11-25 Wire Verification — 2026-08-24
+
+- Pinned `mcp==1.29.0` exports `LATEST_PROTOCOL_VERSION = 2025-11-25`; the official 2025-11-25 MCP schema/tool specification is therefore the wire authority for the v1 server.
+- MCP Tool records use `name`, `description`, `inputSchema`, and optional `outputSchema`; structured results must conform to `outputSchema`, and strict empty objects require `additionalProperties: false`. The repository's snake_case manifest is valid only as an internal source format and needs a deterministic generator for actual MCP records.
+- Official 2025-11-25 guidance contradicts one Pro recommendation: value/range/input-schema validation errors are Tool Execution Errors (`isError: true`) so models can self-correct. JSON-RPC protocol errors are reserved for unknown tools, malformed `tools/call` envelopes, and server failures. The contract will follow the pinned official rule.
+- URL-mode elicitation is the pinned out-of-band path for secrets and credentials, while form-mode elicitation must not request passwords, API keys, access tokens, or payment credentials. Consequential-action confirmation can use associated host elicitation without placing a usable approval token in model-visible action arguments.
+
+## Phase 2 Contract Freeze Audit — 2026-08-24
+
+- Cycle 3 closes the ten adversarial schema gates and validates the contract, manifest schema, manifest instance, and 28 projected MCP input/output schemas under Draft 2020-12. The checked-in snapshots are generated from the same dependency-free source.
+- A recursive bounds audit found no unbounded strings or arrays. The reported open-object nodes are only union roots; every concrete `oneOf` branch is closed with `additionalProperties: false`.
+- The typed Python model audit found remaining schema drift that must be fixed before M1: `Verification` is still a five-field placeholder, `ActionResult` exposes `diagnostics` instead of `diagnostics_id`, `CapabilityRecord.limits` is a mapping rather than the schema's list of typed limit records, and runtime action parameter validation is weaker than the public JSON Schema.
+- The current `to_wire()` helper already provides dependency-free recursive enum, revision, dataclass, mapping, and tuple conversion, so schema-aligned wire-key tests can close this drift without adding a runtime validation dependency.
+- Browser-profile isolation is incomplete in the Phase 3 service groundwork: its directory currently omits backend and profile-schema revision. The approved layout must keep service-owned policy/approval/idempotency state outside the browser-writable profile.
+
+## Phase 3 Typed-Core Migration — 2026-08-24
+
+- The initial core service returned private duplicate session result types that did not match the frozen schema. `SessionStartResult`, `SessionStatus`, and `SessionStopResult` now live in the dependency-free contract package and are returned directly by the service.
+- Transport owner identity is not a public tool field. `BrowserService` now requires it at construction and domain-separates it with project ID before hashing, so two authenticated owners cannot collide by supplying the same project label.
+- The inherited `Pilot` selects Firefox when passed `auto`; the typed adapter must therefore always pass an explicit Chromium or Firefox value and must never rely on that default. It also passes the backend-specific persistent profile and normalized viewport explicitly.
+- `Pilot.start()` owns its `SessionLock`, calls `BrowserPilot.start()`, and then creates either `NativeFirefoxSession` or `CDPSession`. `Pilot.stop()` closes the session/browser and releases the lock. This is a usable lifecycle strangler seam, but its page/action surface remains untyped and applies legacy stealth internally.
+- The new `LegacyPilotBackend` advertises only lifecycle/cached-status support. Every unported navigate/observe/act/wait/tabs/screenshot/downloads/Developer method returns structured `unsupported_capability` instead of inheriting legacy silent successes. Capability promotion must follow deterministic adapter tests.
+- Runtime configuration now contains only static paths/resource bounds and backend/profile selection. Authority-enabling Developer, legacy, shared-view, approval, or owner fields are unknown keys and fail closed rather than becoming ambient configuration switches.
+- Firefox warm `text` still traverses the native DevTools-console bridge. Even with an already-open separate DevTools window, `_run_js_and_read()` applies fixed waits of 150 ms for focus, 100 ms after clear, 200 ms after paste, and 500 ms after execute before it first checks the callback/clipboard; the final 500 ms is not readiness-driven.
+- No existing unit test exercises `_run_js_and_read()`. Any timing change therefore needs a deterministic fake callback/clipboard regression that proves an immediately available result is inspected without an unconditional post-execute delay; device performance remains a separate S22U gate.
+- `NativeFirefoxSession` construction is side-effect free: it only initializes state, locks, and nullable process/callback fields. A focused async unit can therefore inject a callback result plus fake X11/clipboard methods without launching Firefox or importing the optional CDP stack.
+- `BrowserService` still owns a module-level profile-schema constant even though `RuntimeConfig` exposes `profile_schema_version`; there is no composition root that binds the validated config, explicit backend factories, and trusted owner scope. Leaving both authorities independent would permit future drift.
+- The service mutex prevents concurrent calls only within one service object. The inherited `Pilot` lock protects the actual legacy daemon process, but the new package has not yet exposed an owner/process-scoped composition boundary or session-manager interface; the Phase 3 lock checkbox should remain open.
+- Graph tracing confirms production code has no inbound caller for `BrowserService`; only tests construct it. `LegacyPilotBackend` is likewise an injectable lifecycle seam rather than a wired runtime, so current typed-core behavior cannot yet be reached from CLI/MCP/daemon entrypoints.
+- A minimal composition root can safely create one explicit Chromium and one explicit Firefox `LegacyPilotBackend` factory from `RuntimeConfig`, but wiring it into public transport must wait until at least navigation/observation are typed; otherwise the new entrypoint would advertise a lifecycle-only runtime as feature-complete.
+- The frozen `Artifact` contract is a content-addressed metadata record whose URI digest must equal its SHA-256 and whose expiry must follow creation. The store still needs project ownership, byte-range/chunk bounds, quota, expiry, private file modes, atomic publication, and digest verification; the URI alone must not grant access.
+- `PermissionDecision` already distinguishes memory-only `session_allow` from persistent `always_allow`/`block` and rejects persisted `ask`. A Phase 3 engine can therefore expose origin normalization/evaluation and storage interfaces without implementing model-visible confirmation tokens.
+- Artifact retrieval is already frozen as active-session authorized, filesystem-path-free, offset checked, base64 encoded, and capped at 512 KiB per call. The store API should accept trusted project/session binding separately from the artifact URI so content hashes never become bearer credentials.
+- Trace has a strict generated wire schema but no typed runtime model. Its ten closed fields are bounded (`duration_ms <= 120000`) and deliberately exclude arbitrary page text, headers, cookies, request bodies, and action parameters; the basic recorder should preserve that allowlist instead of accepting generic dictionaries.
+- `ArtifactChunk` is also schema-only today. Its exact wire shape is URI, current/next offset, EOF, and bounded base64 data; a typed dataclass can keep remote reads closed and make offset monotonicity a runtime invariant before the MCP transport exists.
+- Permission evaluation has exactly four public states: derived `ask`, persistent `block`, memory-only `session_allow`, and persistent `always_allow`. Origin canonicalization and session cleanup belong inside the engine so backend and transport adapters cannot interpret these states differently.
+- The current `BrowserBackend.navigate/observe` protocol returns the public `Observation`, but an `Observation` requires service-owned session/page/tab IDs, sequence, revision epoch, timestamp, and capability revision. A backend cannot authoritatively populate those fields; directly migrating legacy methods into this signature would invert ownership.
+- Both fake navigation and observation are still `NotImplementedError`, confirming this mismatch has not been hidden by an implementation. Phase 3 should introduce a backend-owned raw page snapshot and let `BrowserService` mint public observation identity/revisions in Phase 4.
+- The inherited public `Pilot` surface exposes `goto`, `url`, `title`, `text`, and `a11y_tree`, but not back/forward/reload. A first compatibility adapter can truthfully support only `goto` plus text/accessibility snapshots and must report the other navigation operations as unsupported rather than reaching through private page objects.
+- These inherited methods are thin delegates to page/accessibility methods. Timeout is expressed in seconds at `Pilot.goto`, while the typed protocol uses milliseconds; the adapter must validate and convert explicitly. Screenshot-inclusive observation cannot be promoted until the artifact boundary is connected.
+- Capability fidelity records can express this migration honestly: navigation is `partial` with a `goto`-only limit, observation is `partial` with text/accessibility but no screenshot/refs, while the remaining methods stay `unsupported` with `adapter_not_migrated`.
+- `Viewport` has no implicit dimensions in the contract. The adapter must retain the explicit session-start viewport for raw snapshots; when callers omit it, service/runtime composition should supply a reviewed default rather than letting the adapter invent browser geometry.
+- Inherited `Pilot(window_size="auto")` synchronously detects the Android screen, rotates to landscape, caps width at 1920, and falls back to 1920x1080, but it does not expose the resolved dimensions through a public method. The raw snapshot therefore correctly permits unknown viewport when start omitted it; public `Observation` promotion must first add a truthful viewport probe or require an explicit viewport.
+- The inherited PID-file `SessionLock` has no kernel lease and can delete malformed/stale paths; the typed runtime now has an independent `flock` seam. Graph search confirms every `BrowserService` construction is either the trusted composition root or a focused test, so making the lease constructor dependency mandatory is contained and auditable.
+- Phase 4's `Bounds` and `InteractiveElement` models currently have no runtime validation even though refs, bounded strings/arrays, booleans, finite geometry, and frame/shadow paths are security-sensitive action inputs. They must be hardened before a ref registry can trust them.
+- Public `InteractiveElement` already has the right normalized fields but carries a service-owned `ref`; backend snapshots therefore need a separate raw candidate type or locator handle, not partially constructed public elements with fake refs.
+- The action protocol has the same ownership inversion as the old observation protocol: `BrowserBackend.act(ActionRequest)` would hand an opaque public ref to a backend that can only operate on its private node handle. A future `BackendAction` must contain the resolved handle while the service retains action ID, idempotency, risk, approval, and verification authority.
+- `ActionResult` success requires a passed causal `Verification`; the backend should return raw before/after evidence, not construct this public result. This keeps a backend from declaring its own dispatch successful without service-side verification.
+- Graph re-indexing confirms there is no production idempotency journal yet; only the frozen-manifest regression advertises durable `browser_act` idempotency. The next mutation boundary must therefore be introduced service-side before `ActionExecutor` is exposed through a public transport.
+- `ActionExecutor` now resolves public refs to private backend handles before dispatch and converts closed raw backend evidence into service-owned verification. A bare dispatched event is deliberately non-causal and returns `failed`, while input, selection, checked state, scroll, hover, dialog, URL, download, and DOM effects have distinct verification branches.
+- The permission engine remains an in-memory policy skeleton. It cannot substitute for one-time, action-digest-bound confirmation or crash-safe idempotency, so neither direct backend navigation nor action execution is ready for compact-v1 transport exposure yet.
+- `ActionRequest` already closes the eight-action union, validates per-kind parameters, requires both drag refs, and computes a server-owned minimum risk. Remaining executor coverage should prove stale-ref rejection at the current revision plus drag, URL, and download effects before the corresponding Phase 4 checklist items are closed.
+- The frozen idempotency policy is explicit and already has non-retryable public errors: persist owner scope, key, and canonical digest before approval/dispatch; allow `reserved` or `waiting_confirmation` before `dispatched`; return a stored terminal same-digest result; reject digest reuse as `idempotency_conflict`; and turn crash-recovered `dispatched` records into `outcome_unknown` without redispatch.
+- `ActionResult` is a closed dependency-free dataclass and `to_wire()` is currently one-way. A restart-safe journal therefore needs a strict decoder for its stored terminal payload (including revisions and verification records), rather than trusting arbitrary JSON or returning a transport-shaped dictionary from the core.
+- `IDEMPOTENCY_CONFLICT` and `OUTCOME_UNKNOWN` already exist as non-retryable public error codes, so the journal can preserve the frozen API without expanding `ActionResult.status` or changing schema snapshots.
+- The existing `PageRevision`, `Verification`, and `to_wire()` contract primitives are sufficient to encode terminal results without an optional dependency. The durable decoder should explicitly reconstruct only these known fields and reject unknown, missing, oversized, or type-confused JSON before returning a replay.
+- `ProcessSessionLock` provides the repository's reviewed POSIX baseline: absolute paths, 0700 parent, `O_CLOEXEC|O_NOFOLLOW`, regular-file and 0600 checks, `flock`, and `fsync`. The journal should apply the same controls per hashed key and add same-directory temp-file plus `os.replace` publication so no partial JSON becomes authoritative after a crash.
+- The schema has a closed seven-field `Download` object, but the runtime currently has no `Download` dataclass and `ActionResult.download` accepts a generic mapping. The journal decoder must validate that exact download field set and bounds itself; a later typed-model cleanup can remove this remaining schema/runtime asymmetry.
+- The journal's canonical digest intentionally excludes `action_id`, `idempotency_key`, and `confirmation_id`: they are correlation/retry/approval handles, not effect-bearing data. It binds session, tab, page, revision, action kind, target, normalized parameters, timeout, and server-owned risk, so approval retry can attach a confirmation handle without creating a false conflict.
+- Graph review shows the security-critical `_write_record` method has cyclomatic complexity 13/cognitive complexity 24. Its branches are mostly cleanup and durability controls, but malformed-directory and type-confused stored-download paths need adversarial tests before the journal is integrated into `BrowserService`.
+- The plan separates site permission from consequential confirmation: R0-R2 may proceed only within an allowed origin, while R4 and sensitive R3 require a one-shot server-held approval bound to owner/project/session/origin/revision/digest/key. `BrowserService` currently has no inbound permission/idempotency dependency, so service integration must make both mandatory rather than optional ambient flags.
+- `BrowserService` serializes all session operations under one async mutex and already owns the trusted owner scope plus project-derived digest, making it the correct coordinator for journal state transitions. Its active session stores only the project digest, so permission/confirmation wiring must deliberately retain the validated public project ID in memory or inject project-scoped factories without leaking trusted owner scope into tool inputs.
+- The current `InMemoryPermissionEngine` covers canonical origin decisions and session cleanup only; it has no server-held confirmation state or asynchronous host-elicitation seam. Action execution should not be coupled directly to this test harness until a separate one-shot confirmation interface is defined.
+- `_ActiveSession` is currently a six-field lifecycle record with no project ID, journal, permission, or approval authority. `RiskClass` is a plain closed enum with no ordering helper, so any confirmation policy must use an explicit server-owned classification table and must never compare caller-controlled strings lexically.
+- All action kinds currently default to R1 or R2; no action reaches R3/R4 without a server classifier. Exact element semantics such as `input[type=submit|password|file]`, key submission, and high-impact accessible intent therefore need explicit elevation, while credential/OTP entry should pause for confidential takeover instead of being converted into a model-visible confirmation form.
+- The frozen schema defines `Challenge`, but graph discovery finds no runtime `Challenge` model. The confirmation engine must add an exact typed model first and preserve the public five-state challenge vocabulary without exposing its server-held nonce.
+- `ElementBinding` retains the raw candidate needed for server classification, and public elements expose role/name/text/tag/type/state only. Those semantics originate in an untrusted page, so they may raise risk or trigger takeover but can never lower the per-kind minimum or grant permission.
+- Confirmation approval is now a server state transition, not possession of `confirmation_id`: local `approve()` creates an HMAC proof with an independent 256-bit nonce, and exact-context `consume()` clears it. This permits MCP host elicitation or a local CLI adapter later without ever placing authorization material in model-visible arguments.
+- After re-indexing, the graph recognizes the runtime `Challenge` and `ConfirmationEngine` while the public schema retains the same `Challenge` definition. `RawInteractiveElement` remains the sole service-private semantic input for the forthcoming classifier, keeping backend node IDs outside previews and traces.
+- The classifier treats page semantics only as an upward-risk signal: generic clicks remain the server-owned R2 minimum, submit/delete/send/permission intent and Enter become R4, and sensitive entry becomes R3 takeover. This is conservative evidence classification, not a claim that page labels can prove an action harmless.
+- Service integration must resolve target and drag-destination bindings once for classification and dispatch. `ActionExecutor` currently resolves them internally, so either the executor accepts pre-resolved bindings or the registry must guarantee the same locked revision across both resolutions; the service mutex already provides that serialization boundary.
+- Non-HTTP observations currently carry the literal origin string `"null"`; the site permission engine accepts only canonical HTTP(S) origins. Public actions must therefore fail closed before permission evaluation on `about:blank`/browser-error pages rather than treating `"null"` as an allowlist origin.
+- `ObservationEngine.resolve_ref()` accepts a risk used by revalidation policy, while the classifier can elevate that risk after examining the target. The service should pass pre-resolved bindings and the effective classified risk into the executor (or disable revalidation) so an R4 action can never inherit an R2 ref-revalidation decision.
+- `FakeBackend` advertises `act` as supported but its method still raises `NotImplementedError`, another capability-fidelity mismatch. Service-action integration tests should first make fake action outcomes injectable and only advertise support when configured, rather than creating a separate permissive test-only backend.
+- The permission protocol is deliberately small (`evaluate`, `record`, `clear_session`) and can be injected per active project. This is enough for action gating, while persistence and model-inaccessible local grant transport remain independent Phase 5 work.
+- Durable permission storage now closes the persistence half of that gap: owner/project are represented only by a scoped digest on disk, origins remain readable only inside a private 0600 policy file, cross-process updates merge under `flock`, and session grants remain memory-only. A model-inaccessible local permission-management transport is still required before public MCP exposure.
+- Graph re-indexing confirms artifacts still have only the protocol and deterministic in-memory harness; there is no production file-backed store. The frozen `Artifact`/`ArtifactChunk` models already provide content identity, lifetime, bounded base64 chunks, and active-session authorization inputs, so durable implementation can preserve the public schema unchanged.
+- The in-memory store defines the production semantics to retain: active-session authorization before lookup, SHA-256 URI identity, 1-512 KiB bounded reads, offset checks, retention expiry, project quota, and LRU eviction. A durable store additionally needs private atomic data+metadata publication and digest verification before returning any bytes.
+- Artifact URI knowledge cannot authorize reads: namespace paths must remain owner/project-scoped and the active-session callback must run before filesystem lookup, including for nonexistent and expired objects, to avoid turning content hashes into bearer credentials or existence oracles.
+- The screenshot protocol repeats the earlier observation/action ownership inversion: `BrowserBackend.screenshot()` returns public `Artifact`, even though only the service owns project/session authorization, retention, quota, and artifact URIs. It must return a raw bounded byte+MIME payload and let `BrowserService` publish metadata.
+- `BackendPageSnapshot` has no raw screenshot payload today, so `observe(include_screenshot=true)` cannot connect image bytes to the observation sequence. Adding an optional backend payload preserves snapshot ownership while allowing the service to populate `screenshot_artifact_uri` atomically.
+- `RuntimeConfig` already owns artifact retention, quota, and max chunk bounds, but `build_legacy_browser_service()` currently drops all three when constructing `BrowserService`. The composition root must pass them explicitly so runtime behavior cannot drift from the validated config.
+- Validated defaults are 86,400-second retention, 500 MiB project quota, and 512 KiB chunks. `BrowserService` should use those safe defaults for direct construction while the production composition root passes the exact configured values.
+- The fake adapter can make screenshot fidelity deterministic from an optional snapshot payload: advertise screenshot support only when valid PNG/WebP bytes are configured, return those bytes only when requested, and otherwise raise structured unsupported. The legacy adapter remains honestly unsupported until its file-oriented screenshot path is migrated.
+- The raw screenshot boundary is now correctly split: backends validate and return only PNG/WebP bytes plus MIME, while the service must mint the content-addressed URI under its active owner/project/session authority. This keeps artifact identity, quota, retention, and authorization out of adapters.
+- `BrowserService.observe()` is the atomic publication point for observation screenshots: persist the payload first, then pass the resulting URI into the same `ObservationEngine.capture()` call. A requested screenshot without bytes must remain an explicit `unsupported_capability`, never a successful observation with a silently empty URI.
+- Artifact retrieval must re-enter the active service-session guard before the durable store lookup. The store's session callback is defense in depth, while `_require_session()` prevents stale stopped-session access and preserves the rule that a hash URI is not bearer authority.
+- Graph discovery confirms the checked-in `src/mcp_server.py` is still the 148-tool legacy transport: its `browser_screenshot` accepts an arbitrary device file path and forwards directly to the daemon. The frozen 14-tool v1 manifest is currently a schema artifact, not an executable compact server, so service screenshot/artifact APIs must be transport-neutral first and the legacy module must not be mistaken for the new MCP implementation.
+- The current `src/mcp_entrypoint.py` still loads that legacy server. Compact transport work therefore needs a separate v1 server/composition seam (or an explicit guarded switch) so existing `tbp-mcp` compatibility is preserved until the migration gate, rather than silently replacing 148 tools midway through the core refactor.
+- The frozen `browser_screenshot` contract has exact viewport/full/element branches and always requires session/tab/page/revision preconditions; only the element branch accepts `target_ref`. Service validation must mirror this union and resolve that public ref to a private backend node handle before capture.
+- `browser_screenshot` returns the full `Artifact` metadata model, while `browser_observe` embeds only its URI. These are intentionally complementary paths: standalone capture proves size/hash/MIME/lifetime, and observation capture binds one image to one observation sequence without inflating every observation response.
+- The executable `tbp-mcp` entrypoint currently performs a guarded import of `src.mcp_server.main`, so optional-dependency UX is already centralized. A v1 transition can preserve that guard while moving server selection behind a deliberate composition boundary; it should not make contract tests import MCP.
+- `RuntimeConfig` supplies artifact limits and a portable data root but intentionally has no owner field. For stdio, owner scope must come from trusted host process configuration (for example a required environment value or locally derived transport identity), never from any tool argument; project ID remains a validated `browser_session_start` input.
+- The v1 service currently implements session lifecycle, observe, act, screenshot, and artifact reads. Navigate, wait, tabs, downloads, permissions inspection, devtools, and traces still lack complete service operations, so an executable 14-tool server must either return honest structured `unsupported_capability` responses for those names or remain opt-in until their implementations land.
+- MCP 1.29.0's low-level `Server.list_tools()` and `Server.call_tool(validate_input=True)` APIs accept explicit `types.Tool` definitions with both input and output JSON Schemas. This can expose the reviewed manifest verbatim and get SDK-side Draft validation, whereas FastMCP's function-signature inference would risk schema drift for the closed unions.
+- The low-level call handler accepts a structured dictionary and validates it against the declared `outputSchema`; it also permits an explicit `CallToolResult(isError=True)` for stable tool-execution errors. This matches the pinned contract decision better than returning legacy `{"error": ...}` success payloads.
+- The reviewed tool outputs describe successful structured payloads only; expected failures travel as MCP tool-execution errors containing the stable `ErrorEnvelope`. The compact router should therefore keep schema validation enabled for successful results and explicitly construct `isError: true` responses for `TermuinatorError` rather than trying to validate error envelopes as success outputs.
+- The frozen manifest contains exactly 14 records with `input_schema`/`output_schema`, purpose, risk policy, and Developer-mode metadata. Low-level MCP projection can be deterministic and dependency-light by transforming these records directly at server construction time, avoiding a second hand-maintained tool list.
+- `build_mcp_tools()` is already the authoritative self-contained projection: it recursively inlines contract refs and derives read-only, destructive, idempotent, and open-world annotations. The executable server should consume this function rather than the raw manifest schemas, which still contain relative contract refs.
+- The `browser_act` wire format already mirrors `ActionRequest` exactly, including a nested per-kind `parameters` object and explicit nullable/defaulted fields. A small decoder can construct the typed model without transforming action semantics; SDK schema validation remains the outer boundary and dataclass validation remains defense in depth.
+- `ErrorEnvelope.details` has a closed public-schema key set and does not permit a generic `tool` field. Unsupported compact operations should identify the missing tool through the allowed `capability` detail key so SDK/tool-error validation cannot drift from the frozen contract.
+- `Viewport`'s Python dataclass is intentionally lightweight, while the wire schema bounds width/height to 1–16384 and scale to `(0, 8]`. The router decoder must repeat those bounds because dependency-free direct tests bypass MCP SDK validation and service code should never receive an invalid viewport solely because a different transport is used.
+- The Termux installation guide explicitly documents that `tbp-mcp` still exposes 148 legacy tools and defers replacement to the modernization gate. The new compact low-level server can therefore be built and protocol-tested now, while entrypoint cutover remains a separately reviewed migration action until all essential operations have service implementations.
+- MCP 1.29.0 `types.ToolAnnotations` directly accepts the four annotation fields already generated by `build_mcp_tools()`. No annotation translation or lossy compatibility shim is needed for the low-level server projection.
+- The compact server's in-process MCP 1.29 tests now prove exact tool records, SDK schema validation, structured artifact chunks, and stable expected-service errors. The remaining transport-specific uncertainty is stdio framing/initialization, which can be tested without starting a browser by running the module and issuing only initialize plus tools/list.
+- MCP 1.29 provides `stdio_client(StdioServerParameters(...))` and `ClientSession.initialize()/list_tools()` for this end-to-end check. It can launch the source module with an explicit interpreter, cwd, and environment, avoiding shell framing assumptions and avoiding any repository or device mutation.
+- Graph tracing shows `Pilot.screenshot(path=None, full_page=...)` already delegates to `ScreenshotCommands.capture`, whose no-path branch returns decoded image bytes directly. The adapter does not need a temporary file for viewport/full capture and can avoid all caller-controlled path handling.
+- Legacy element screenshot is selector/eval/ImageMagick-based and cannot safely consume the new private backend node handle; moreover the current legacy observation emits no stable interactive handles. The adapter should advertise screenshot as `partial`, implement only viewport/full raw PNG, and return explicit unsupported for element until a handle-native crop path exists.
+- `ScreenshotCommands.capture` requests PNG by default for both CDP and Firefox's translated screenshot command, so signature validation in `BackendArtifactPayload` can detect malformed or mislabeled results before service publication.
+- Firefox's native `_capture_screenshot` ignores CDP clip parameters and captures only the current Xvfb browser window. Therefore `full` is a real Chromium capability but would be a silent viewport fallback on Firefox; the adapter must advertise/allow Firefox viewport only and reject Firefox full explicitly.
+- Observation-linked screenshots need only the viewport path, so both backends can support `include_screenshot=true` immediately without overstating Firefox full-page fidelity.
+- The inherited `_handle_elements` cannot be reused as the v1 observation source: it returns page-derived CSS selectors, exposes input values, omits geometry/state normalization, and does not traverse iframe or shadow boundaries. A typed adapter-specific snapshot query is required.
+- Private backend handles may safely be deterministic hashes of normalized locator metadata held only in adapter memory. This keeps selectors/frame/shadow locators out of public refs while allowing unchanged DOM locations to retain stable refs across observations; the current locator map must be replaced atomically on each snapshot and cleared on navigation/stop.
+- Same-origin frames and open shadow roots can be traversed and represented in `frame_path`/`shadow_path`; cross-origin frame contents must remain an explicit partial capability rather than a guessed selector fallback.
+- `ActionExecutor` already supplies adapters only private node handles and demands a `BackendActionOutcome` containing both raw causal evidence and the post-action snapshot. A real adapter cannot merely report that an event was dispatched; it must re-read URL/target state and provide enough before/after evidence for the service verifier.
+- Because `ActionExecutor` captures the adapter's post-action snapshot into the next public revision, the adapter must refresh its private locator map as part of that snapshot. Otherwise newly issued refs would point at a stale pre-action locator map even when verification succeeded.
+- The public `browser_permissions` schema is deliberately read-only (`list` or challenge `status`) and already has a closed result shape, but there is no corresponding runtime `PermissionsResult` model or service method yet. These can be added without granting mutation authority to MCP.
+- Durable permission mutation exists only on the engine's `record()` method. A user-facing grant/block command must be a separate local host/CLI control path and must not be added to `browser_permissions` arguments; this preserves the reviewed model-inaccessible authority boundary.
+- `ConfirmationEngine.status()` already supplies the challenge half of the read-only permissions result, while durable `list(session_id)` supplies persistent plus current-session decisions. Service composition can join them under the active-session mutex without new persistence semantics.
+- `PermissionsResult` is a simple closed object (`operation`, up to 1024 decisions, nullable challenge). Adding the missing dataclass aligns runtime and already-frozen schema without changing snapshots or the 14-tool contract.
+- Permission `status` should return the requested challenge and no decision list; permission `list` should return active-session-visible decisions and a null challenge. Unknown/expired challenge behavior remains owned by `ConfirmationEngine.status()` and its stable confirmation error semantics.
+
+
+
+## Baseline Discovery
+
+- `task_plan.md` exists and contains 886 lines of product scope, architecture, contracts, phased delivery gates, and safety rules.
+- The plan names `findings.md` and `progress.md` as required persistent working-memory files, but neither file existed at the start of implementation.
+- No Termu-inator-specific prior-work entry was found in the local Codex memory registry; the repository and `task_plan.md` are therefore the authoritative baseline.
+
+## Open Questions
+
+- Does the checkout already match the pinned upstream baseline commit?
+- Which portions of the proposed architecture are already implemented?
+- What build, lint, test, and device-validation commands are currently available?
+- Are there pre-existing user changes that must be preserved?
+
+## Plan Review — Product and Architecture
+
+- The intended product is an AI-first browser runtime for interactive/login-heavy web tasks, not a general crawler or Android native-app automation tool.
+- The central invariant is an `observe -> act(ref + expected revision) -> verify` loop with stale-reference rejection before any action.
+- The proposed core is a backend-neutral orchestrator with Firefox native and Chromium CDP adapters, a compact MCP surface capped at 16 tools, artifact-backed screenshots/downloads, and a compatibility adapter for existing `tbp` users.
+- Safety is part of the API contract: origin permission decisions, R0-R4 risk classes, one-time confirmation tokens for consequential actions, redacted traces, default-disabled raw CDP, and untrusted page content.
+- The MVP exit criteria cover functionality, safety, deterministic local fixture reliability, performance, compatibility, documentation, and license/fork attribution—not just implementation completeness.
+- Phase 1 requires a reproducible upstream baseline, generated current-surface inventory, capability matrix, installation/smoke evidence, performance measurements, and documented discrepancies before architectural replacement work begins.
+
+## Plan Review — Delivery Gates
+
+- Delivery is intentionally sequenced across seven phases: baseline discovery, contract freeze, typed-core migration, observe-act-verify, permissions/artifacts/shared view, productized MCP/CLI Developer Mode, and device hardening/alpha release.
+- Each phase has an explicit exit gate. The current phase may not be marked complete until upstream behavior, installation, current tool/handler inventory, and backend capability differences are reproducibly documented.
+- Release gating relies on deterministic local fixtures and security/contract tests; external anti-bot, OAuth, and public dynamic-page checks are explicitly non-gating.
+- The performance targets include warm status at 300 ms or less, text-only observation at 2 seconds or less, verified ref action at 5 seconds or less, and a crash-free 100-action soak. Unrealistic device results must be documented rather than silently relaxing budgets.
+- The unresolved design questions concern stable-ref lifetime, page revision inputs, artifact transport compatibility, shared-view transport, profile/session scope, uploads, raw eval, backend defaults, legacy lifetime, confirmation UI, and preservation of stealth features.
+
+## Discovery Tooling
+
+- Codebase graph search, snippet, trace, query, architecture, and indexing tools are available, but no project-listing operation is exposed in this session. The repository-derived project name must therefore be probed directly and indexed if absent.
+- The direct architecture probe confirmed that no Termu-inator-specific graph is indexed. Existing graph projects cover the workspace root and unrelated repositories only.
+
+## Checkout State
+
+- The repository is on `main` and tracks `origin/main`.
+- At the first Git status check during this run, the visible changes were the task-owned `task_plan.md` update plus newly created `findings.md` and `progress.md`.
+- Live GitHub metadata confirms `Chiriri722/Termu-inator` is a public fork of `salviz/termux-browser-pilot`; local `origin` and `upstream` point to those repositories respectively.
+- Local HEAD is `09b636a97a35042acb0de7f41858d965bc59963f`. The planned baseline `b95eccd3d1abc188c3aa488a23c519ebacc99fcf` is present, is an ancestor of HEAD, and currently matches live `upstream/main`; the only committed delta is the 886-line `task_plan.md`.
+- Neither upstream nor the fork has Git tags or a GitHub release. The README's `v0.17.1` string is therefore not backed by an upstream tag/release, and baseline pinning remains partial until a fork-owned baseline tag/document is added.
+- `git fsck --full --no-dangling` was clean, and README/LICENSE/pyproject/MCP/setup files are byte-identical to the pinned baseline.
+
+## Attribution and Baseline Documentation
+
+- `LICENSE` preserves the upstream MIT text and the `Termux Browser Pilot Contributors` copyright line.
+- Clone-visible fork provenance is missing: README has no parent URL or fork notice, and there is no `NOTICE`, `AUTHORS`, or `docs` directory.
+- Baseline metadata is internally inconsistent by inheritance: README says `v0.17.1`, `pyproject.toml` says `0.1.0a1`, no tag/release exists, and package/homepage/MCP names still describe upstream.
+- The local `upstream` remote has a push URL identical to its fetch URL. A fail-closed push URL should be considered after documenting the local-only configuration change.
+- Clone-visible provenance is now implemented in the README, `NOTICE.md`, and `docs/upstream-baseline.md`; the upstream LICENSE remains byte-identical.
+- The baseline document distinguishes the upstream commit date (2026-03-08) from the verification date (2026-08-15) and reserves the fork-owned tag form `upstream-baseline/2026-03-08` without inventing an upstream semantic version.
+- A correctly quoted local tag query confirms there are currently no tags. The pinned commit's author and committer timestamp is `2026-03-08T18:41:37+01:00`, supporting the date-based fork-owned tag name.
+- The annotated local tag `upstream-baseline/2026-03-08` now peels exactly to `b95eccd3d1abc188c3aa488a23c519ebacc99fcf`; it remains intentionally unpushed.
+- README and NOTICE links are internally consistent and keep the exact upstream SHA and copyright visible. README still contains inherited Cloudflare/stealth claims immediately after the new baseline note; the note scopes them as preserved upstream text, while Phase 2 must replace them with explicit non-guarantee product language.
+
+## Current Architecture Snapshot
+
+- A repository-specific fast graph index now contains 988 nodes and 4,550 edges across 26 Python files, two Bash files, and one TOML file.
+- There are three executable entry points: `cli.py`, `src/daemon.py`, and `src/mcp_server.py`.
+- The current code is a flat `src` package rather than the proposed `src/termuinator` service architecture. The graph exposes 440 functions, 202 methods, and only five browser-oriented test files.
+- Structural hotspots confirm the refactor risk described in the plan: MCP helpers `_send` and `_result` each have fan-in 148, `Pilot.evaluate` fan-in 97, CLI transport/output helpers fan-in around 70, and cookie logic is tightly coupled across CLI, pilot, and CDP modules.
+- The graph found a single hard-coded CDP discovery route (`http://127.0.0.1:9222/json/version`) and no existing contract-oriented package boundaries.
+- Backend startup is centralized in `BrowserPilot.start`, with Chromium-specific `_start_chromium`, `_launch_chromium`, lock cleanup, and CDP wait methods. Backend behavior is not expressed as a formal capability object.
+- Eleven tab/window/viewport handlers exist as top-level daemon functions. Their backend branching and unsupported behavior require direct snippet review before being represented in the capability matrix.
+
+## Backend Capability Defects — Tabs
+
+- `_handle_tab_new` and `_handle_tab_close` execute their actual tab keystrokes only when the session has the Firefox-private `_xdt` attribute.
+- On Chromium, `tab_new` without a URL returns the current URL/title as a successful result without opening a tab. With a URL it navigates the existing tab. `tab_close` similarly returns the current state without closing anything.
+- These are silent capability failures, not structured unsupported errors. The v1 capability contract must fail explicitly until Chromium receives real CDP target handling.
+
+## Backend Capability Defects — Window and Viewport
+
+- `viewport_set` is not a backend-neutral browser operation: it resolves an X11 window, invokes the external `xdotool windowsize` process, reads `session._display`, and only then evaluates the resulting inner viewport.
+- `window_list` also delegates to X11-specific window discovery and compares against daemon `_main_wid`; backend support depends on helper behavior and private session attributes rather than an explicit contract.
+- These functions can validate dimensions, but they cannot advertise cross-backend support safely until the helper/session requirements are probed and represented as capabilities.
+
+## Backend Capability Matrix — Static Audit
+
+- Current architecture has no capability negotiation, structured `unsupported_capability` error, stable element refs, page revision, permission/confirmation engine, artifact transport, or trace layer.
+- Firefox exposes only 16 translated CDP methods; other raw CDP commands raise `NotImplementedError`. Its accessibility tree is a limited DOM heuristic, cookies omit HttpOnly and other-origin data, and event callbacks do not receive true CDP network events.
+- Firefox full-page screenshot ignores the requested clip and captures a normal browser window. Firefox PDF returns empty base64 as success, producing a zero-byte file.
+- Chromium lacks functional tab shortcut handling, OS window/viewport/mouse/swipe/session-save paths, and the Firefox coordinate fallback for cross-origin iframe clicks because those handlers use Firefox-private X11 members.
+- Chromium launch does not connect downloads to the directory queried by `browser_downloads`; both backends return only filename/size/mtime, not completion, MIME, hash, or remotely retrievable bytes.
+- MCP `browser_restart` does not preserve a Chromium backend and restarts into default Firefox. MCP auto-start also selects default Firefox rather than negotiating the requested backend.
+- UA, geolocation, headers, throttling, response mocking, network/console capture, and related features are largely page JavaScript shims rather than complete browser/network capabilities.
+- All 148 MCP tools are exposed without site permissions, consequential-action confirmation, Developer Mode separation, or trace redaction. This validates the plan's tool-surface and policy-boundary priorities.
+- These conclusions are source-audit evidence only; every backend capability remains subject to controlled local-fixture and real-Termux validation.
+
+## Packaging Baseline
+
+- `pyproject.toml` still publishes `termux-browser-pilot` version `0.1.0a1`, describes Firefox as passing Cloudflare, links to the upstream repository, and exposes only `tbp` / `tbp-mcp` entry points.
+- Supported Python is currently `>=3.10`. The modernization must not accidentally adopt Python 3.12-only syntax before the compatibility decision is explicitly changed in Phase 3.
+- Runtime requirements are minimal: base `requirements.txt` contains only `websockets>=12.0`; MCP is an optional `mcp[cli]>=1.0` extra. There is no declared test, lint, typing, or development dependency set.
+
+## Test Baseline — Initial Evidence
+
+- Graph search found no `test_*` function definitions in the five files under `tests/`, indicating they are likely device/browser smoke scripts rather than a conventional unit-test suite. Test runner semantics must be inspected before adding the inventory test.
+- `tests/test_basic.py` is a standalone async CDP smoke script with inline assertions and requires a live browser at port 9222; it is not discoverable as a unit test and writes `test_screenshot.png` into the repository root.
+- The repository has no offline test harness, so the inventory feature should introduce standard-library `unittest` coverage and avoid adding a network dependency merely to validate static AST parsing.
+- MCP tools use the stable syntactic form `@mcp.tool()` followed by thin async functions, allowing exact static extraction without importing the optional MCP package.
+- The workstation's default `python3` is CPython 3.9 even though the package declares `>=3.10`; a passing local run alone cannot prove the advertised runtime floor until a 3.10+ interpreter is also exercised.
+- Supported interpreters are available separately: all 26 Python files compile on Python 3.11.15, 3.12.13, and 3.14.6; `cli.py --version` succeeds on all three.
+- The new inventory unit tests pass on Python 3.11 and 3.14. The bare `python3.12` command is not on this shell's PATH, so the earlier Python 3.12 audit needs its explicit interpreter path before the new tests can be repeated there.
+- Using the explicit uv-managed Python 3.12.13 path, the new inventory unit tests also pass (2/2). The feature is now exercised on Python 3.11, 3.12, and 3.14; the declared minimum Python 3.10 remains unavailable and unverified.
+- `python3.11 -m unittest discover -s tests -v` currently produces five import errors in a clean base environment because every legacy test imports the optional Chromium/websockets stack; four of the five scripts also execute `asyncio.run(main())` during import.
+- The README's claimed five-site Firefox result is not reproducible from checked-in tests: current scripts use Chromium CDP, omit two claimed sites, and depend on external pages.
+
+## Build and Install Baseline
+
+- `bash -n setup.sh start_browser.sh` passes.
+- An offline Python 3.11 wheel build, temporary-environment install, and `pip check` pass; the built wheel is `termux_browser_pilot-0.1.0a1-py3-none-any.whl` (145,269 bytes in the audit run).
+- The base wheel installs a `tbp-mcp` entry point while `mcp` remains optional, so invoking `tbp-mcp` after a default install fails with `ModuleNotFoundError: mcp`.
+- `src/cdp.py` imports `websockets.asyncio.client`, but metadata permits `websockets>=12.0`; that import path is not available in the declared minimum and requires either a dependency floor increase or a compatibility import.
+- README's short manual installation path installs system/browser packages and websockets but does not install this project, so it cannot create the documented `tbp` command. `setup.sh` does install the package, but currently suppresses failure of its optional websockets install.
+- No CI workflow, dev/test dependency group, test configuration, Python-version file, tox matrix, or lockfile exists.
+- The current host is Darwin arm64 without Termux packages, Xvfb/openbox/xdotool/xclip, Firefox/Chromium, or a CDP listener at port 9222. Clean-Termux install, browser smoke, screenshots, device reliability, and performance remain explicitly unverified.
+- `docs/environment-baseline.md` now records the exact interpreter paths, offline build procedure, artifact checksum, successful and failed commands, packaging defects, and evidence-level definitions so host checks cannot be mistaken for on-device validation.
+- The environment baseline explicitly orders the remaining work: dependency/MCP packaging contracts, version alignment, offline tests/fixtures, manual-test segregation, clean Termux reproduction, per-backend fixtures, device performance, then non-gating public-site observations.
+- The working tree currently contains only expected modernization artifacts and edits: README/task plan plus new notice, docs, findings/progress, inventory script, and its unit test. No inherited runtime module has been modified yet.
+
+## Current Surface — Initial Evidence
+
+- `cli.py` alone defines 76 functions, with dozens of daemon-backed `cmd_*_d` wrappers. This already indicates a much larger command surface than the proposed compact v1 API.
+- `src/mcp_server.py` exposes a broad one-function-per-tool design. Sample tools include upload, user-agent mutation, viewport mutation, response waiting, window control, OTP entry, and multiple overlapping wait operations.
+- Graph output confirms the plan's consolidation targets are grounded in current code rather than hypothetical future work; however, exact counts and classifications still need a deterministic AST inventory rather than a verbose connected-node dump.
+- The graph schema records decorators directly on function nodes and includes 153 decoration edges, so decorator-based MCP discovery can be cross-checked without importing the runtime or requiring the `mcp` dependency.
+- `cli.main` spans lines 430-1056 (627 lines) and constructs the entire nested argparse surface inline. It defaults `--browser auto` to Firefox and still names the program `tbp`.
+- The CLI directly exposes capabilities the target plan places behind Developer/legacy boundaries, including raw eval, upload, geolocation and user-agent overrides, cookie/storage mutation, clipboard access, CSS/header injection, response capture/mocking, throttling, raw set-content, and profile/auth state mutation.
+- Daemon dispatch is centralized in `Daemon._dispatch` (`src/daemon.py:198-225`); exact handler enumeration should follow this method rather than guessing from all `_handle_*` names.
+- Graph enumeration found exactly 148 `browser_*` functions in `src/mcp_server.py`, versus the planned v1 hard cap of 16 tools (more than nine times the target surface).
+- `Daemon._dispatch` resolves actions through a module-level `_HANDLERS` registry and serializes execution with `_cmd_lock`. Unknown actions fail closed with an available-action hint, but all handler exceptions are reduced to `str(e)` without a structured error taxonomy.
+- The existing single-command lock is a useful compatibility primitive for the planned single-session MVP; it should be preserved behind the future service layer rather than reimplemented independently.
+- The daemon registry is a single literal dictionary spanning `src/daemon.py:5124-5265`, making it safe to enumerate statically with `ast` without importing browser/device dependencies.
+- MCP wrappers are thin async functions that generally forward one daemon action through `_send` and normalize it through `_result`; this supports a future compatibility adapter that delegates to one service path rather than duplicating behavior.
+
+## Generated Surface Inventory
+
+- The static AST inventory reports 163 CLI parser entries, 148 decorated MCP tools, and 140 daemon handlers. Independent AST review splits the CLI entries into 25 group containers and 138 executable leaf paths, with 77 top-level parsers and 24 aliases; the script summary must expose these separately to avoid calling containers executable commands.
+- MCP/daemon forwarding is internally complete at the literal-action level: there are no MCP actions without handlers, no handlers without MCP exposure, and no MCP tools lacking a statically identifiable `_send` action.
+- Migration buckets cover every extracted item. Executable CLI leaf counts are `44 core / 41 developer / 53 legacy / 0 remove`; MCP counts are `53 / 45 / 50 / 0`; daemon action counts are `53 / 36 / 51 / 0` respectively.
+- The zero `remove` count means no extracted command currently matches the explicitly removed raw-coordinate-click contract; product claims and stealth implementation still require separate non-surface review.
+- Markdown output generation completed successfully without importing runtime modules. Full inventory can be regenerated with `python scripts/inventory_current_surface.py --format markdown`.
+- `git diff --check` currently passes for tracked edits. The ordinary diff stat omits new untracked deliverables, so final scope review must use `git status` plus explicit untracked-file inspection rather than relying on diff stat alone.
+- The inventory implementation and unit test compile cleanly under Python 3.11 and 3.14 without producing bytecode artifacts.
+- CLI reaches 129 of 140 daemon actions. The 11 MCP-only actions are `detect_challenge`, `elements`, `focus`, `mouse_locate`, `mouse_move`, `swipe`, `tab_to`, `type_otp`, `window_close`, `window_list`, and `window_switch`.
+- The reviewed inventory now fails closed on dynamic/nested CLI parser construction, dynamic MCP actions, dynamic/unpacked daemon action keys, and duplicate daemon keys instead of silently producing incomplete zero-gap results.
+- MCP migration buckets now use the public tool variant name rather than only the multiplexed daemon action, so storage/cookie mutations remain Developer candidates even when they share `storage` or `cookies` handlers.
+- CLI output now separates all parser nodes, required command groups, executable leaves, and alias-expanded spellings; classification counts are based on executable leaves.
+- The corrected real-checkout totals are 163 parser nodes, 25 required groups, 138 executable leaves, 175 alias-expanded executable spellings, 77 top-level parser choices, and 52 directly executable top-level commands.
+- The second-cycle nine-test inventory suite passed on Python 3.11, 3.12.13, and 3.14 after the initial review fixes.
+
+## Backend Capability Matrix Deliverable
+
+- `docs/backend-capabilities.md` records a five-state Firefox/Chromium matrix (`verified`, `partial`, `broken`, `unsupported`, `unverified`) and explicitly keeps static source evidence separate from future Termux device evidence.
+- The matrix covers navigation, tabs, screenshots/PDF, cookies/storage, accessibility, downloads, windows/viewport, native input, sessions, restart behavior, network/console shims, and cross-origin iframe fallback. Its 65 local source links were validated against existing files and line bounds.
+- It prioritizes silent-success defects, missing capability negotiation, permission/confirmation boundaries, artifact retrieval, structured errors, traces, stable references, and revision preconditions, then provides an on-device checklist for both backends.
+- This completes the Phase 1 matrix draft only. Clean Termux installation, `example.com` smoke, and latency/startup/RSS/screenshot-size measurements remain unverified on this non-Termux host.
+
+## Final Inventory Reproducibility Check
+
+- The final thirteen-test inventory suite passes unchanged on Python 3.11.15, 3.12.13, and 3.14.6.
+- Two independent JSON generations are byte-identical (`cmp` exit 0) with SHA-256 `9941885a109d73db0cef6af4294519877941c4b74d64883381a3bb56b0662ebe`; Markdown generation also succeeds.
+- Python 3.10 grammar parsing succeeds for both the inventory implementation and its tests. A real Python 3.10 runtime remains unavailable, so this is syntax compatibility evidence rather than runtime evidence.
+- The final JSON summary preserves the audited totals and reports no MCP tools without literal actions, no MCP actions without daemon handlers, and no daemon actions absent from MCP exposure.
+- The preserved upstream `LICENSE`, durable `NOTICE.md`, README fork notice, and exact baseline/change record in `docs/upstream-baseline.md` satisfy the plan's current attribution-preservation criterion; future rewrites must keep those notices intact.
+- Final scope inspection shows only the expected Phase 1 artifacts: two tracked edits (`README.md`, `task_plan.md`) and the new notice, three baseline/capability documents, two working-memory files, one inventory script, and one focused unit-test module. No inherited browser/daemon runtime module was edited.
+
+## Inventory Final-Review Findings
+
+- A public MCP tool name could previously hide a more restricted forwarded action: a synthetic `browser_goto` wrapper forwarding `eval` was classified `core`. Classification must combine the tool variant and every forwarded action, never allowing an internal Developer/legacy/remove action to be promoted into Core.
+- Dynamic CLI `required` and `aliases` keyword values were previously treated as false/empty rather than unresolved. This could turn a required group into a leaf or silently remove executable alias spellings, so both keywords must accept only statically verifiable literal values.
+- A third TDD RED cycle added one test for the MCP/action mismatch and two tests for dynamic CLI keyword values. All three fail for the intended missing behaviors while the prior nine tests remain green.
+- The third GREEN implementation combines each MCP wrapper name with every forwarded action using default-exposure restrictiveness (`core < legacy < developer < remove`) and rejects non-literal CLI `required`/`aliases` values.
+- The first three final-review regressions brought the suite to 12 tests; all passed on all three supported interpreters before the keyword-unpacking case was added.
+- CLI parser keyword unpacking (`**kwargs`) is now also rejected before extraction because it could conceal both `aliases` and `required`; the two-case regression test raises the final isolated suite to 13 tests.
+- Current broad discovery runs 18 tests: all 13 dependency-free inventory tests pass, while the five inherited live-CDP modules still fail import without `websockets`. The environment document now describes this mixed suite rather than treating every checked-in test as manual-only.
+- Final matrix verification passes all 13 tests on Python 3.11.15, 3.12.13, and 3.14.6 (39 interpreter/test combinations); Python 3.10 grammar parsing passes, the real totals remain unchanged, and repeated JSON retains SHA-256 `9941885a109d73db0cef6af4294519877941c4b74d64883381a3bb56b0662ebe`.
+- Independent final inventory review found no remaining blocker or non-blocking style issue.
+- Final documentation review found all 87 local Markdown links resolvable and all 77 source-line anchors/ranges in bounds. Exactly three Phase 1 gates remain open, matching the real-device evidence gap.
+
+## Local Takeover Boundary
+
+- Sensitive typing already fails closed before backend dispatch: `BrowserService.act()` sets `USER_TAKEOVER_REQUIRED`, returns `session_paused`, and the existing password-field regression proves that secret text is absent from the error details.
+- Any non-`ACTIVE` session is rejected by the same action entry point, so a future `USER_TAKEOVER_ACTIVE` state also remains inaccessible to MCP actions without adding a separate transport rule.
+- The missing piece is a local-only state transition. Resume must obtain a fresh backend snapshot and call `ObservationEngine.capture(..., document_changed=True)` before returning to `ACTIVE`; that rotates the public page identity/ref epoch and prevents pre-takeover refs from authorizing post-takeover actions.
+- The repository has no shared `tests/helpers.py`; service fixtures are intentionally local to `tests/test_service_actions.py`, while reusable backend behavior lives in `FakeBackend`.
+- `FakeBackend.observe()` already strips accessibility and screenshots on request and bounds `text_limit`; takeover resume can therefore request `include_screenshot=False`, `include_accessibility=False`, and `text_limit=0` to refresh identity without bringing post-user secret content into the returned observation.
+- `SessionStatus` already represents `page_revision` as `PageRevision | None`, and `SessionState` already includes both takeover states. No public schema expansion is required for the local transition itself.
+- The local transition is now service-owned and absent from the compact MCP router. Resume succeeds only from `USER_TAKEOVER_ACTIVE`, collects a zero-text/no-accessibility/no-screenshot snapshot, rotates page identity and refs, and returns to `ACTIVE` only after capture succeeds.
+- A backend failure during resume is normalized to `backend_crashed` while retaining local-user control. Invalid or duplicate transition attempts return `invalid_request`; remote action attempts remain `session_paused` throughout local control.
+
+## Host-Control Boundary
+
+- Phase 5 and the resolved design rules require permission/confirmation/takeover mutations to remain CLI/host-only; the compact MCP router currently exposes only read-only permission list/status and must stay unchanged.
+- Permission and confirmation authority already lives inside each `_ActiveSession`, but only takeover has a service-owned local mutation API. A host-control layer therefore needs narrow service methods rather than reaching into private session internals.
+- The existing runtime composition root and process/session lock provide the natural lifecycle owner for a local Unix-socket control server; socket path/type/mode/owner validation must be independent from the legacy daemon socket.
+- `PermissionEngine.record()` already enforces the intended closed policy set: `ask` is derived, `session_allow` requires the active session ID, and persistent allow/block must not carry one. The service wrapper should select session binding itself so a local caller cannot forge it.
+- `ConfirmationEngine.approve/deny()` returns the public `Challenge` while keeping the HMAC proof and nonce private. A local control router can safely return `to_wire(challenge)` without exposing approval authority to MCP.
+- Runtime config deliberately rejects unknown keys. The control socket can derive a fixed owner-private path under `data_root/runtime` without expanding config authority in this increment.
+- The compact stdio server currently constructs only a router and loses direct access to the service/config pair. Concurrent local control will require a small composition object (service, router, fixed socket path) or explicit arguments to `_run_stdio`; it must not reconstruct a second service because the session state and lock are process-owned.
+- The legacy runtime builder already centralizes `data_root` and owner scope. Host control should attach to the exact same `BrowserService` instance so local decisions affect the active MCP session and no parallel authority store appears.
+- `TermuinatorError.to_envelope()` already derives retryability from the frozen error code and copies only public details. The Unix control protocol can reuse `to_wire(error.to_envelope())` for the same stable error semantics as MCP.
+- The graph's `ErrorEnvelope` snippet resolved to the wrong nearby source span after recent unindexed edits; exact contract fields should be read from the checked-out file until the graph is refreshed. This is index drift, not a runtime failure.
+- `UnixHostControlServer` now binds synchronously under a restrictive umask, verifies a 0600 same-owner socket and private parent directory, limits each connection to one 64 KiB JSON line, rejects duplicate/non-finite JSON, normalizes unexpected failures without their message, and removes only the inode it created.
+- No test or production caller outside `src/mcp_v1_server.py` depends on `_run_stdio` or `build_default_router`; `build_compact_server` is the tested public seam. A new runtime composition object can therefore be introduced while keeping `build_default_router()` as a compatibility wrapper.
+- `CompactRuntime` now proves a single authority graph: one service is shared by remote MCP reads/actions and local host mutations, while `build_default_router()` remains a non-binding compatibility helper. `_run_stdio` owns the local socket lifecycle and closes it even if MCP execution raises.
+- `tbp-control` is the first user-operable mutation surface and remains separate from MCP: permission, confirmation, takeover-start, and takeover-resume only. The client independently refuses non-socket, wrong-owner, or non-0600 endpoints before sending any request.
+- The post-composition fast reindex completed at 2,320 nodes / 12,262 edges. `CompactRuntime` and `UnixHostControlServer` are now graph-visible, and the previously drifted `ErrorEnvelope` snippet resolves to its correct 12-line dataclass.
+
+## Confidential Takeover Read Boundary
+
+- The security RFC requires both takeover states to block agent navigation, observation, action, screenshot, artifact, trace, and Developer reads; only bounded redacted control-plane status may remain visible.
+- Current `BrowserService` checks takeover state only inside `act()`. `observe()`, `screenshot()`, `artifact_read()`, and read-only `permissions()` still accept the paused session, so the implementation does not yet satisfy its frozen confidentiality contract.
+- `act()` also reserves the idempotency key before checking the paused state. Repeated remote attempts during takeover can therefore create reserved journal entries even though no page access is allowed; state gating should precede reservation.
+- The profile path creator is graph-visible and applies private directory creation/chmod plus symlink and containment checks. The combined Unix-socket/profile/artifact permission checklist can be closed after the new takeover read regression and one explicit profile mode assertion are reconfirmed.
+- `_status_result()` currently returns cached URL and title unchanged in both takeover states. Those fields can contain query tokens, account identifiers, or post-login page details, so the paused status must blank them while retaining only opaque session/page/tab/revision identity, backend/running state, freshness, and capabilities.
+- A single `_require_remote_active(active)` guard can enforce the frozen read boundary consistently; local permission/confirmation/takeover methods must continue using `_require_session()` so the user can recover the paused session.
+- The shared remote-active guard now covers observe, screenshot, artifact reads, permissions, and actions before idempotency reservation. Both confidential states redact status URL/title and replace ready-state detail with `takeover`; explicit local resume restores access only after epoch rotation.
+- Focused profile and artifact tests already assert 0700 profile directories, 0600 artifact data/metadata, symlink refusal, and restart-safe authorization. Together with the new 0600 same-owner socket tests, the combined filesystem-permission checklist is now evidence-backed.
+
+## Durable Action Trace Gap
+
+- A closed `TraceRecord` model and bounded `InMemoryTraceRecorder` already exist, and the frozen `browser_trace` schema supports list/get plus export-as-artifact. No service session owns a recorder yet, no action appends a trace, and the compact router still reports trace as unsupported.
+- Runtime config already freezes trace retention/quota limits, so a durable store can use the same owner/project/session authorization pattern as artifacts without expanding config.
+- The current `TraceRecord` intentionally excludes URL, title, ref/backend handle, action parameters, values, confirmation identifiers, and arbitrary details. Its fields are sufficient for a secret-free action audit: opaque trace/step IDs, action kind, server risk, page revision, permission summary, verification boolean, start time, bounded duration, and optional diagnostics ID.
+- Successful `ActionResult` already guarantees at least one passed causal verification. A trace can set `verification_passed=True` from that closed result without copying verification messages, changed URLs, download filenames, or other page-derived text.
+- In-memory trace is session-authorized and bounded but clears on stop; the durable implementation must preserve completed traces across process/session restart while still requiring the current project's active session to read them.
+- The first service-integration RED stops at import time because the frozen trace output schema has no corresponding `TraceRecordsResult`/`TraceExportResult` runtime types. Separate closed dataclasses are preferable to one optional-field result because they preserve the schema's exact list/get versus export union on the wire.
+- `BrowserService.act()` currently has one unambiguous durable commit boundary: backend execution completes before the idempotency journal terminal record. The trace must be appended in that interval; a trace persistence failure after dispatch must return `outcome_unknown`, while terminal replay must return before creating another trace.
+- The frozen `TraceResult` schema is an exact two-branch union: list/get always return `operation`, bounded `traces`, and `truncated`; export returns only `operation` plus an `Artifact`. Runtime config already supplies 7-day/100 MiB trace limits, but the service constructor currently forwards only artifact limits.
+- `TraceRecord` validation already bounds opaque IDs, action/permission labels, timestamps, duration (0–120000 ms), and diagnostics IDs. Service integration should construct this type directly so malformed or overlong audit data cannot reach the durable store.
+- The graph has not yet indexed the newly added `durable_traces.py`, so exact recorder calls were verified from the checkout: `append(session_id, record)`, `list_page(session_id, limit)`, and `get(session_id, trace_id)`. A post-integration reindex is required before final graph-based impact review.
+- `ActionResult` enforces a passed causal verification whenever status is `succeeded`; the trace can still compute the boolean from the closed tuple rather than trusting status alone, preserving the audit invariant if future non-success terminal results are recorded.
+- Existing takeover tests already centralize both confidential state transitions, so trace read blocking can be added to that suite without creating another fixture or exposing a local-control method through MCP.
+- `CompactV1Router.dispatch()` has one closed `_IMPLEMENTED_TOOLS` gate followed by exact argument decoding and `to_wire`; adding `browser_trace` requires only a strict operation union in `_dispatch_implemented`, while the 14-tool public projection itself remains unchanged.
+- The compact trace implementation is now checkout-visible but the stale graph still attributes a `trace(` search to neighboring symbols, reinforcing that the graph must be refreshed before using inbound/outbound evidence for the final review.
+- The existing action test already proves a backend exception leaves a dispatched journal entry that replays as `outcome_unknown`; a corresponding audit-persistence failure test should corrupt only the trace namespace after session start, then assert backend dispatch remains exactly once and replay remains fail-closed.
+- Trace closure is now evidence-backed at three layers: durable storage/tamper tests, service action/idempotency/takeover tests, and exact compact MCP routing. The combined focused and contract run is GREEN at 61 tests, including post-dispatch audit failure returning `outcome_unknown` without a second backend call.
+- The frozen trace record has no free-form page data or action-parameter fields; password/OTP actions enter local takeover before dispatch, while normal action tests prove caller text, backend handles, and URLs do not appear in stored or exported JSON. This closes ordinary-trace secret redaction, not screenshot redaction or full before/after diagnostic artifacts.
+
+## Browser Wait Gap
+
+- The public schema already freezes five wait conditions (`url`, `text`, `ref_state`, `navigation`, `download`), but no runtime `WaitCondition` or `WaitResult` models exist and `browser_wait` remains outside the compact router's implemented set.
+- The backend protocol exposes observations and action evidence, not a dedicated wait primitive. A backend-neutral service wait should therefore poll bounded fresh snapshots, reuse `ObservationEngine.capture`, and keep session/tab/page/revision ownership checks in the service rather than adding browser-specific sleep loops.
+- Frozen wait output is a closed five-field object (`condition_kind`, `satisfied`, bounded `elapsed_ms`, nullable `observation`, nullable `download`). A timeout can therefore return `satisfied=false` with the last bounded observation instead of using a transport error, while ownership/backend failures still use structured errors.
+- `browser_wait` is already classified read-only and carries full page preconditions plus a 1–120000 ms timeout. The compact router can decode a typed condition without changing the 14-tool manifest or public snapshots.
+- `Download` is also schema-only: its exact runtime shape is frozen, but neither snapshots nor the typed contract expose a download object today. The download condition can be modeled now, yet execution must fail with `unsupported_capability` until the download lifecycle is implemented.
+- `BackendPageSnapshot` contains bounded text and interactive elements with visible/enabled state, which is enough for URL/text/ref-state/navigation polling. `ObservationEngine.capture()` can mint each fresh public observation, but document changes must be detected before capture so page identity and refs rotate correctly.
+- Although `BrowserBackend` still declares a generic mapping-based `wait()`, both fake and legacy migration adapters treat it as an unimplemented placeholder. Calling it would reintroduce untyped backend-specific semantics; the typed service should poll `observe()` and later retire or adapt the placeholder behind the service contract.
+- Deterministic wait tests do not require wall-clock delays: a sequence backend can return an unsatisfied snapshot during the initial observe and a satisfied snapshot on the first wait poll. Timeout behavior can use the 1 ms public minimum, while production polling remains bounded and yields between attempts.
+- Contracts currently centralize opaque ID/ref patterns but have no reusable HTTP URL validator. Wait URL conditions must enforce the frozen scheme/length/authority rules directly (or introduce one shared helper) instead of accepting arbitrary strings and relying only on MCP JSON Schema.
+- The exact frozen URL boundary is simple and portable (`^https?://[^\\s]+$`, max 8192). A private contract helper can mirror it without adding a URL-normalization dependency; canonical origin enforcement remains a separate permission concern.
+- Wait is now closed across runtime contracts, service polling, takeover blocking, compact routing, and the pinned MCP 1.29 server. Page/ref/navigation/text conditions are implemented; the typed download condition intentionally returns `unsupported_capability` until download lifecycle support exists.
+- Each backend observation is constrained by the remaining wait deadline with cancellation, so a slow async backend cannot overrun the public timeout unnoticed. The service returns the last trusted observation with `satisfied=false` on timeout instead of fabricating success.
+
+## Tab Lifecycle Gap
+
+- Fresh graph reindex after trace/wait produced 2,438 nodes and 13,342 edges, and newly added recorder/wait symbols are now available for impact analysis.
+- `Tab`/`TabsResult` remain schema-only. The backend protocol still returns an untyped mapping for tab operations; both fake and legacy adapters currently expose placeholder methods, with legacy explicitly unsupported.
+- The frozen public `Tab` shape contains service-owned `tab_id`, `page_id`, `page_revision`, URL/title, and active state. A safe implementation needs typed backend tab snapshots keyed by private backend handles, with the service minting/rotating public identity rather than accepting backend identifiers on the wire.
+- The frozen `TabsResult` is an exact four-field object: `operation`, up to 64 `tabs`, nullable `active_tab_id`, and nullable `observation`. No legacy `src/browser.py` or `src/daemon.py` tab handler was found in the fresh graph, so adapter support must not be inferred from the old daemon surface.
+- Graph discovery confirms the current `BrowserBackend.tabs`, `FakeBackend.tabs`, and `LegacyPilotBackend.tabs` boundary is still `Mapping[str, Any]`; it must become a typed internal result before service-owned public identities can be implemented safely.
+- `ObservationEngine` mints exactly one `tab_id`, `page_id`, revision stream, and ref registry at construction. Multi-tab state therefore requires one observation engine per backend tab; reusing the single engine and merely changing a tab field would leak stale refs/revisions across tabs.
+- The implemented boundary now returns `BackendTabsResult` with private handles, while `BrowserService` owns one `ObservationEngine` per tab and emits only public `Tab` identities. The initial public identity survives the first backend inventory sync, inactive-tab contexts fail stale before page I/O, and the final controlled tab cannot be closed accidentally.
+- The compact router now decodes the exact frozen list/open/switch/close union without expanding the 14-tool manifest. The legacy Firefox/Chromium adapter continues to return structured unsupported for tabs until a real browser-side implementation is proven.
+
+## Popup, Dialog, and Handoff Gap
+
+- The refreshed graph contains no runtime `Dialog` symbol or dialog lifecycle handler, even though the frozen observation schema reserves dialog entries and action verification already names dialog evidence.
+- A broad popup search found no dedicated popup event type; popup creation must therefore enter through a new typed backend event/result boundary and then reuse the service-owned tab reconciliation path, rather than being inferred from arbitrary action text.
+- The frozen `Dialog` object is only four fields (`dialog_id`, closed kind enum, bounded message, `open`). Runtime `Observation.dialogs` is still an untyped tuple of mappings, so schema conformance and dialog identity cannot currently be enforced in Python.
+- `BackendActionEvidence` exposes only `dialog_opened: bool`; it cannot carry dialog kind/message/private handle or distinguish a newly opened popup tab. The next safe seam is a typed backend dialog snapshot in `BackendPageSnapshot`, while popup tab inventory should remain a separate backend result/event.
+- `ActionExecutor.execute()` already captures the backend outcome snapshot before deriving verification. Once dialogs are typed on `BackendPageSnapshot`, post-action observations can expose them without broadening `ActionResult`; popup discovery can remain explicit through the authoritative `browser_tabs list` inventory.
+- Public `Dialog` and private `BackendDialogSnapshot` are now closed types. `ObservationEngine` keeps stable public IDs for an open modal, emits one close delta when it disappears, and never exposes the backend handle.
+- Sensitive password/OTP semantics now produce a server-owned, value-free `USER_TAKEOVER` challenge and immediately pause remote data-plane operations. Local resume deliberately suppresses the same document's repeated sensitive-field signal, but refuses to resume while a modal remains open.
+- Browser-originated popup discovery is verified through the authoritative typed tab inventory: a deterministic fake popup becomes a fresh public tab and observation engine, while its private backend handle stays out of wire output. Real Firefox/Chromium extraction is still unproven and remains an open adapter gate.
+
+## Navigation and Deterministic Fixture Gap
+
+- `browser_navigate` is frozen as an exact goto/back/forward/reload union with page preconditions and bounded timeout, but `BrowserService.navigate` does not exist and the compact router still leaves the tool unsupported.
+- The backend protocol and legacy adapter already return typed `BackendPageSnapshot`; the service can therefore enforce active context, destination origin policy, and page-identity rotation without changing the public schema. The fake backend needs a configured deterministic navigation map rather than a hard-coded unsupported placeholder.
+- The inherited adapter implements only typed `goto`; back/forward/reload are explicit unsupported. Destination origin policy can be checked before goto through `PermissionEngine.evaluate`, while an unexpected redirect must rotate identity, pause remote access, and return a structured permission error because the inherited adapter has no pre-redirect interception hook.
+
+## Download Lifecycle Gap
+
+- The frozen public `Download` has a closed five-state lifecycle plus filename, optional MIME/size/artifact URI/reason, and `DownloadsResult` is an exact list/wait envelope. Runtime `Download` exists for wait typing, but `DownloadsResult` and every backend download result remain untyped or placeholder-only.
+- A safe private boundary needs a backend download handle and optional completed bytes; the service must mint the public download ID and publish bytes through the existing project/session-authorized artifact store. Backend paths must never cross the public wire or be accepted as artifact targets.
+- `DurableArtifactStore.put(session_id, data, mime_type)` already accepts non-image MIME types under the same quota, content-addressed hash, authorization, and symlink defenses. Completed download bytes can reuse it directly; no filesystem path import API is needed for MVP.
+- Fresh graph discovery confirms only three v1 backend download methods exist and all still return `Mapping[str, Any]`; the legacy daemon's directory listing is a separate untyped surface and must not be passed through. The typed replacement can therefore be isolated to the backend protocol, fake, compatibility adapter, service, and compact router without changing the 14-tool manifest.
+- The public schema permits a zero-byte completed download, while the current durable artifact store intentionally rejects empty payloads. MVP publication should preserve that fail-closed artifact rule and return a structured backend/capability error for completed snapshots that cannot supply publishable bytes, rather than fabricating an artifact URI.
+- The post-navigation checkout has moved beyond the last graph index: the graph resolves `BrowserService.tabs` and both backend `downloads` methods to neighboring source spans even though their signatures are correct. Download implementation will use these graph results only for symbol inventory/impact and read exact bodies from narrow checkout ranges until the next fast reindex.
+- `_ActiveSession` already owns the project-scoped durable artifact store, so download publication needs no new global store or authority input. A per-session private-to-public download registry alongside the existing tab registry is the smallest authority-preserving extension.
+- Existing tab and artifact tests provide the exact reusable service harness: deterministic `FakeBackend`, a process-local lock, and chunked `artifact_read` verification. Download tests can prove byte fidelity and private-handle non-disclosure without touching the inherited daemon download directory.
+- `BackendArtifactPayload` is intentionally screenshot-specific and validates PNG/WebP signatures. Download payloads therefore need their own typed snapshot field (`data: bytes | None`) instead of weakening screenshot validation or reusing an image-only model.
+- The frozen MCP input is an exact two-branch union: `list` accepts only session/operation and `wait` additionally requires one opaque public `download_id`. No timeout is part of `browser_downloads`; bounded timing belongs to `browser_wait`, while this operation advances/reads the backend lifecycle once.
+- `DownloadsResult` has only `operation` and a bounded array. Runtime validation should require a single matching item for `wait`, while permitting an empty list result; this makes missing/unknown identities explicit at the service boundary and keeps the public wire exact.
+- Confidential takeover regression already enumerates every remote data-plane coroutine. `browser_downloads` must be added to that same matrix after service implementation so both REQUIRED and ACTIVE states fail before `FakeBackend.download_calls` changes.
+- `browser_wait` currently checks page context and prior observation before rejecting the download branch. With the lifecycle available, it can preserve those preconditions, resolve the public download ID locally, and make bounded backend `wait` calls under the existing deadline without polling page observations or calling the public locking method recursively.
+- The durable store deduplicates by content hash but refreshes metadata on each `put`. Keeping the artifact URI on `_DownloadState` and skipping later writes is necessary to satisfy true publish-once behavior and stable expiry metadata, not merely byte-level deduplication.
+- The existing wait loop already holds the service mutex while enforcing page/session ownership and constrains backend awaitables with the remaining deadline. The download branch can use the same structure safely, but must call the private `_backend_downloads` helper rather than `BrowserService.downloads()` to avoid re-entering the non-reentrant mutex.
+- The takeover matrix currently proves zero screenshot/navigation/tab backend calls. Adding download list to its coroutine tuple plus a zero `download_calls` assertion will extend the same before-I/O confidentiality evidence without a separate takeover fixture.
+- The first integrated download matrix is GREEN across public/private contracts, service identity mapping, artifact byte recovery, wait completion, exact MCP decoding, explicit legacy unsupported behavior, and takeover blocking. The remaining correctness risk is terminal snapshot immutability: a backend must not be able to change bytes after a public completed artifact has been minted.
+- After download routing became implemented, the pinned MCP error fixture must use the sole remaining unimplemented compact tool, `browser_devtools`. Its frozen input still requires all page preconditions plus an exact query-specific `parameters` object; a shortened session/query request is rejected by MCP schema validation before router error normalization.
+- The fixture server now provides deterministic route infrastructure for forms, SPA/history, dynamic mutation, shadow DOM, same/cross-origin frames, dialogs, popup, credentials, and downloads. It does not yet provide a distinct DOM-replacement/stale-ref scenario, and route availability is not equivalent to 25 real-browser E2E passes.
+- With typed downloads closed, the only compact v1 tool still intentionally unimplemented is `browser_devtools`. Phase 6 is therefore the next locally actionable product-surface seam, while real adapter events, SSH round-trip, and clean-device gates remain device-dependent.
+
+## Developer Mode Gap
+
+- The frozen compact schema defines five read-only Developer queries (`console`, `network`, `dom`, `style`, `performance`), but no corresponding runtime entry/result models exist. Backend, fake, and legacy methods still return generic mappings or explicit placeholders, and the compact router keeps the tool outside its implemented set.
+- Existing origin permissions authorize navigation/action access only; no separate Developer grant exists. Reusing ordinary `session_allow` would silently escalate page access into browser-internals access, so Developer Mode needs a distinct server-held, site-bound authority that is default OFF and mutable only through the local host-control boundary.
+- Host-control already provides the correct mutation trust boundary, but its request union is closed to permission/confirmation/takeover operations. A narrow `developer_mode_set` host operation can grant or revoke the active origin for the active session without adding remote MCP mutation authority or widening the ordinary permission enum.
+- Runtime config is a strict closed file schema and intentionally excludes authority-enabling keys. Developer Mode should remain hard-disabled by default through a trusted constructor/startup option rather than a JSON config field.
+- Existing config tests intentionally reject `developer_mode_enabled` as an authority-enabling file key. Preserve that invariant: availability should be a trusted constructor/startup option defaulting false, and per-origin enablement should be a local, session-scoped host decision rather than persistent JSON configuration.
+- `ObservationEngine.resolve_ref()` already maps a public observed ref to its private backend handle under page/revision checks. Developer DOM/style queries can reuse it for requested targets, while backend-returned DOM entries must be limited to already observed private handles (or omitted) so the backend cannot mint public refs.
+- The security RFC already freezes Developer Mode as session-and-origin scoped and limits compact v1 to bounded console messages, network metadata, DOM/style summaries, and performance values. Response bodies, cookie/header values, raw eval, and raw CDP must remain absent even after the typed tool is routed.
+- No reusable redaction helper exists in the typed core. Developer console messages and network URLs are privileged untrusted data; this increment should at minimum bound them through closed models and avoid body/header fields, while broader pattern-based secret redaction remains an explicit hardening gate rather than an unverified claim.
+- `ElementRefRegistry` already maintains both private-handle→public-ref and public-ref→binding maps but exposes only the latter. A narrow lookup-by-handle method can safely translate backend DOM results only when the node was in the current observation; unknown backend nodes should fail closed instead of receiving fresh refs through Developer Mode.
+- Local permission and confirmation mutations already bypass the remote-active guard so the user can recover/control a paused session. Developer grant mutation should still require an ACTIVE observed page and exact current origin; granting browser internals while takeover is active would undermine the confidentiality boundary.
+- Developer reads fit beside screenshot/trace as a service data-plane method: common takeover guard first, page-context validation second, availability/origin authorization third, then typed backend dispatch. This order prevents both private backend I/O and grant-state side channels on stale/paused contexts.
+- `tbp-control` already has a closed argparse→JSON request mapper for permission, confirmation, and takeover. An explicit `developer-mode <session> <origin> enable|disable` subcommand can reuse the verified Unix transport without exposing a generic operation/value escape hatch.
+- Production compact runtime construction currently has no startup option and `tbp-mcp-v1` immediately calls `build_default_runtime()`. Keeping Developer availability genuinely default OFF requires an explicit, reviewable startup mechanism; silently reading an environment/config key would violate the existing authority-key rejection contract.
+- Installation documentation still points Hermes at legacy `tbp-mcp` and accurately calls out its 148-tool surface; the new compact entrypoint is `tbp-mcp-v1`. Documentation must present compact v1 as an explicit alpha opt-in until real adapter/device gates pass, and show `--developer-mode` only as availability plus a separate local origin grant.
+- The security/architecture RFC already describes loopback shared-view defaults and tailnet bearer/CSP requirements, but no implementation exists yet. Do not imply that the dashboard or tailnet binding is available while documenting Developer Mode.
+- The checkout currently does not package `tbp-mcp-v1` at all: `tbp-mcp` still loads the inherited 148-tool server through the guarded optional-dependency entrypoint. The compact server is source-only despite earlier test coverage, so Phase 6 needs a guarded separate console script before Hermes can explicitly select it.
+
+## Shared View Gap
+
+- No shared-view implementation or runtime symbol exists. The service already has bounded status, durable trace paging, artifact reads, permission decisions, and confirmation state, so the MVP should compose those existing authorities rather than create a second browser/session model.
+- `ConfirmationEngine` exposes status by known ID but no bounded pending-list method. A read-only dashboard that promises pending confirmation summaries needs a narrow list operation over server-owned `Challenge` values; it must not expose proof/nonces or add approval mutation routes.
+- Shared view must remain useful during takeover without leaking the page: return only redacted status/state indicator in confidential states, with no URL/title/screenshot/trace/challenge content. This differs from remote MCP reads, which correctly fail with `session_paused`.
+- The graph still resolves `ConfirmationEngine` and `DurableTraceRecorder.list_page()` correctly, but its `_ActiveSession` source span is stale after the recent download/Developer work. Shared-view design will use graph results for symbol discovery and narrow checkout reads for exact current bodies until the next stable fast reindex.
+- Durable trace listing already enforces session authorization, retention cleanup, a bounded 1..1000 limit, and newest-page selection. The viewer can safely request a much smaller fixed recent window instead of introducing a second trace persistence path.
+- The approved plan fixes a two-second static read-only dashboard and requires screenshot, URL/title/tab, pending confirmation/permission information, recent trace, and a takeover indicator. The first implementation will expose only information already represented by a typed authority; it will report pending permissions as an empty bounded collection until a server-held permission-request lifecycle exists, rather than infer requests from policy decisions.
+- A shared-view GET must never trigger browser I/O. It can use `ObservationEngine.last_observation` and its existing durable screenshot URI, while the image route may serve only that exact current artifact and only while the session is ACTIVE.
+- Tailnet exposure is a distinct security surface with bearer authentication and an explicit host operation. The MVP increment therefore binds only to a validated loopback address and keeps tailnet binding deferred rather than silently converting a local dashboard into a remote HTTP authority.
+- Current page URLs can contain credentials, query values, or fragments, and titles can echo token assignments. Shared-view composition and HTTP serialization should both reuse the Developer redaction helpers so a future provider change cannot bypass the local dashboard's secret-removal boundary.
+- Startup integration can remain default OFF with one explicit `--shared-view` flag and a fixed loopback port option. Because stdout is the MCP stdio protocol, the discoverable dashboard URL must be emitted only on stderr; no config or environment authority key is needed.
+- Ordinary permission evaluation returns `ASK` but previously retained no prompt object. A session-owned origin-to-`Challenge(kind=permission)` registry is sufficient for the dashboard: the identifier conveys no authority, repeated requests stay stable, previews contain only the canonical origin, and the existing local permission decision clears the prompt.
+- Graph impact tracing finds `build_default_runtime`, `build_default_router`, and the runtime composition test as the only `build_legacy_compact_runtime` callers. Adding a default-disabled optional viewer field therefore does not widen legacy CLI/daemon construction or create a second service instance.
+
+## DOM Replacement Fixture Gap
+
+- The deterministic site currently declares 27 bounded scenarios and covers list insertion/removal, but it has no route whose visible semantics stay constant while the underlying DOM node identity is replaced. That distinction is required to exercise stale-ref behavior rather than only text/mutation waits.
+- `ElementRefRegistry.issue()` removes disappeared handles and drops the old public ref even when a replacement node has the same semantic fingerprint. This is the correct fail-closed core behavior; the missing work is a deterministic `/stale-replacement` browser scenario plus service-level evidence that the old ref cannot dispatch after the replacement observation.
+- The existing HTTP fixture tests verify deterministic bytes and route markers, not browser execution. Adding the route closes the fixture inventory item, while actual Firefox/Chromium E2E remains a separate adapter/device gate and must not be marked complete from HTTP-only evidence.
+
+## Legacy Adapter Reality Check
+
+- A fresh fast graph index after shared-view/fixture work contains 2,725 nodes and 15,875 edges, so current service and runtime symbols are no longer using the earlier stale spans.
+- The inherited public `Pilot` surface directly provides goto, URL/title/text, arbitrary evaluate, screenshot, input click/type/key/scroll, accessibility, and Chromium network snapshots. It does not expose a public tab lifecycle or completed download-byte API; daemon directory listings and network “download-like resource” URLs are not equivalent to the typed lifecycle and must not be promoted as such.
+- Legacy `observe` currently returns text/accessibility/screenshot only and explicitly advertises `stable_refs=false`; `act`, tabs, downloads, and Developer queries are unsupported. The next safe adapter increment is therefore bounded DOM-derived interactive observation plus the subset of actions backed by existing Pilot input methods, while tabs/download bytes remain explicit device/backend gates.
+- The existing `InputCommands` can drive click, hover, wheel, text, and key events, while daemon-only select/check/drag handlers rely on JavaScript or private session access. A typed adapter can safely support click/type/key/vertical-scroll first by resolving server-held DOM handles to fresh coordinates/state; select/check may use closed internal scripts, but should not claim raw-coordinate or arbitrary-eval authority.
+- A page-scoped JavaScript `WeakMap` plus private token-to-node `Map` can preserve backend node identity across observations without writing selector attributes into the page. Replaced nodes receive new private handles, and actions can reject disconnected/unknown handles before dispatch; same-origin frame offsets and open shadow traversal can be included while cross-origin frames remain capability-limited.
+- The inherited Firefox download preference and daemon listing use global `~/.tbp/downloads`, which conflicts with the new project-scoped profile boundary. Real typed download publication must use an adapter-specific project download directory configured at browser startup and secure no-follow regular-file reads; merely wrapping the daemon's global listing would regress isolation.
+# 2026-08-24 — Legacy DOM action adapter implementation notes
+
+- The refreshed graph confirms `LegacyPilotBackend` can use the inherited public `Pilot.click()` and coordinate-based `Pilot.type()` methods without reaching into CDP implementation details.
+- `Pilot.type()` delegates to `InputCommands.fill()`, whose contract clears before typing. The first migrated adapter slice can therefore support `type` only when the public request permits clearing; append-without-clear must remain an explicit unsupported capability until a verified primitive exists.
+- The adapter's randomized main-world DOM registry remains a compatibility bridge, not a privileged browser identity source. It can provide stable handles for connected same-origin DOM nodes and open shadow roots, while cross-origin frames and registry survival across document replacement remain bounded limitations.
+- Action dispatch must re-read the private handle immediately before input, reject disconnected/invisible/disabled or zero-area targets, and report only normalized evidence. Raw page probe values and inherited exception strings must not cross the backend boundary.
+
+## Legacy Developer adapter discovery
+
+- The inherited public Pilot exposes Chromium network request snapshots through `get_requests()`/`get_network_summary()`, but there is no symmetric typed console API across both legacy backends. Relying on daemon-global capture state would couple the new service back to the old command surface.
+- DOM, computed-style, and browser Performance API reads can share the existing per-page randomized handle registry and closed `evaluate()` probes. These queries can be migrated for both backends without enabling raw eval or accepting caller-supplied scripts.
+- Console support requires an explicit bounded capture installation rather than retrofitting old daemon globals. Network fidelity will differ by backend unless the adapter owns a page-scoped fetch/XHR/resource observer; this must be advertised as partial, with no bodies, headers, cookies, or auth data.
+
+## Legacy tab, dialog, and download feasibility
+
+- `Pilot` has no public tab/target lifecycle API. The old dialog commands are daemon-global injected JavaScript logs, not a browser-authoritative popup/dialog event stream. Reusing them would bypass the new session and profile authority boundaries.
+- `Pilot.get_download_urls()` only forwards URL-like network observations; it does not provide a completed-file event, safe basename, MIME, exact byte count, or payload bytes required by `BackendDownloadSnapshot`.
+- The inherited Pilot constructor does not accept a project-scoped download directory, and the indexed source has no `Browser.setDownloadBehavior`/download-path configuration. Advertising typed downloads now would risk reading a global filesystem location or falsely equating a network URL with a completed artifact.
+- Consequently, real tabs/dialogs/downloads must remain explicit unsupported capabilities until backend-owned lifecycle primitives and a project-contained download directory are added. This is an evidence-backed safety gate, not an implementation omission to hide behind synthetic success.
+
+## Shared native-input action feasibility
+
+- Both Chromium CDP and the native Firefox compatibility session consume the same `Input.dispatchKeyEvent` and `Input.dispatchMouseEvent` abstraction. Native Firefox maps the standard modifier bits to xdotool, so the typed Alt/Control/Meta/Shift union can be preserved without backend-specific caller behavior.
+- A bounded coordinate drag can therefore be implemented once in `InputCommands` and reached through a public Pilot method. The critical safety requirement is releasing the mouse button in a `finally` path even when an intermediate movement raises or the enclosing action is cancelled.
+
+## Host tool profiles and remote integration
+
+- The compact MCP server now enforces two closed profiles at both discovery and dispatch: `interactive` is the exact frozen 14-tool surface, while `observer` omits `browser_act` and `browser_tabs`. The observer name denotes a reduced host profile, not a promise that lifecycle or navigation operations are side-effect-free.
+- Hermes configuration can express the same server-side profile and an exact client-side `tools.include` defense in depth. Codex configuration can express the corresponding `enabled_tools`, per-tool approval modes, startup/connect timeouts, and a required server over SSH stdio.
+- Remote examples use `ssh -T` with batch mode, strict host-key checking, and an absolute Termux executable. The Android Tailscale constraint remains precise: while Excluding split tunneling is used, the Termux app must remain OFF in that app list so Android DNS continues to work.
+- SSH stdout purity is not yet marked complete merely from static configuration. It requires either a locally testable wrapper contract or an actual remote invocation proving that banners and startup diagnostics stay off MCP stdout.
+
+## Phase 7 local security/recovery audit
+
+- The current graph shows explicit no-follow/private-file defenses and regressions across durable artifacts, permissions, idempotency records, process locks, and the owner-local control socket. The artifact store opens content with `O_NOFOLLOW`, validates the opened descriptor as a private regular file, bounds the byte count, and verifies stored content before release.
+- Canonical origin handling already rejects credentials, whitespace, malformed ports, unsupported schemes, and normalizes IDNA/IP/default ports. Navigation permission is checked before the initial backend call, and an unexpected resulting origin quarantines the session after return.
+- True pre-follow redirect and resolved-address enforcement is not implemented by the current legacy browser adapter. A post-navigation quarantine test must not be described as DNS rebinding/SSRF prevention; that release gate remains open until navigation interception or an equally authoritative backend primitive exists.
+- Existing recovery/security coverage includes stale revisions/refs, terminal replay dispatch-once behavior, symlink refusal for locks and durable records, owner-private host sockets, and restart-safe artifact/trace stores. Device browser crash, Android process kill, SSH reconnect, and long soak remain separate runtime gates.
+- Prompt-injection coverage now includes an inert, no-script deterministic page whose visible text asks the agent to set `always_allow`, enable Developer Mode, reveal tools, and auto-approve. A service regression proves that observing this content leaves permission decisions and confirmations empty, leaves Developer Mode unavailable without backend dispatch, and still blocks a new origin before navigation I/O.
+
+## Documentation and operational lifecycle audit
+
+- The pre-audit architecture/security prose mixed normative v1 requirements with current-alpha statements. The most material drift was redirect/DNS enforcement: canonical origin permission and post-return quarantine exist, while real pre-follow interception, address classification, and peer pinning do not.
+- The current checkout deliberately has two MCP entrypoints: legacy `tbp-mcp` and compact `tbp-mcp-v1`. Migration milestones that invert the default or delegate legacy CLI calls are targets, not present behavior; documentation now says so explicitly.
+- The installer created the compact entrypoint but verified and printed only the legacy one. It now fails closed if either entrypoint is absent, runs compact `--help`, and reports both paths while recommending an explicit compact observer profile.
+- Update, rollback, uninstall, and project-data reset must preserve the known-good venv/data path. The operations guide uses new sibling venvs and recoverable explicit moves; it deliberately avoids broad globs and recursive home/workspace deletion.
+
+## Refreshed codebase graph audit
+
+- The final fast refresh contains 2,850 nodes and 16,723 edges across 107 Python files, two Bash files, and one TOML file. It identifies six executable entrypoints: legacy CLI/daemon/MCP, guarded MCP loader, compact MCP, and owner-local control CLI.
+- The dominant fan-in hotspots remain the inherited 148-tool MCP `_send`/`_result` path and legacy CLI/client surface. This matches the documented migration gap: compact logic is separated, but the old public CLI/MCP have not yet delegated into it.
+- The typed-core complexity scan flags validation and closed-union dispatch methods as the largest new branches (`ActionRequest._validate_parameters`, compact router dispatch/Developer parameter parsing, durable record validation). Their current bounded inputs and focused contract tests make them acceptable alpha hotspots, but they are the first candidates for table-driven decomposition after device gates.
+
+## Legacy sensitive-field end-to-end boundary
+
+- The legacy DOM probe supplies normalized input type and accessible name but never returns an input value in the interactive inventory. Password type and credential/OTP naming therefore reach the existing `ObservationEngine` handoff classifier without widening the public schema.
+- A full `LegacyPilotBackend` → `BrowserService` regression now covers both a generic-name password input and a text input named `One-time code`. Both produce one pending, value-free `USER_TAKEOVER` challenge and move the session to `USER_TAKEOVER_REQUIRED`.
+- The serialized observation contains neither the sentinel secret, the private backend node handle, nor the randomized adapter registry key. This closes typed observation/action-evidence masking for password/OTP fields; screenshot-region redaction remains a separate open policy and implementation gate.
+
+## Current S22U remote-gate reachability
+
+- The macOS Tailscale app CLI sees `Galaxy S22 Ultra` online and a single layer-3 ping succeeds in 371 ms. The ordinary shell PATH does not expose the CLI, but the app-bundled executable is usable for read-only status and ping diagnostics.
+- TCP port 8022 is not currently accepting connections, so an actual `ssh -T` compact-MCP, artifact round-trip, soak, or process-recovery run cannot be initiated from this Mac yet. This is an sshd/readiness gate, not evidence against the compact server or Tailscale reachability.
+
+## Manual live-CDP discovery closure
+
+- The five inherited `test_*.py` browser diagnostics were unsafe discovery modules: eager project imports required optional `websockets`, and four invoked `asyncio.run(main())` at import time. With a local CDP listener, an ordinary unit discovery could therefore navigate public sites and write PNGs.
+- All five now lazy-import project/CDP modules inside `main()` and have an exact guarded entry point. An AST regression rejects eager `src.*` imports, top-level `asyncio.run`, or a missing guard.
+- Standard unfiltered discovery is now authoritative and inert: base Python 3.11 passes 280 tests with seven optional MCP skips, and the isolated Python 3.12.13/MCP 1.29/websockets 17 environment passes all 280. Manual diagnostics remain non-gating and perform I/O only when explicitly invoked as scripts.
+
+## 2026-08-25 S22U compact RC failure analysis
+
+- The source report is the private Mac file `Hermes 전달.rtf`, SHA-256 `18011f06fd7991b53e6c18fd4e99b66e950ecd52a9eddb3a8f3ac4f7e7e3c294`. It tested clean detached commit `0007a1e027750a3005a4fced4a7ef48ed7b8eb73` side by side and concluded `PARTIAL`; the report was not copied into the public repository.
+- Installation, native Termux cryptography reuse, `mcp==1.29.0`, `websockets==17.0.1`, both `pip check` runs, all four entrypoints, 280 device unit tests, compact observer stdio purity, Hermes connection, and the exact 12-tool observer surface passed. These results isolate the failure from installation and MCP discovery.
+- Firefox loaded `https://example.com/` with the expected title and page screenshot, but compact `browser_observe` failed at the inherited DOM evaluation bridge with generic `backend_crashed`. The same run also saw one JavaScript navigation timeout. This supports, but does not by itself prove, a DevTools-console/clipboard/focus synchronization failure.
+- Chromium failed compact session start after both the multi-process attempt and its single-process fallback. A separate minimal launch of the same binary on another display/port survived and exposed CDP, so binary-wide incompatibility is unlikely; resource collision/readiness/startup-path failure is the narrower hypothesis. The old runtime discarded stderr, preventing a stronger device-side diagnosis.
+- The compact adapter now requests `display="auto"` and `cdp_port=0`, while the public v0.x `Pilot` contract retains `:99` and `9222`. Auto display claims a private 0600 PID/inode lease, scans both `/tmp` and Termux/Python's actual temporary root for X11 ownership artifacts, preserves a concurrently replaced lease, does not mutate global `DISPLAY`, and never kills foreign Xvfb/openbox processes or removes X11 locks/sockets. Browser start also cleans its own resources on failure/cancellation instead of relying on an adapter caller.
+- Chromium startup now drains only a bounded stderr tail, decides fallback from CDP readiness or early process exit rather than a fixed sleep, cleans a failed child before relaunch, and preserves up to three failed-attempt tails in a 0600 file below the 0700 `termuinator-runtime` directory. Public failures remain generic; raw diagnostics stay device-local.
+- Firefox console synchronization now probes an already-visible, focused DevTools window before toggling and accepts only an exact randomized copied sentinel. It never pastes or executes a synchronization probe without finding the separate DevTools window. A timeout invalidates console/focus/JavaScript availability, never logs clipboard content, and raises a typed internal failure. Navigation uses the address-bar fallback for that failure, while compact Firefox DOM observation retries exactly once before returning a generic retryable `backend_crashed`.
+- These are locally tested repairs, not device-pass evidence. Firefox/Chromium compact smoke, artifact recovery, clean stop, and the skipped benchmark must be rerun on the S22U before the RC gate can close.
+
+## 2026-08-25 S22U `b5362f9` RC rerun evidence
+
+- The updated private report `Hermes 전달.rtf` has SHA-256 `8f10ccd8e32e6023b518a60d4439ceaf4ed287ea87468745a11cfe28735c6f2c`. It tested clean commit `b5362f9414246c7136d94e67505f9713c163f48c`, matched remote/local HEAD, and did not reuse the prior `0007a1e` verdict.
+- Side-by-side install, post-install verification, native Termux `cryptography==50.0.0`, `mcp==1.29.0`, `websockets==17.0.1`, both `pip check` runs, 304 device tests, compact stdio purity, Hermes connection, and the exact 12-tool observer profile all passed. The new venv did not contain crawl4ai.
+- Firefox now passes session start, permission flow, navigation, visible page/title, screenshot recovery, artifact hash/mode checks, stop, and cleanup. Its full DOM observation still returns the generic retryable `backend_crashed`, so the current public envelope does not distinguish transport timeout, JavaScript execution error, and invalid normalized payload.
+- Chromium startup recovery is proven on the device: session start, navigation, text observation, screenshot/artifact pipeline, and cleanup all pass when accessibility is omitted. Default observation fails because `Pilot.a11y_tree()` returns the string produced by `get_tree_summary()`, while `LegacyPilotBackend.observe()` accepts only a `Mapping` or a sequence of mappings.
+- The legacy a11y summary is an existing public behavior, while `AccessibilityCommands.get_tree()` already exposes structured nodes for both CDP Chromium and the native Firefox translation. The safe repair seam is therefore a separate bounded structured Pilot method plus adapter normalization, not changing the legacy summary wire shape or accepting arbitrary strings as structured accessibility.
+- A generic MCP SDK stdio environment omitted `TMPDIR`; the same Chromium launch passed with `TMPDIR` and failed with ProcessSingleton/socket-directory exit 21 without it. Hermes native MCP already preserves `TMPDIR`, so this is a reproducibility contract gap rather than the direct full-smoke failure.
+- The device correctly skipped the benchmark because neither backend completed the default full observer smoke. `final_verify.py` was written but not executed due the remote tool-call limit; only its individually executed JSON/result/manifest checks count as evidence.
+- The next Firefox run must use a bounded staged diagnostic (`1+1`, ready state, small JSON, full probe, normalization) and record only stage/type/length/timing in a private file. Retrying the same generic smoke or raising the timeout would not identify the failure boundary.
+
+## 2026-08-26 Chromium structured accessibility recovery
+
+- The prior fake Pilot returned a mapping list from `a11y_tree()`, which hid the device contract mismatch. The regression now mirrors the real inherited surface: `a11y_tree()` remains a summary string and a separate `a11y_nodes()` delegates to `AccessibilityCommands.get_tree()`.
+- `LegacyPilotBackend.observe()` now consumes only the structured method and publishes at most the first 200 nodes after reducing each node to bounded role/name strings. Raw CDP fields and private accessibility node IDs do not cross the adapter.
+- Roles `none`, `generic`, and `InlineTextBox` retain the legacy summary filtering behavior. Non-mapping nodes, non-string role/name values, role values over 64 characters, and names over 512 characters fail closed with the existing generic error and without echoing page data.
+- The exact device-shaped test first failed with `Inherited browser returned invalid accessibility data`; the missing Pilot method separately failed with `AttributeError`. After the minimal changes, all 19 legacy adapter tests pass with warnings treated as errors on Python 3.11.15.
+
+## 2026-08-26 Firefox DOM observation root cause and repair
+
+- The full `observe_script()` is 5,262 characters and passes JavaScript syntax validation unchanged. The string produced by `NativeFirefoxSession._safe_join_lines()` is 5,097 characters and fails with `Unexpected token ';'` because it rewrites the final object property as `shadow_path:shadowPath; });`.
+- `_exec_js_inner()` already wraps source through `eval(json.dumps(expression))`; newline removal was therefore unnecessary and destructive. It now preserves `expression.strip()` exactly, and the unsafe helper plus its otherwise-unused regular-expression import are removed.
+- A deterministic bridge regression captures the actual eval wrapper and requires the complete multiline DOM probe to remain JSON-escaped and unchanged. It failed against the rewritten source and is GREEN after the focused fix.
+- JavaScript evaluation failures now raise a secret-free typed `JavascriptExecutionError` with reason `evaluation` rather than returning an `ERR:` page-controlled string as a successful payload. Native timeout remains a distinct `JavascriptExecutionTimeout`; public adapter errors remain generic.
+- All seven native execution regressions and all 19 legacy adapter regressions pass with warnings treated as errors on Python 3.11.15. Actual Firefox recovery still requires the next S22U full observer smoke.
+
+## 2026-08-26 Chromium TMPDIR child-environment recovery
+
+- `_start_chromium()` now sets only the child environment's `TMPDIR`; it does not mutate the MCP server or shell environment.
+- A valid inherited absolute writable directory wins. If the stdio host omitted it, Termux `PREFIX/tmp` is selected, followed by Python's base-prefix `tmp` for venvs whose environment also omitted `PREFIX`.
+- The explicit missing-TMPDIR RED failed with a `KeyError`, and the missing-PREFIX RED resolved to `None`. Both are GREEN after the fallback, and all 23 browser lifecycle regressions pass on Python 3.11.15.
+
+## 2026-08-26 Compact MCP termination cleanup
+
+- A fresh-wheel sequential stdio probe exposed a real lifecycle gap: terminating the observer process with `SIGTERM` bypassed coroutine cleanup, left the owner-private `control.sock`, and caused the next interactive process on the same data root to fail before MCP startup.
+- The new subprocess regression waits for the real socket, sends `SIGTERM`, requires zero protocol/log output, requires socket removal, and repeats startup on the same data root. It produced the intended RED before implementation.
+- Compact stdio now translates `SIGTERM` and `SIGINT` into an asynchronous shutdown request, cancels the MCP server task, closes the optional shared view and host-control server through the existing `finally` chain, and then restores event-loop signal handling. It does not unlink an unverified replacement path.
+- The installed wheel now runs observer followed by interactive on one isolated data root; both remain alive while stdin is open, exit with rc 0, emit zero stdout/stderr bytes, and leave no control socket.
+
+## 2026-08-26 Final local candidate authority
+
+- Python 3.11.15, 3.12.13, and 3.14.7 each pass all 312 tests with warnings treated as errors; the eight optional MCP tests are skipped only in the dependency-minimal interpreters. Python 3.14.7 with pinned MCP 1.29.0 executes and passes all 312 tests.
+- Static gates pass: `git diff --check`, `bash -n setup.sh`, and warning-as-error `compileall` over source, tests, and scripts.
+- A fresh wheel was built at `/tmp/termuinator-wheel-verify.20O4oK/dist2/termux_browser_pilot-0.1.0a1-py3-none-any.whl` (273,464 bytes, SHA-256 `80a62d6f0fa5d684b2e58f38e73ed0caa75fa23c0d2a8bd5b79ffa9c369dcc1c`).
+- An isolated Python 3.14 install of that wheel with MCP 1.29.0 and websockets 17.0.1 passes `pip check`, all 312 tests from outside the checkout, installed-module provenance, and all four console entrypoints.
+- The refreshed fast code graph contains 2,945 nodes and 17,258 edges. Impact traces connect structured accessibility to compact `observe`, TMPDIR validation to `BrowserPilot._start_chromium`, Firefox source preservation to the native evaluate/navigation/accessibility paths, and compact stdio cleanup to its lifecycle tests.
+- These local results do not substitute for Android ABI/browser evidence. The S22U Firefox/Chromium full observer, artifact, cleanup, and benchmark-ordering gates remain open, and no commit or push was performed.
+
+## 2026-08-26 Canonical S22U final-verification gate
+
+- A second contract audit found that the first structured-accessibility repair still returned only `role` and `name`, while the frozen MCP `AccessibilityNode` requires `ref`, `role`, `name`, `text`, and `depth` with no additional fields. The focused RED failed on both a real-shaped node and the 200-node bound. The adapter now emits `ref: null`, bounded role/name, empty text, and depth zero; private CDP identifiers still never cross the boundary.
+- The device-only `final_verify.py` mentioned in the prior Hermes report was not in the repository and had never been executed. `scripts/final_verify.py` is now the canonical, dependency-light orchestration layer, with 14 focused tests for the full observation, monotonic EOF reconstruction, URI/metadata/local hash agreement, actual 0700/0600 durable storage, pip wheel provenance, exact 14/12 tool profiles, clean stop on failure, and private canonical reports.
+- The verifier cannot silently test one backend. It runs Chromium and Firefox against the bundled loopback `/forms` fixture, grants only that ephemeral origin through `tbp-control`, checks a usable public ref and bounded accessibility, retrieves an explicit PNG artifact, stops each session, and then starts the observer profile on the same isolated data root. Benchmark permission is false unless both backend, stdio, cleanup, and process-survivor gates pass.
+- Installed provenance is selected only from the current venv's purelib/platlib, so repository egg-info cannot masquerade as the installed wheel. The preserved wheel bytes, caller-provided SHA-256, pip `direct_url.json` archive hash, both console commands, package versions, native Termux cryptography origin, exact Git commit, and clean worktree are all required before any browser starts.
+- Python 3.11.15 and 3.12.13 pass 332 tests with eight optional MCP skips; pinned-MCP Python 3.14.7 executes and passes all 332 with warnings treated as errors. The superseding candidate wheel is 273,622 bytes with SHA-256 `85ec62fa15200c689e25044e564642e9b2e505764c2327ed673da77bc24a1299`.
+- A pip-installed copy of that wheel passes dependency checks and exposes the complete five-field accessibility mapping outside the checkout. Its HOME-isolated interactive-to-observer same-data-root probe removes inherited `TBP_SINGLE_PROCESS`, reports 14 then 12 tools, MCP protocol `2025-11-25`, server `0.1.0a1`, private host-control sockets, zero stderr bytes, and socket removal after both exits.
+- The verifier's macOS fail-closed smoke writes a private FAIL manifest and checksum, leaves `benchmark_allowed` false, and stops at the expected host boundary. This is not Android evidence. The new commit still needs a side-by-side wheel install and an exit-zero S22U manifest before benchmark or RC approval.
+- The first verifier child environment isolated XDG and TMP but inherited `HOME`; Firefox's legacy native path writes downloads below `~/.tbp`, so that could mutate or reuse the operator's existing Termux state despite an isolated browser profile. The verifier now supplies its own mode 0700 HOME below the private report directory. An installed-wheel interactive→observer probe still returns exact 14/12 tools, zero stderr, a private live socket, and no socket after exit with that HOME.
+- `TBP_SINGLE_PROCESS` is read at browser-module import time. Leaving the prior Hermes diagnostic override inherited would silently change the Chromium release candidate under test. The verifier removes it before the MCP process starts, while preserving the fixed loopback-only network and owner scope.
+- `VirglManager.start()` previously ran `pkill -f virgl_test_server_android` before launching its own process. That could terminate an unrelated Termux session or application and contradicted the device gate's ownership boundary. It now launches only a process it owns, reuses that live process on repeated start, falls back to SwiftShader if the optional executable cannot run, and stops only its retained process. The final verifier's survivor set now also includes VirGL, xclip, and xdotool helpers.
+- The environment report had named `platform.release()` as `android_release`; that value is the Linux kernel release. It is now reported as `kernel_release`, avoiding unsupported Android-version evidence.
+- After the final local candidate was frozen, the read-only Mac tailnet check showed `galaxy-s22-ultra` offline (last seen one minute earlier); one ping timed out and TCP 8022 remained closed. No device or Tailscale setting was changed. Direct Mac execution of the canonical gate is currently unavailable, so the next authoritative evidence must come from on-device Hermes or a later online SSH listener.
+- The final wheel and checksum are preserved in the private sibling staging directory `../Termu-inator-device-artifacts/s22u-2026-08-26-rc/` with directory mode 0700 and file mode 0600. Its README explicitly marks it as non-device evidence and invalidates reuse if candidate source changes before commit.
+
+## 2026-08-26 Final verifier provenance and socket-path audit
+
+- Clean Git state and a caller-provided wheel hash were independent facts: before this audit, another wheel with the same Python API surface and a newly supplied hash could carry changed source, dependency metadata, licenses, or RECORD entries and still reach the device gate.
+- Wheel authority now requires a safe unique ZIP inventory; byte equality for all 57 tracked Python sources; exact console entrypoints, 0.1.0a1 package/dependency metadata, README payload, LICENSE/NOTICE, top-level/WHEEL semantics; and valid SHA-256/size values for every RECORD row. Installed Python source files and entrypoints are independently matched to the checkout.
+- The preserved wheel passes every new check with source-tree digest `9693c07cb450d1da342006a595b8e0a0fb3662dec09a55e7202b0f5ad00e812b`. The wheel itself was not rebuilt because no packaged source changed during this verifier/test/document review.
+- The initial report layout placed `control.sock` beyond the runtime's explicit 100-byte portable limit on a Termux home path. One-letter private child roots reduce the suffix, the verifier rejects any remaining overlong output before spawning, and the documented `~/.cache/tfv/COMMIT12` layout models to 87 bytes on the S22U Termux path.
+- Full local authority is now 339 tests on each of Python 3.11, 3.12, and pinned-MCP Python 3.14, plus static gates and an installed-wheel 14/12-profile round trip. The benchmark guide now uses only the verified commit-suffixed venv. These remain local evidence; only a clean-commit S22U PASS manifest may open the benchmark.
+- The latest Tailscale control-plane snapshot reports the S22U online, but a direct Tailscale ping received no reply and TCP 8022 did not connect within five seconds. Online map state alone is therefore not treated as SSH or device-verifier reachability.
+
+## 2026-08-26 `d40f4d3` S22U Android identity failure evidence
+
+- The attached `final-verify-manifest.json` is 253 bytes, mode 0600 after transfer, and has SHA-256 `9abc91b3776ae55955fb52c4a27efb56c0b256b9d7d00efe794b49a2877f6e2b`; the attached checksum verifies from its own directory.
+- The attached 142-byte `raw-errors.json` has SHA-256 `58aea8837973c3711dd722870ac8a7adffed39b231291ed814e746730c5a1670` and contains one bounded `VerificationFailure('final verifier must run on Android/Termux')` at `installed-environment`.
+- The manifest is a valid fail-closed result: `status=FAIL`, `benchmark_allowed=false`, no backend stage was entered, and no benchmark authority exists.
+- The Hermes report's wheel size/hash, 57-source tree digest, native cryptography, pinned MCP/websockets, clean detached checkout, and pip provenance all precede the failure. The evidence therefore narrows the defect to verifier platform identity rather than wheel, ABI, dependency, browser, DNS, or Tailscale behavior.
+- Current Termux Python reports `sys.platform=android`, `platform.system()=Android`, and `ANDROID_ROOT=/system`. Requiring `platform.system() == "Linux"` is incompatible with this valid modern Android identity, but merely accepting any one environment string would weaken the device-only gate.
+- The minimal identity contract accepts only coherent `android/Android` and legacy `linux/Linux` pairs with canonical `ANDROID_ROOT=/system`. It still runs after the existing real Termux `$PREFIX/bin/pkg` and native-cryptography-origin checks, so a single spoofed environment variable cannot satisfy the installed-environment gate.
+- The repaired branch passes 341 tests on Python 3.11, 3.12, and pinned-MCP Python 3.14. The preserved wheel remains byte-identical and fully source-bound because this cycle changed only the repository verifier, its tests, and planning evidence—not packaged release files.
+- These local results prove the defect is repaired at the verifier contract boundary, but they do not prove the S22U browser/device gate. Benchmark authority remains closed until the new clean commit produces `status=PASS` and `benchmark_allowed=true` on-device.
+- The S22U is currently reachable over the tailnet data path (direct pong, 38 ms), but Termux TCP 8022 actively refuses connections. This distinguishes device reachability from an SSH transport and leaves the existing on-device Hermes workflow as the available canonical execution path.
+- Final commit-scope review found no new defect in the identity patch. Adding a mock-only macOS preflight test would not establish Android ABI or browser behavior, so the direct helper contract, explicit preflight call site, full local matrix, and forthcoming real S22U manifest remain the evidence chain.
+
+## 2026-08-29 `e29320d` Termux test-portability evidence
+
+- Remote and local HEAD are `e29320d35fa836e8fc353c255994902379510637` (`v.0.2.04`), and the local worktree was clean before this repair.
+- The S22U clean checkout passed `git diff --check` and both modern/legacy identity tests. The 24-test verifier suite stopped with exactly two `PermissionError` cases before venv, browser, or benchmark execution.
+- Both failures originate from `tempfile.TemporaryDirectory(dir="/tmp")` in `ChildEnvironmentIsolationTests`. Termux exposes `/tmp` but the app UID cannot write there; Python's default temporary directory correctly resolves through the usable Termux `$TMPDIR` under `$PREFIX/tmp`.
+- The same commit also tracks root and `scripts/` `.DS_Store` files. They are unrelated Finder metadata, are not part of the release evidence, and must be removed from the next repository snapshot with an ignore rule preventing recurrence.
+- The preserved wheel remains the expected candidate because neither test portability nor repository hygiene changes alter `cli.py`, `src/**/*.py`, README, LICENSE, NOTICE, or wheel metadata.
+- A plain `TemporaryDirectory()` is portable on Termux but macOS's default temp path is longer. The original test's extra `/output` component—not the production socket limit—pushed the modeled control socket from 95 to 102 bytes, so the test now uses the private temporary directory itself while retaining the exact 100-byte production assertion.
+- The S22U `$PREFIX/tmp` model now yields an 82-byte control socket path, leaving 18 bytes of margin under the unchanged portable limit.
+- `.DS_Store` is ignored at every depth, both tracked copies are removed from the candidate snapshot, and their recoverable backup is private under `/tmp/termuinator-dsstore-backup.fxvH4l/`.
+- All local authority is now GREEN at 342 tests per supported interpreter. The package wheel hash and 57-source tree digest are unchanged, confirming this is test/repository hygiene work rather than a new release artifact.
+- Local GREEN still does not authorize the benchmark. A new clean commit must first run the canonical S22U venv, Chromium, Firefox, artifact, cleanup, manifest, and checksum gates.
+
+## 2026-08-29 `0a4a212` S22U artifact and lock evidence
+
+- Commit `0a4a21298a7aa242f85f0cd783ba51ef681b6a24` passed clean-source, 25 focused verifier tests, wheel hash, fresh venv install, pip check, Android identity, pinned MCP/websockets, and native Termux cryptography checks.
+- Chromium reached durable-artifact verification and failed because the verifier passed `data_root` to `validate_artifact_store()`, while `BrowserService._prepare_state_root()` creates `data_root/state` and `DurableArtifactStore` writes below that state root.
+- The failure cleanup then treated the persistent `runtime/session.lock` pathname as unsafe even though the candidate owner process had exited, the control socket was absent, and no new process survived. Firefox was correctly withheld under the verifier's current fail-closed logic.
+- `ProcessSessionLock.release()` intentionally unlocks and closes the descriptor without unlinking the file. Unlinking would permit competing processes to lock different inodes, so the runtime design must remain unchanged.
+- Correct cleanup evidence is a real owner-owned mode-0600 regular file with exact owner metadata, an exited recorded PID, and successful non-blocking exclusive flock acquisition on the opened inode. Absence remains safe for failures before lock creation.
+- The device manifest remained `FAIL`, `benchmark_allowed=false`, checksum-valid, and stderr-free; it is not partial release authority.
+- `verify_backend()` now passes the real service state root, `data_root/state`, to durable artifact validation. The integration fixture uses the same private mode-0700 hierarchy and therefore no longer masks layout drift.
+- Cleanup now accepts either confirmed absence or a released persistent lock only after checking a real owner-owned mode-0700 runtime directory, a same-inode owner-owned mode-0600 regular file, exact owner-bound metadata, an inactive recorded PID, and a reacquirable non-blocking exclusive flock.
+- Live holders, wrong owner metadata, non-private files, symlink runtime directories, and an ENOENT-then-created race all remain fail-closed. The verifier never rewrites or unlinks the persistent lock.
+- The repaired candidate passes 31 focused verifier tests and 348 warning-as-error tests on Python 3.11, 3.12, and pinned-MCP Python 3.14. Static gates, `pip check`, and the unchanged 57-source wheel binding also pass.
+- These local results repair the two reported verifier contracts but do not establish device authority. A new clean commit must still return both backend PASS, checksum-valid `status=PASS`, and `benchmark_allowed=true` on the S22U before benchmark execution.
+
+## 2026-08-29 `v0.2.06` S22U two-stage cleanup and Firefox evidence
+
+- Local `main` and `origin/main` are the clean exact commit `1bec1b0fbac2c57ddb9fe6b9f3824cc85774a5f4` (`v.0.2.06`) tested by Hermes.
+- The canonical device run advanced past the repaired Chromium artifact path and recorded Chromium PASS, but Firefox loopback navigation timed out after 45 seconds and the public error was incorrectly normalized to `backend_crashed`; `benchmark_allowed` remained false.
+- The lock validator conflates two lifecycle points. During the interactive MCP profile, a released lock can have a reacquirable flock and metadata for the still-live MCP child; only after stdio shutdown should that same PID be required to be inactive.
+- Removing the PID check would weaken stale/PID-reuse evidence. Intermediate cleanup must instead bind the metadata PID to the exact child process started by the verifier, while final cleanup must retain the inactive-PID requirement.
+- The absent-lock branch confirms only the final pathname. A symlinked or non-private `runtime/` parent with no `session.lock` is therefore incorrectly reported safe and needs an explicit parent-directory contract.
+- These are verifier/runtime blockers, not benchmark results. The device FAIL and its checksum-valid evidence remain authoritative until all three repair groups pass a new clean-commit gate.
+- MCP 1.29's `stdio_client()` retains the spawned process internally and yields only read/write streams, so the existing verifier cannot directly pass a trusted child PID into intermediate cleanup.
+- A verifier-owned Python launcher can write its PID into a private O_EXCL file and then `exec` the exact validated MCP command; POSIX `exec` preserves that PID, providing a direct parent-created identity without modifying the production server protocol or trusting a process-list guess.
+- `LegacyPilotBackend.navigate()` currently lets built-in `TimeoutError` escape, and `BrowserService.navigate()` converts every non-`TermuinatorError` into `backend_crashed`. The service already has a typed retryable `ErrorCode.TIMEOUT`, so navigation requires the same explicit translation used by action calls.
+- Firefox's legacy path performs native address-bar/console navigation and then `PageCommands.navigate()` polls `document.readyState` and `window.location.href` solely through the DevTools console. The on-device 45-second result is consistent with the page moving while the post-navigation console probe never produces a usable value; this boundary needs a backend-specific regression before changing readiness semantics.
+- The native `Page.navigate` translation can return the post-navigation address-bar URL and window title directly. Passing that exact two-field mapping through `PageCommands` and `Pilot.goto()` lets only Firefox skip the redundant console readiness loop while Chromium retains its existing CDP URL/title probes.
+- The returned actual URL is security-relevant because `BrowserService.navigate()` rechecks redirects against the permission engine. Trusting a bare clipboard read would permit a failed `Ctrl+C` to reuse an older valid URL, so navigation now primes a unique marker, verifies marker ownership, and rejects an unchanged value before publishing metadata.
+- A same-process intermediate lock check is safe only when the persistent lock metadata PID equals the verifier-created exec-preserved MCP PID, the PID remains active, and the kernel lease is reacquirable. After stdio exits, the distinct final check still requires that metadata PID to be inactive.
+- The final packaged source tree now has digest `13d3a1e035bcba49148bbc92c62f55f224ee3a37614e8779cde0129826eb8972`; the new 274,739-byte wheel has SHA-256 `45b7198135163f95c590fef84a5fc8c97131cac4029e6d3c4286f5412421eb05` and passes all source, metadata, license, entrypoint, member, and RECORD checks.
+- Local authority is 359 warning-as-error tests on Python 3.11, 3.12, and pinned-MCP Python 3.14. These results repair the reported contracts but do not replace a clean-commit Android Firefox run; benchmark authority remains closed.
+
+## 2026-08-29 `v0.2.08` S22U Firefox crash evidence
+
+- The transferred 3,006-byte manifest has SHA-256 `63375ead91c43bc5c9f4874d5aa05ff17fdff859d3ddaa8745f6f82a0ae32ae6`, exactly matching the supplied checksum after accounting only for the download filename suffix. The 151-byte raw-error file has SHA-256 `09a689da9f05610b3154c3fa5d805802358d2cfa41d52fae3be08783d3a87e9d`.
+- The manifest binds the run to clean commit `0bc2e0191de439ae1cee8879361850f67cd56f46`, the 274,739-byte wheel SHA-256 `45b7198135163f95c590fef84a5fc8c97131cac4029e6d3c4286f5412421eb05`, and all 57 installed/source files with source-tree digest `13d3a1e035bcba49148bbc92c62f55f224ee3a37614e8779cde0129826eb8972`.
+- Chromium passed navigation, full observation, accessibility, interactive-ref, durable PNG, and clean stop. Firefox failed only at `browser_navigate` with public code `backend_crashed`; the raw evidence contains no nested cause or safe failure stage, so it cannot establish whether the prior timeout recurred.
+- Final cleanup is safe: no candidate survivor, control socket, display lease, or legacy lock remains; the persistent session lock is owner/path safe, reacquirable, and records an inactive PID. The failure is therefore a Firefox navigation/runtime blocker rather than a cleanup blocker.
+- The current native metadata path performs one `Ctrl+C`, waits only 100 ms, and reads the clipboard once. Any transient Android/X11 selection delay becomes a generic `RuntimeError`, which the service serializes as `backend_crashed`; the canonical caller currently records only the top-level code and discards safe envelope details.
+- The evidence remains `status=FAIL` and `benchmark_allowed=false`. It is privately preserved outside the checkout at `../Termu-inator-device-artifacts/s22u-2026-08-29-v0208-fail-1/`; no benchmark or release approval follows from the Chromium pass.
+- Firefox address-bar metadata now has three bounded copy attempts. Every retry restores the main-window focus and reselects the address bar, while clipboard priming separately proves ownership with a unique marker before any copied URL can be trusted.
+- Native navigation failures expose only one allowlisted stage (`clipboard_prime`, `address_bar_copy`, `address_bar_navigation`, `window_unavailable`, or `metadata_validation`). Unknown adapter dispatch and adapter metadata failures have their own fixed stages; raw URL, clipboard, exception, and diagnostic values remain private.
+- Cancellation or failure of an `xclip -o` read reaps only the exact subprocess created by that read. Marker cleanup likewise owns only its own writer, so retries do not introduce pattern-based process termination or foreign clipboard-process cleanup.
+- The post-repair packaged source tree has digest `4f8e027ad1f8ec8d0f2880f3dc0378dc78c1da6a4e77b8a0a2aafa051c878c12`. Its 275,462-byte wheel has SHA-256 `f14d7fdc00a22523994b35e7bdb415fcb32b87066f2e715896f2ab144e87b6cc` and passes all 57-source, RECORD, metadata, license, member, entrypoint, and fresh installed-source checks.
+- The owner-private candidate handoff is preserved at `../Termu-inator-device-artifacts/s22u-2026-08-29-post-v0208-candidate/`. Its Hermes file deliberately retains commit placeholders and cannot be executed until the exact source is committed and pushed.
+- These changes improve both the likely transient X11 copy path and the next failure's diagnostic resolution, but they are not Android success evidence. The canonical S22U gate and benchmark remain closed.
+
+## 2026-08-30 post-`v0.2.08` completion audit findings
+
+- The caller-supplied 45-second navigation contract previously stopped at `PageCommands`: both underlying `Page.navigate` calls silently used transport defaults. The exact timeout now reaches native Firefox and CDP, preserving typed timeout behavior at the layer that can actually block.
+- Native fallback could send its first address-bar command before activating the Firefox main window. On X11/openbox this permits input to reach a different window even though later metadata collection refocuses Firefox. Main-window activation and non-empty WID validation now precede every fallback input.
+- Cancellation safety had covered clipboard reads but not the neighboring `xdotool` command or clipboard-paste owner. A cancelled navigation could therefore leave one of the exact helper types audited by final cleanup. All three navigation subprocess paths now kill or terminate and wait only their retained process object.
+- The old `xdotool` timeout log included the entire argument vector, which can contain a URL with query credentials, and the clipboard-paste debug log included arbitrary exception text. Both logs are now fixed and value-free.
+- A malformed copied URL that makes `urlsplit()` raise was incorrectly reported as `window_unavailable`. It now remains in the `address_bar_copy` stage, so the next S22U raw error distinguishes display focus from clipboard/URL validation accurately.
+- Regex-bounded MCP error codes were still attacker-controlled strings. Canonical evidence now accepts only the frozen public code set; arbitrary code and detail values cannot be used as a private evidence exfiltration channel.
+- The authoritative replacement wheel is 275,475 bytes with SHA-256 `0963b8f7cc64e57c724b6caabd764302bfcd47e693f5fcb1f12a10c143e34547` and source digest `79edda0435f2ca18264a150db8e4a51f47ed1ad70be409973ea5570162c2252e`. The prior `f14d7fdc...` artifact is deliberately preserved but marked superseded.
+- Local authority is complete at 377 tests, 38 focused verifier tests, three static interpreter gates, exact wheel and installed-source binding, and installed stdio purity. None of it substitutes for Android Firefox execution; `benchmark_allowed` remains false until a clean-commit S22U manifest proves otherwise.
+
+## 2026-08-30 `v0.2.11` S22U clipboard-prime evidence
+
+- The transferred 3,006-byte manifest has SHA-256 `364dc2d34644c2d74a9f906f87821b804bfa0a8c05f8c77ebf95041af52043ab`, exactly matching its checksum after normalizing only the downloaded filename. The 206-byte raw-error file has SHA-256 `fb1ea9b507ff5954945f95ed91861d24bb155a548998bec825944684e9fc81b6`.
+- The manifest binds a clean run to commit `1e55237e9e9672ed983f668d68ff761acb1b25e8`, the 275,475-byte wheel SHA-256 `0963b8f7cc64e57c724b6caabd764302bfcd47e693f5fcb1f12a10c143e34547`, and all 57 packaged/installed source files with digest `79edda0435f2ca18264a150db8e4a51f47ed1ad70be409973ea5570162c2252e`.
+- Chromium, stdio restart, durable artifact, and final process/socket/display/session-lock cleanup all pass. Firefox alone fails before address-bar metadata at `backend=firefox`, `operation=goto`, `stage=clipboard_prime`; `benchmark_allowed` remains false.
+- Upstream xclip enters `OSILENT` by default, takes the X selection, forks, and exits the parent. Its `-quiet` option selects `OQUIET`, bypassing that fork and retaining a foreground process the caller can verify and terminate by exact PID.
+- Both `_prime_navigation_clipboard()` and `_clipboard_paste()` currently omit `-quiet` while treating the returned `asyncio.subprocess.Process` as the live selection owner. The prime path rejects a normally exited default-mode parent, while both paths lose the ability to reap the forked owner. This is the concrete repair hypothesis to prove with RED tests before production changes.
+- Owner-private evidence copies are preserved at `../Termu-inator-device-artifacts/s22u-2026-08-30-v0211-fail-1/`; the normalized manifest checksum passes. No device, network, package, Hermes, benchmark, or repository runtime change was made during intake.
+- Two behavior-level regressions failed exactly as expected before implementation: marker priming raised `clipboard_prime` when the modeled default parent exited, and normal paste skipped owner termination/wait. Adding `-quiet` to only the two xclip writer invocations makes both tests pass while leaving read-only `xclip -o` unchanged.
+- The related native/adapter/service/verifier suite passes 92 tests. Full warning-as-error discovery passes 379 tests on Python 3.11.15 and 3.12.13 with the eight expected optional-MCP skips; pinned-MCP Python 3.14.7 executes all 379.
+- The unprivileged workspace run produced 15 socket-bind `PermissionError` cases only. The exact Python 3.11 command passes outside that sandbox, so those errors are environment evidence rather than product regressions.
+- A first 275,499-byte build passed source binding but reused ignored `build/` entries for unchanged files, so it was deliberately disqualified as release evidence. A second offline build began from a new staging tree containing only exact current tracked bytes.
+- The authoritative clean-stage wheel is 275,499 bytes with SHA-256 `be21992fbf4f9f1aa452678df27766253f0e0bb5833010727fe56b40277026a0`. It binds all 57 packaged sources with digest `76393e55949ad99d5e8ccc2ae7b56fab3f4377dcaaf79579e2821df67a8c978b` and passes member, ZIP, RECORD, metadata, license, and entrypoint checks.
+- A fresh Python 3.14 venv installs only that wheel with MCP 1.29.0 and websockets 17.0.1, passes `pip check`, local-wheel provenance, installed-source binding, and all four entrypoints. Interactive then observer stdio returns 14/12 tools, protocol `2025-11-25`, server `0.1.0a1`, zero stderr, private live sockets, and clean socket removal.
+- The private pre-commit handoff bundle is preserved at `../Termu-inator-device-artifacts/s22u-2026-08-30-post-v0211-foreground-candidate/`. Its exact-name `.whl.sha256` passes, and its Hermes instructions remain placeholder-blocked until a clean commit is pushed.
+
+## 2026-08-30 `v0.2.12` S22U address-bar-copy evidence
+
+- The transferred 3,006-byte manifest has SHA-256 `b2dcf97eae342f985e73b7435a7ad0e72e5434b64101cefeadba8fd3e3757c19`, exactly matching its checksum after normalizing only the downloaded filename. The 207-byte raw-error file has SHA-256 `2bac2349fc59d53556f25ea025246f1dd83e40c93f5699b2ed295469cb65f1f2`.
+- The manifest binds clean commit `4af303d90780c67bc73ca8d62b93b65d98d24761` to the 275,499-byte wheel SHA-256 `be21992fbf4f9f1aa452678df27766253f0e0bb5833010727fe56b40277026a0` and 57-source digest `76393e55949ad99d5e8ccc2ae7b56fab3f4377dcaaf79579e2821df67a8c978b`.
+- Chromium, stdio restart, installation provenance, durable artifact, and final process/socket/display/session-lock cleanup all pass. Firefox alone fails at `backend=firefox`, `operation=goto`, `stage=address_bar_copy`; benchmark authority remains closed.
+- The device preflight proves xclip exposes `-quiet` and both foreground-owner regressions pass. This validates the `v0.2.12` marker-process repair but does not prove that keeping the verified marker owner alive during Firefox's subsequent `Ctrl+C` is race-free.
+- `_navigation_metadata()` currently retains the marker xclip owner across every address-bar copy attempt and releases it only in the outer `finally`. A behavior regression must model a browser that cannot publish its clipboard selection until that exact owner has exited.
+- Each address-bar `xclip -o` read is independently capped at one second even when the caller grants a longer navigation timeout. A separate behavior regression must model a valid Firefox clipboard handoff slower than one second without weakening stale-marker or URL validation.
+- Owner-private normalized evidence is preserved at `../Termu-inator-device-artifacts/s22u-2026-08-30-v0212-fail-1/`; its manifest checksum, raw-error hash, and 0700/0600 permissions pass.
+- Two behavior-level regressions fail independently on `v0.2.12`: a browser clipboard remains at the marker until the exact marker owner is released, and a valid URL delivered after 1.2 seconds is cancelled by each fixed one-second read window. Both failures surface at the same `address_bar_copy` stage as the S22U evidence.
+- Releasing the already-verified marker owner before the first browser copy removes the selection-ownership overlap without weakening marker/empty/URL validation. Expanding only the per-read ceiling to three seconds admits the slow valid response while retaining three bounded attempts and the caller's smaller timeout.
+- The two REDs are GREEN after this minimal change, and the 94-test native/legacy-adapter/service/canonical-verifier suite passes. Redirect metadata still flows through the service permission engine; no requested URL, copied value, or private exception text is added to public evidence.
+- After the third regression, full warning-as-error discovery passes 382 tests on Python 3.11.15 and 3.12.13 with the eight expected optional-MCP skips; pinned-MCP Python 3.14.7 executes all 382. Three-interpreter compileall, diff whitespace, shell syntax, changed-line width, and 38 focused verifier tests also pass.
+- The first clean build produced a now-superseded 275,536-byte interim wheel before the release-failure boundary was added. A new 145-file tracked-only staging tree was byte-compared to the final working checkout before building the authoritative 275,596-byte wheel, SHA-256 `f4d0ccfb02071b6d823336d91d7b8818cfeffc35ef20ece8a4e28e218fde2948`, with 57-source digest `e199e147b8f2ac11db32499f1e86c83df40bd8c980a24df0572773bddb9ba840`.
+- The wheel passes ZIP, RECORD, member allowlist, metadata, license, and all four entrypoint checks. A fresh Python 3.14 venv with MCP 1.29.0/websockets 17.0.1 passes `pip check`, direct local-wheel provenance, installed-source binding, and import-origin checks.
+- Installed interactive then observer stdio exposes exactly 14/12 tools, negotiates MCP `2025-11-25`, emits zero stderr, creates a private live control socket, and removes it after each exit on the same data root.
+- A release failure initially escaped from the outer cleanup retry and replaced the fixed-stage `NativeNavigationError` with the private `OSError`. A third RED reproduced that boundary; best-effort retry failures are now suppressed only after an already-bounded failure or cancellation exists, preserving `address_bar_copy` without changing the successful release path.
+- The final wheel's fresh pip-installed Python 3.14 venv passes `pip check`, hash-bearing PEP 610 provenance, exact 57-source installed binding, and site-packages origin checks. An earlier uv-installed venv was deliberately disqualified because its PEP 610 record omitted the verifier-required hash map.
+- The final installed interactive→observer stdio run again exposes 14/12 tools, protocol `2025-11-25`, zero stderr, a private live control socket, and socket removal after both exits. The owner-private pre-commit bundle is at `../Termu-inator-device-artifacts/s22u-2026-08-30-post-v0212-address-copy-candidate/`; commit placeholders intentionally prevent premature device execution.
+
+## 2026-08-30 `v0.2.13` S22U repeated address-bar-copy evidence
+
+- The transferred 3,003-byte manifest has SHA-256 `acc4fdd3b75ff5c3892ea72e78ef485120dea4f99f6d49e620f9dfe651979656`, exactly matching its supplied checksum after normalizing only the downloaded filename. The 207-byte raw-error file has SHA-256 `2bac2349fc59d53556f25ea025246f1dd83e40c93f5699b2ed295469cb65f1f2`.
+- The manifest binds clean commit `2ee0a0ab25f75fc020963e801d043ae540657348` (`v.0.2.13`) to the exact 275,596-byte wheel SHA-256 `f4d0ccfb02071b6d823336d91d7b8818cfeffc35ef20ece8a4e28e218fde2948` and 57-source digest `e199e147b8f2ac11db32499f1e86c83df40bd8c980a24df0572773bddb9ba840`.
+- Chromium and every install, stdio, artifact, process, socket, display, and persistent-lock gate pass. Firefox alone again fails at the coarse allowlisted `address_bar_copy` stage; checksum passes and `benchmark_allowed` remains false.
+- The device explicitly passes xclip `-quiet` discovery and all four foreground-owner/handoff regressions. The raw-error bytes are identical to the preceding v0.2.12 failure even after marker-owner release and the one-to-three-second read-window change. Those two changes are therefore insufficient explanations for the real S22U failure.
+- Owner-private normalized evidence is preserved at `../Termu-inator-device-artifacts/s22u-2026-08-30-v0213-fail-1/` with directory mode 0700 and file modes 0600. No device, network, package, Hermes, benchmark, or production registration change occurred during intake.
+- The remaining public stage currently conflates clipboard read timeout, empty selection, unchanged marker, read-process error, malformed text, and invalid URL shape. A further behavior change without distinguishing these outcomes would be another unsupported guess; the next contract must expose only fixed, value-free reason labels or gather equivalent owner-private diagnostics.
+- Graph tracing confirms `_clipboard_read()` discards stderr and never checks the xclip return code, so a missing/invalid selection and a successful empty payload are indistinguishable. `_navigation_metadata()` additionally converts each read timeout to the same empty string, retries empty and unchanged-marker values identically, and maps decode/URL-shape failures to the same stage.
+- `_focus_main_window()` suppresses every activation failure, while `_xdt()` returns an empty string on timeout and does not reject nonzero exit status. A copy attempt can therefore proceed without proof that the intended Firefox window became active, yet still be reported only as `address_bar_copy`.
+- `_navigate()` catches every exception from the primary JS navigation plus metadata read and silently enters the address-bar fallback. If the page navigation itself succeeded but metadata copying failed, the fallback repeats navigation and only its later failure reaches canonical evidence. Safe reason labels therefore need to identify the metadata outcome without relying on exception text or clipboard contents.
+- Upstream xclip source shows output mode first requests `UTF8_STRING`, falls back to `XA_STRING` only on a bad target, and exits failure if both conversions fail. Explicit `-selection clipboard` also correctly selects `XA_CLIPBOARD`, the selection populated by Ctrl+C. This makes a blanket target-format guess unjustified, but makes the ignored process return code a concrete observability defect: <https://github.com/astrand/xclip/blob/master/xclip.c>.
+- The next diagnostic contract will keep the existing coarse stage while adding one optional allowlisted reason: `focus_unverified`, `owner_release_failed`, `read_timeout`, `read_failed`, `selection_empty`, `marker_unchanged`, or `invalid_url`. No clipboard text, URL, exception string, return code, PID, path, or timing value will enter the public envelope.
+- The RED suite proved every intended boundary against the unmodified runtime: nonzero `xclip -o` was accepted as an empty success, the active window was never verified, six distinct outcomes had no reason field, the legacy adapter dropped reason context, and the canonical verifier omitted it. After converting attribute-absence errors into assertions, 11 tests failed and one existing secret-rejection test passed.
+- `_clipboard_read()` now rejects every nonzero xclip status with a fixed value-free exception. `_navigation_metadata()` verifies `getactivewindow` equals the known main WID before each bounded copy attempt, retries a failed focus acquisition, and assigns exactly one of the seven fixed reasons without serializing clipboard text, URL, stderr, exit status, path, PID, or timing.
+- `NativeNavigationError` accepts a reason only for `address_bar_copy` and rejects unrecognized values. The legacy adapter conditionally carries that validated reason, while `final_verify.py` independently allowlists the same seven values before writing canonical evidence; arbitrary reason strings remain absent.
+- The diagnostic branch may itself recover a transient wrong-window copy by refocusing on each of three attempts. If S22U still fails, its next raw error will separate focus, xclip read failure/timeout, empty/unchanged selection, owner release, and URL validation instead of inviting another timing guess.
+- A clean tracked-only staging tree produced a 275,908-byte wheel with SHA-256 `3a5568acfb0ce09206cfab59d19f2847185205d524811f41ff99f29b3684c98f`. The canonical binding helper verifies all 57 packaged sources, ZIP/RECORD, metadata, licenses, members, and entrypoints with source digest `c1c90306aec5fff4b53e0d7f6b102b76313f8a4d4424b5fb2a506630b1d76607`.
+- A fresh canonical-style pip Python 3.14 venv selects MCP 1.29.0 and websockets 17.0.1, passes `pip check`, records the exact local-wheel SHA in PEP 610, matches all 57 installed sources, and imports only from its site-packages.
+- Installed interactive→observer stdio on one private data root exposes exactly 14/12 tools, negotiates MCP `2025-11-25`, emits zero stderr, creates a private control socket, and removes it after both exits. The new candidate does not need a live browser to prove this transport boundary.
+- The fast graph now contains 3,080 nodes and 17,995 edges and traces the changed metadata method back through `_navigate`; `scripts/final_verify.py` remains intentionally excluded from graph indexing and is directly covered by its 38 focused tests and source review.
+
+## 2026-08-30 Firefox BiDi completion audit
+
+- The diagnostic-only candidate still depends on X11 address-bar selection and therefore cannot prove the requested end state until another device round trip. A deeper architecture audit found a stronger existing capability: Firefox release builds expose WebDriver BiDi directly over a browser-assigned loopback port with `--remote-debugging-port 0`.
+- Mozilla documents the direct endpoint as `ws://127.0.0.1:PORT/session`; it is loopback-only, has no authentication, and must be enabled explicitly at process launch. The implementation must therefore accept only the exact Firefox-emitted loopback endpoint, keep the port ephemeral, and close it with the owned browser process: <https://developer.mozilla.org/en-US/docs/Web/WebDriver/How_to/Create_BiDi_connection> and <https://firefox-source-docs.mozilla.org/remote/Security.html>.
+- The current Termux Firefox mozconfig disables accessibility and several platform features but does not pass `--disable-webdriver`, so the packaged browser is expected to retain the Remote Agent. This remains a source-level expectation until S22U proves the exact binary: <https://raw.githubusercontent.com/termux/termux-packages/master/x11-packages/firefox/mozconfig.cfg>.
+- A repository-external probe launched Firefox 154 with a unique temporary profile and port 0, parsed only the loopback endpoint, created a BiDi session, selected the top-level context, navigated a data document, and read matching final URLs from both `browsingContext.navigate` and `browsingContext.getTree`. `script.evaluate` returned `document.title` as `BiDi Proof`.
+- This protocol path returns the two exact metadata values required by `PageCommands.navigate` without activating the address bar, taking X11 clipboard ownership, or relying on Android clipboard handoff. It is therefore the preferred repair for the repeated `address_bar_copy` gate, while the existing native path can remain a compatibility fallback only when startup proves no BiDi endpoint is available.
+- The first exploratory probe incorrectly treated one silent stderr second as terminal and raised `TimeoutError`; the fixed probe retained a bounded total search while retrying individual silent intervals and then passed. No repository production source was changed by either probe.
+- A second repository-external probe imported the actual new `FirefoxBidiClient`, served a private loopback fixture with a 302 redirect, and drove real Firefox 154. The client returned the exact redirected `/final` URL and `BiDi Product Proof` title, confirming that its parser, session handshake, context selection, navigate command, remote-value decoding, and URL validation interoperate with Firefox rather than only with a fake socket.
+- A separate fixture waited until its initial document was served before creating the BiDi session. The document still recorded `navigator.webdriver=true`, both with browser-assigned port 0 and a nonzero loopback port. Remote Agent therefore changes the observable Firefox automation surface; the core accepts that reliability tradeoff only because anti-bot behavior is already non-deterministic and non-gating, and the backend capability document now states it explicitly.
+- Firefox's unauthenticated Remote Agent remains constrained to the exact `127.0.0.1` endpoint printed by the owned child and an ephemeral browser-assigned port. The client rejects alternate hosts, port 0, out-of-range ports, paths, oversized messages, unbounded unsolicited events, malformed results, and remote error text; close precedes browser termination.
+- A live-profile Places query was evaluated as a no-WebDriver alternative. Standard SQLite read-only mode remained locked for the entire running session. `immutable=1` observed the correct redirect immediately, but SQLite's immutable contract is incompatible with a live writer, so this cannot replace BiDi without an unsafe consistency assumption.
+- Cancellation must cross both cleanup layers. `FirefoxBidiClient.close()` now clears state and closes its socket before re-raising cancellation; `NativeFirefoxSession.close()` correspondingly reaps its owned Firefox process before re-raising a cancellation received from BiDi cleanup.
+- Endpoint discovery and main-window discovery are independent startup signals. A timeout of the initial endpoint wait must not permanently discard a future that resolves while `_find_main_window()` runs. Reusing the shielded future for one bounded post-window grace closes this S22U-relevant race without cancelling the monitor or trusting a second source.
+- The post-race interim wheel is 279,258 bytes, SHA-256 `1d4095575db095f4f71a9f90aa76367b0c1d7db121f9b4feb9d941472c6008bd`, and binds 58 source files at digest `cb5e0d565e0e6e2703f44d31e2e0e993798a8e90c6d591c70d386e8cf3f4caab`. It and the earlier 279,236-byte BiDi candidate are preserved but superseded and must not be sent to Hermes.
+- `BrowserService.navigate()` holds its service mutex across backend navigation and observation capture, so the client's navigate→title pair cannot interleave with another product navigation. Its per-command transport lock is sufficient for the current one-session service contract.
+- JSON booleans compare equal to integers in Python, so `message.get("id") != request_id` accepted a protocol response with `id: true` for request 1. Response IDs now require exact `int` type and value; floats and booleans fail closed.
+- A second `connect()` could invoke the connector again and overwrite the only retained socket. The client now rejects duplicate connection before any connector call, preserving ownership of the established socket for deterministic cleanup.
+- The endpoint parser used an end anchor with `search()`, so an otherwise valid announcement preceded by arbitrary bytes was accepted despite the exact-line contract. It now requires a full `\A...\Z` match, still permitting only Firefox's optional CRLF/LF terminator.
+- The final hardened wheel is 279,287 bytes with SHA-256 `67d2b6b97c7c116da98a50aba955429f58a0b04e0383ccbd25e6939dbff353b0`. Canonical binding verifies 58 packaged sources at digest `880d3a6853f5bbd30d18a1019867d81258cb0850fe0509d2f3e0cf51ca144f6d` plus ZIP, RECORD, metadata, licenses, member allowlist, and four entrypoints.
+- A fresh canonical-style Python 3.14 install of the wheel's MCP extra passes `pip check`, hash-bearing local-wheel provenance, all 58 installed-source bytes, MCP 1.29.0, websockets 17.0.1, and site-packages-only import origins. Interactive→observer stdio passes 14/12 tools, protocol `2025-11-25`, zero stderr, private socket creation/removal, and zero candidate survivors.
+
+## 2026-08-30 `v0.2.15` S22U Firefox observe failure
+
+- Two downloaded manifest/raw-error sets are byte-identical. The manifest SHA-256 is `1440fc04caadfdb2daf94264a8139650b2fde610e3f5bc5fbf732de8bdd00892` and matches the supplied checksum; the raw-error SHA-256 is `73f7b3009201c01c94655ae41d012afbcafa6497b85a65422d8f38de92b793c0`.
+- Owner-private normalized evidence is preserved at `../Termu-inator-device-artifacts/s22u-2026-08-30-v0215-fail-observe/`. The accompanying JPEG is retained as neutral fixture imagery; its 991×608 dimensions match the Chromium artifact and it is not treated as Firefox proof.
+- The exact clean `v0.2.15` source/wheel/install binding and Chromium gate pass. Firefox navigation no longer fails, but `browser_observe` returns bounded `backend_crashed`; final cleanup passes and benchmark remains closed.
+- Code-graph tracing shows `LegacyPilotBackend.observe()` calls `_collect_dom()`, page text, synthetic accessibility, and screenshot. The first three ultimately use `NativeFirefoxSession._exec_js()`, which still drives a separate DevTools console and the global X11 clipboard even when `_bidi` is connected.
+- WebDriver BiDi `script.evaluate` supports an owned browsing-context target, await-promise behavior, result ownership, and bounded serialization options. A strict JSON-compatible RemoteValue decoder can preserve the adapter's current Python value contract while rejecting protocol exceptions, cycles, handles, and truncated/unsupported values without exposing remote text.
+- Five focused REDs fail against the clean commit: two because `FirefoxBidiClient.evaluate()` is absent and three because connected BiDi evaluation still calls `_exec_js_inner()`. This is a direct behavior gap, not another clipboard-timing hypothesis.
+- `script.evaluate` is now the authoritative JavaScript path whenever the owned BiDi session exists. Its decoder accepts only bounded JSON-compatible remote values, rejects cycles, unknown references, duplicate keys, and unsupported types, and never returns remote exception text.
+- A connected BiDi timeout or protocol failure maps to a fixed local JavaScript error and does not retry through the DevTools console or global clipboard. The console path remains only for Firefox startups that did not establish BiDi.
+- A real Firefox 154 loopback fixture exercised the exact native DOM observation script, page text, synthetic accessibility tree, and four interactive elements through the current checkout with no console fallback. This is local interoperability evidence, not S22U gate authority.
+- The canonical error envelope previously had no safe way to distinguish which `browser_observe` component failed. The adapter now emits only four fixed stages (`observe_dom`, `observe_text`, `observe_accessibility`, `observe_screenshot`), and the verifier independently allowlists those values while discarding private causes.
+- The final pre-commit wheel is 280,566 bytes with SHA-256 `9aeee2c8ffc3a8c4d678527b1de8d1957a2a99a47c0b8f38f7f0cb7c1cc61d3b`. Canonical binding verifies 58 packaged sources at digest `6301967d5bb50857a01f9c3e0999832599fdd47dfea43bec084faab90179cab9`.
+- A fresh Python 3.14 MCP install binds all 58 installed source files and PEP 610 provenance to that exact wheel, uses MCP 1.29.0 and websockets 17.0.1, and passes `pip check`. Interactive→observer stdio exposes exactly 14/12 tools, negotiates protocol `2025-11-25`, emits zero stderr, and removes the private control socket after each exit.
+
+## 2026-08-31 `v0.2.16` S22U stdio purity failure
+
+- The downloaded 3,527-byte manifest has SHA-256 `fde6710712da95a647efbb4cb02a424c5b5207bb40a54b069b2996ddd48b34e1`, exactly matching its supplied checksum. No `raw-errors.json` was generated for this run.
+- Owner-private normalized evidence is preserved at `../Termu-inator-device-artifacts/s22u-2026-08-31-v0216-stdio-stderr-fail-1/`; the original Downloads files remain untouched.
+- The manifest binds clean commit `30eaa4a78ef5aa33b0f842ebdb88e6cc4c911173`, the exact 280,566-byte wheel SHA-256 `9aeee2c8ffc3a8c4d678527b1de8d1957a2a99a47c0b8f38f7f0cb7c1cc61d3b`, and all 58 installed/source bytes.
+- Chromium and Firefox both PASS. Firefox returns the expected title, four interactive elements, 14 accessibility nodes, and valid content-addressed screenshots, proving the BiDi observation repair on the actual S22U.
+- Final candidate-process, control-socket, display-lease, legacy-lock, and persistent-session-lock cleanup all PASS. The only failing manifest field is interactive stdio `stderr_bytes=38`; observer restart is zero.
+- The 38-byte contents were neither transferred nor inspected. The next diagnosis must derive the interactive-only startup delta from code and a deterministic RED rather than weakening the zero-stderr contract or guessing from private output.
+- Static warning-length analysis found one exact 38-byte candidate in the interactive browser path: `Could not find main Firefox window ID\n`. Python logging's fallback handler emits WARNING records as the bare message plus newline when the compact MCP process has no configured handler; the observer restart does not start a browser and therefore cannot enter this branch.
+- Window discovery ran before the late BiDi endpoint was attached and warned immediately on failure. The device manifest independently proves this condition was non-fatal: Firefox navigation, DOM/text/accessibility observation, two PNG paths, and cleanup all passed through the owned BiDi session.
+- A connect-level RED reproduced the exact semantic mismatch: empty X11 search plus a valid loopback BiDi endpoint still called the missing-window warning once. A paired test proved the warning remains necessary when both X11 discovery and BiDi are unavailable.
+- The minimal repair keeps `_find_main_window()` as a value-returning discovery helper and delays severity selection until after BiDi attachment. Missing X11 state is informational for an owned BiDi session and remains a bounded warning for the double-unavailable compatibility state. Canonical's zero-stderr check and warning allowlists are unchanged.
+
+## 2026-09-04 `v0.2.17` canonical PASS and delayed-benchmark drift
+
+- The newly received 3,524-byte manifest has SHA-256 `a080d83112c6f3f8069c1bf17a4a47c170ba62111c9ca6d36bf2dd32ff79f912`, exactly matching its sidecar after filename normalization. No `raw-errors.json` is present because the run passed.
+- It binds clean commit `c4f580217c7f65b14ac635f17fcebc07870ea039`, wheel SHA-256 `420b6702e519a4e6e0705540e3e7421904eda415fa632d51cb4f8a4e6824d328`, and both 58-source digests `3119361fceed96a74b7fecc4a41e5bb06e8df9987b836ec39e500bc12e0600e1`.
+- Chromium and Firefox are PASS; both interactive and observer-restart MCP stderr counts are zero; process, socket, display, and session-lock cleanup all pass; `benchmark_allowed` is true.
+- The canonical environment recorded native cryptography `50.0.0`. Hermes reports that both the current Termux system and inherited venv now import `50.0.1`. The preserved result remains valid historical authority, but a delayed benchmark would measure a different runtime.
+- The benchmark harness previously trusted only an external shell precheck and could reuse an existing output directory. It did not independently bind the canonical checksum or current package/source identity before measurement.
+- The new authority contract validates the adjacent checksum, canonical PASS/backend/zero-stderr fields, clean exact Git commit, Python/Android/kernel identity, native cryptography, MCP/websockets/package versions, wheel PEP 610 provenance, wheel/source/install digests, and same-venv executable before creating output.
+- Output identities are now owner-private, non-overwriting directories. Sensitive wheel/manifest paths preserve symlink identity through CLI parsing so downstream `lstat()` checks cannot be bypassed by early resolution.
+- Fourteen benchmark-focused tests are GREEN after observing intended REDs for native cryptography drift, Android identity drift, missing canonical CLI authority, checksum tampering, non-private evidence, output reuse, symlink erasure, and unbounded traceback output.
+- Full warning-as-error discovery passes 424/424 on Python 3.11.15, 3.12.13, and 3.14.7 outside the managed socket sandbox.
+- The newly downloaded `baseline-report.json` and `baseline-summary.json` are owner-private and internally coherent. The summary is an exact semantic derivation of the raw report, whose SHA-256 values are `2af623f99ae9c33e4c4319370ccb897f7051b8ba0d7a2e50bc6d12ceed86b7fc` and `c4bf727942ce4190a42d0d323add2c87bbcd62ae61ed87cd2762fee1676fb393` respectively.
+- Canonical finished at `2026-08-31T01:43:27.938342+00:00`; the benchmark recorded `2026-08-31T01:45:05.614079+00:00` from the same `c4f580217c7f` checkout and venv. Both backends meet the established status, text, and screenshot targets. The old report does not record the manifest hash, wheel hash, or cryptography version, so it cannot prove a replayable environment identity after the native package changed.
+- The raw benchmark report contains absolute paths, PIDs, and process arguments. It remains private; only the sanitized summary is suitable for routine transfer or repository documentation.
+- The 280,608-byte pre-commit wheel has SHA-256 `ae29b57995aee97d2957ff637aaaa1fe7edfd3aa6592bd973322cec58cb85b1a`, binds 58 sources at digest `3119361fceed96a74b7fecc4a41e5bb06e8df9987b836ec39e500bc12e0600e1`, and passes ZIP/RECORD/metadata/license/member/entrypoint checks.
+- A fresh constrained Python 3.14 install passes `pip check`, exact local-wheel provenance, all 58 installed sources, and four entrypoints with MCP 1.29.0/websockets 17.0.1. Installed interactive and observer stdio expose 14/12 tools, protocol `2025-11-25`, zero stderr, private live sockets, and clean socket removal.
+- The current identity lookup now scopes Termu-inator, MCP, and websockets metadata to the active venv's site-packages. An ignored checkout `.egg-info` can no longer displace the installed PEP 610 distribution and cause a false benchmark rejection.
+- Benchmark authority is revalidated after daemon cleanup as well as before output creation. If Git, wheel, package, native cryptography, or runtime identity changes during measurement, no baseline report is published under that output identity.
+- The final matrix passes 424/424 on Python 3.11, 3.12, and base 3.14 with the established eight optional-MCP skips; the fresh constrained Python 3.14 wheel environment executes all 424 without skips. Focused benchmark/packaging coverage is 37/37, and all static gates pass.
+- The sanitized v0.2.17 report closes the compact RC remeasurement item without copying raw process evidence into Git. Firefox warm status/text improve from 4,270.495/2,137.565 ms to 1.776/8.572 ms, while its cold startup regresses 38.55%; Chromium remains within every warm budget and improves cold startup 8.14%.
+- Owner-private canonical PASS evidence is preserved at `../Termu-inator-device-artifacts/s22u-2026-08-31-v0217-pass-1/`; the Downloads originals remain untouched.
